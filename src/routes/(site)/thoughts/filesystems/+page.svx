@@ -2,6 +2,13 @@
 title: "What is a filesystem?"
 date: 2026-05-13
 username: andrewgazelka
+related:
+  users:
+    - SanderMertens
+  repos:
+    - SanderMertens/flecs
+    - cloudflare/mmap-sync
+    - isar/libmdbx
 prompts:
   - "What is fsn, the SGI 3D File System Navigator?"
   - "What does fsync actually guarantee, and when do I need it?"

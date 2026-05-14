@@ -7,6 +7,7 @@
 	import PageNav from '$lib/components/PageNav.svelte';
 	import Byline from '$lib/components/Byline.svelte';
 	import ChatPrompts from '$lib/components/ChatPrompts.svelte';
+	import Related from '$lib/components/Related.svelte';
 	import { plainTitle } from '$lib/title';
 	import { sourceFolderUrl } from '$lib/github';
 
@@ -58,6 +59,9 @@
 				readingTime={data.readingTime}
 				{sourceUrl}
 			/>
+		{/if}
+		{#if currentPage === 1 && data.related && (data.related.users?.length || data.related.repos?.length)}
+			<Related users={data.related.users} repos={data.related.repos} />
 		{/if}
 		{#if data.prompts && data.prompts.length > 0 && currentPage === 1}
 			<ChatPrompts prompts={data.prompts} />

@@ -48,6 +48,10 @@ export const load: LayoutLoad = async ({ url }) => {
 				username: metadata?.username,
 				date: metadata?.date,
 				prompts: (metadata?.prompts ?? []) as string[],
+				related: {
+					users: (metadata?.related?.users ?? []) as string[],
+					repos: (metadata?.related?.repos ?? []) as string[]
+				},
 				readingTime,
 				toc,
 				pageCount
