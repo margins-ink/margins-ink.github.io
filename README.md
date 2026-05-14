@@ -1,6 +1,8 @@
-# site
+# margins
 
-Personal site for Andrew Gazelka. SvelteKit + mdsvex, statically rendered via `@sveltejs/adapter-static`.
+A developer blog for out-of-distribution ideas about software and systems. Posts take a familiar abstraction and show the frame around it is not load-bearing.
+
+Live at [margins-ink.github.io](https://margins-ink.github.io). Built with SvelteKit + mdsvex, statically rendered via `@sveltejs/adapter-static`.
 
 ## Develop
 
@@ -21,7 +23,7 @@ pnpm check       # svelte-check
 
 ## Layout
 
-- `src/routes/(site)/` — main site (home, `/thoughts/*`). The `(site)` route group owns the navbar and shared layout.
+- `src/routes/(site)/` — main site (home, `/thoughts/*`). The `(site)` route group owns the shared layout; the navbar renders on inner pages and is suppressed on the landing index, which is its own masthead.
 - `src/routes/(site)/thoughts/<slug>/+page.svx` — posts authored in mdsvex.
 - `src/routes/artifact/{org}/{repo}/{pr}/` — animated PR explainers, isolated from the site layout.
 - `src/routes/lmllmtfy/` — standalone tool, its own layout.
