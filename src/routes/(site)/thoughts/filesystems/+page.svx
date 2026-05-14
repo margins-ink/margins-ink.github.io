@@ -2,6 +2,18 @@
 title: "What is a filesystem?"
 date: 2026-05-13
 username: andrewgazelka
+prompts:
+  - "What is fsn, the SGI 3D File System Navigator?"
+  - "What does fsync actually guarantee, and when do I need it?"
+  - "Why isn't disk part of the POSIX filesystem contract?"
+  - "How does FUSE let userspace expose anything as a filesystem?"
+  - "Why is /proc a filesystem instead of a syscall?"
+  - "What does atomic rename guarantee, and where does it break?"
+  - "Why is flock unreliable on NFS, and what replaced it?"
+  - "Could an ECS like Flecs be treated as a filesystem?"
+  - "What's the difference between advisory and mandatory locks on Linux?"
+  - "Why did the Jurassic Park 'Unix system' scene use fsn?"
+  - "If the filesystem is just an API, what's the smallest set of verbs that defines one?"
 ---
 
 <script lang="ts" context="module">

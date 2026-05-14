@@ -6,6 +6,7 @@
 	import TableOfContents from '$lib/components/TableOfContents.svelte';
 	import PageNav from '$lib/components/PageNav.svelte';
 	import Byline from '$lib/components/Byline.svelte';
+	import ChatPrompts from '$lib/components/ChatPrompts.svelte';
 	import { plainTitle } from '$lib/title';
 	import { sourceFolderUrl } from '$lib/github';
 
@@ -57,6 +58,9 @@
 				readingTime={data.readingTime}
 				{sourceUrl}
 			/>
+		{/if}
+		{#if data.prompts && data.prompts.length > 0 && currentPage === 1}
+			<ChatPrompts prompts={data.prompts} />
 		{/if}
 		{@render children?.()}
 		{#if isPaginated}
