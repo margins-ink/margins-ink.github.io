@@ -1,38 +1,33 @@
-# sv
+# site
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Personal site for Andrew Gazelka. SvelteKit + mdsvex, statically rendered via `@sveltejs/adapter-static`.
 
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
+## Develop
 
 ```bash
-# create a new project in the current directory
-npx sv create
-
-# create a new project in my-app
-npx sv create my-app
+pnpm install
+pnpm dev
 ```
 
-## Developing
+This project uses **pnpm**. Do not run `npm install`.
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+## Build
 
 ```bash
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+pnpm build       # output to build/
+pnpm preview     # serve the production build locally
+pnpm check       # svelte-check
 ```
 
-## Building
+## Layout
 
-To create a production version of your app:
+- `src/routes/(site)/` — main site (home, `/thoughts/*`). The `(site)` route group owns the navbar and shared layout.
+- `src/routes/(site)/thoughts/<slug>/+page.svx` — posts authored in mdsvex.
+- `src/routes/artifact/{org}/{repo}/{pr}/` — animated PR explainers, isolated from the site layout.
+- `src/routes/lmllmtfy/` — standalone tool, its own layout.
+- `src/lib/components/visuals/` — per-thought SVG card emblems. Register new ones in `src/lib/components/visuals/index.ts` and `src/lib/thoughts.ts`.
+- `src/lib/components/refs/` — numbered references (`useRefs`, `<Cite>`, `<References>`).
 
-```bash
-npm run build
-```
+## Conventions
 
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+See `CLAUDE.md` for the writing style guide, SvelteKit route-group patterns, visual design rules, and PR-artifact structure.
