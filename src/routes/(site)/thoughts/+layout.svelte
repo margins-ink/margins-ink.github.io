@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { LayoutData } from './$types';
+	import { page } from '$app/state';
+	import { browser } from '$app/environment';
 	import ConstructionTape from '$lib/components/ConstructionTape.svelte';
 	import TableOfContents from '$lib/components/TableOfContents.svelte';
 	import PageNav from '$lib/components/PageNav.svelte';
@@ -8,7 +10,21 @@
 
 	const { data, children }: { data: LayoutData; children: any } = $props();
 
-	const hasToc = $derived(data.toc && data.toc.length > 0);
+	const currentPage = $derived.by(() => {
+		if (!browser) return 1;
+		const raw = page.url.searchParams.get('p');
+		const n = raw ? parseInt(raw, 10) : 1;
+		const max = data.pageCount ?? 1;
+		if (!Number.isFinite(n) || n < 1) return 1;
+		if (n > max) return max;
+		return n;
+	});
+
+	const visibleToc = $derived(
+		(data.toc ?? []).filter((h: { page?: number }) => !h.page || h.page === currentPage)
+	);
+
+	const hasToc = $derived(visibleToc.length > 0);
 	const isPaginated = $derived((data.pageCount ?? 1) > 1);
 </script>
 
@@ -27,16 +43,16 @@
 <div class="thought-layout" class:has-toc={hasToc}>
 	{#if hasToc}
 		<aside class="toc-sidebar">
-			<TableOfContents toc={data.toc} />
+			<TableOfContents toc={visibleToc} />
 		</aside>
 	{/if}
-	<article class="thought-content" data-current-page={data.currentPage ?? 1}>
+	<article class="thought-content" data-current-page={currentPage}>
 		{#if data.username}
 			<Byline username={data.username} date={data.date} readingTime={data.readingTime} />
 		{/if}
 		{@render children?.()}
 		{#if isPaginated}
-			<PageNav currentPage={data.currentPage ?? 1} pageCount={data.pageCount ?? 1} />
+			<PageNav {currentPage} pageCount={data.pageCount ?? 1} />
 		{/if}
 	</article>
 </div>

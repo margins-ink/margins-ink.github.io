@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import type { LayoutServerLoad } from './$types';
+import type { LayoutLoad } from './$types';
 
 function calculateReadingTime(content: string): number {
 	const withoutFrontmatter = content.replace(/^---[\s\S]*?---/, '');
@@ -12,7 +12,7 @@ function calculateReadingTime(content: string): number {
 	return Math.max(1, Math.ceil(words / 200));
 }
 
-export const load: LayoutServerLoad = async ({ url }) => {
+export const load: LayoutLoad = async ({ url }) => {
 	const modules = import.meta.glob('./**/+page.svx', { eager: true });
 	const rawModules = import.meta.glob('./**/+page.svx', {
 		eager: true,
@@ -20,10 +20,7 @@ export const load: LayoutServerLoad = async ({ url }) => {
 		import: 'default'
 	}) as Record<string, string>;
 
-	const pageParam = url.searchParams.get('p');
-	const currentPage = pageParam ? parseInt(pageParam, 10) : 1;
-
-	const currentPath = url.pathname.replace('/thoughts', '');
+	const currentPath = url.pathname.replace('/thoughts', '').replace(/\/$/, '') || '/';
 
 	if (!currentPath || currentPath === '/') {
 		return {};
@@ -39,16 +36,8 @@ export const load: LayoutServerLoad = async ({ url }) => {
 				throw error(404, 'Not found');
 			}
 
-			const fullToc = (module as any).toc || [];
+			const toc = (module as any).toc || [];
 			const pageCount = (module as any).pageCount || 1;
-
-			if (currentPage < 1 || currentPage > pageCount) {
-				throw error(404, 'Page not found');
-			}
-
-			const toc = fullToc.filter(
-				(h: { page?: number }) => !h.page || h.page === currentPage
-			);
 
 			const rawContent = rawModules[path] || '';
 			const readingTime = calculateReadingTime(rawContent);
@@ -60,8 +49,7 @@ export const load: LayoutServerLoad = async ({ url }) => {
 				date: metadata?.date,
 				readingTime,
 				toc,
-				pageCount,
-				currentPage
+				pageCount
 			};
 		}
 	}
