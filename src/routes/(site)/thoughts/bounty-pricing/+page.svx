@@ -1,0 +1,66 @@
+---
+title: Bounties Don't Save Open Source
+date: 2025-11-25
+username: andrewgazelka
+---
+
+<script lang="ts" context="module">
+	import IconMdiCurrencyUsd from '~icons/mdi/currency-usd';
+	export { IconMdiCurrencyUsd as icon };
+</script>
+
+# Bounties Don't Save Open Source
+
+AI is getting very good at writing code. [Claude Opus 4.5 scored higher than any human](https://www.anthropic.com/news/claude-opus-4-5) on Anthropic's internal performance engineering exam. Anyone can generate a working PR now. Writing code is no longer the bottleneck.
+
+Review is.
+
+The obvious solution: pay reviewers. Bounties.
+
+But this doesn't actually work.
+
+## Why Bounties Fail
+
+Most qualified reviewers have full-time jobs. Consider the two cases:
+
+### Case 1: Passionate Maintainer
+
+They care about the project. They'd review PRs for free if they had time. The constraint isn't motivation—it's hours in the day.
+
+Bounties don't help because:
+- They can't quit their job for sporadic, unpredictable bounty income
+- No single repo generates enough PR volume for full-time work
+- Even $500/review doesn't create more hours—they still have the same 24
+
+Money can't buy time from people who don't have it to sell.
+
+### Case 2: Unpassionate Maintainer
+
+They've moved on. The project is abandoned or low-priority. Money might motivate them short-term—but this is unstable:
+- Extrinsic motivation produces lower quality than intrinsic
+- They're doing minimum viable review to collect payment
+- The moment bounties dry up, so does their attention
+
+The real solution here isn't bounties. It's transferring maintainership to someone who actually cares. Paying someone to pretend to care is worse than finding someone who genuinely does.
+
+## The Better Approach
+
+Instead of paying for reviews, reduce the need for extensive review.
+
+How? Make the AI's work easier to verify:
+
+- **Runnable examples in CI.** If the PR includes tests that demonstrate correctness, review becomes verification.
+- **Effective integration tests.** Tests that actually convince a reviewer the change works.
+- **Clear, minimal diffs.** Less to review means faster review.
+
+The goal isn't compensating reviewers for cognitive load. It's *eliminating* the cognitive load in the first place.
+
+## Conclusion
+
+In both cases, bounties fail:
+- Passionate maintainers are time-constrained, not money-constrained
+- Unpassionate maintainers need replacement, not payment
+
+The bottleneck isn't money. It's either time (which can't be bought) or ownership (which should be transferred).
+
+Focus on making PRs self-evidently correct. No bounties needed.

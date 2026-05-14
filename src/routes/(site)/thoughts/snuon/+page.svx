@@ -1,0 +1,101 @@
+---
+title: "Token-efficient data"
+date: 2025-11-13
+username: andrewgazelka
+---
+
+<script lang="ts" context="module">
+	import IconMdiCodeBraces from '~icons/mdi/code-braces';
+	export { IconMdiCodeBraces as icon };
+</script>
+
+# Token-efficient data
+
+Anthropic's Claude API uses a modified XML syntax to minimize escaping:
+
+```xml
+<content>She said "hello" to me</content>
+```
+
+No escaping needed for quotes. But try mapping a record to XML:
+
+```xml
+<record>
+  <name>app</name>
+  <version>1.0</version>
+  <config>
+    <port>8080</port>
+  </config>
+</record>
+```
+
+XML becomes verbose and token-heavy for nested data. [NUON](https://www.nushell.sh/commands/docs/to_nuon.html) handles this better:
+
+```
+{name: app, version: "1.0", config: {port: 8080}}
+```
+
+Bare strings work without quotes, saving tokens.
+
+However, NUON still escapes strings with quotes or backslashes. Say you're reading a TOML config file:
+
+```toml
+# example.toml
+name = "my-app"
+version = "1.0.0"
+```
+
+When you serialize it to NUON:
+
+```nu
+open --raw example.toml | to nuon
+```
+
+Output:
+
+```
+"# example.toml
+name = \\"my-app\\"
+version = \\"1.0.0\\"
+"
+```
+
+At least NUON doesn't escape newlines, but quotes still get escaped. This breaks AI tooling—models see tokens, not characters. `\"` might be one token or two. Find-replace becomes fragile because the model's token boundaries don't match what humans see as strings. Escaping makes these operations delicate and error-prone.
+
+## SNUON: Simple NUON
+
+SNUON (Simple NUON) is a token-efficient data format that extends NUON by using raw strings to eliminate escaping. When a string contains quotes or backslashes, SNUON uses [Nushell](https://www.nushell.sh/)'s raw string syntax (`r#'...'#`). Otherwise it's identical to NUON.
+
+## Raw strings solve escaping
+
+Instead of escaping quotes and backslashes, SNUON uses raw strings. The same example becomes:
+
+```nu
+open --raw example.toml | to snuon
+```
+
+Output:
+
+```
+r##'# example.toml
+name = "my-app"
+version = "1.0.0"
+'##
+```
+
+The string is exactly what you see between `r##'` and `'##`—no escaping needed.
+
+## Model bias
+
+When models see escaped strings in context, they learn to output escaped strings. SNUON fixes this—input and output use the same format:
+
+```nu
+r##'# example.toml
+name = "my-app"
+version = "1.0.0"
+'## | str length
+```
+
+Output: `61`
+
+The raw string works directly in Nushell. Models see the same syntax they should generate. No translation between escaped and unescaped forms. The format biases models toward correct output.

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 200" fill="none">
+  <style>
+    text { font-family: ui-monospace, monospace; font-size: 11px; fill: #374151; }
+    .header { font-weight: 600; fill: #111827; font-size: 12px; }
+    .label { font-size: 14px; font-weight: 600; fill: #111827; }
+    .small { font-size: 9px; fill: #6B7280; }
+    .danger { fill: #DC2626; }
+  </style>
+
+  <!-- Title -->
+  <text x="250" y="20" text-anchor="middle" class="label">Deferred Writes: Lost Update Problem</text>
+
+  <!-- Timeline -->
+  <line x1="40" y1="60" x2="460" y2="60" stroke="#9CA3AF" stroke-width="2"/>
+  <text x="40" y="50" class="small">tick start</text>
+  <text x="420" y="50" class="small">tick end</text>
+
+  <!-- Initial state -->
+  <rect x="50" y="70" width="80" height="30" rx="4" fill="#F3F4F6" stroke="#9CA3AF" stroke-width="1"/>
+  <text x="90" y="89" text-anchor="middle" class="header">Health: 100</text>
+
+  <!-- System A reads -->
+  <line x1="90" y1="60" x2="90" y2="120" stroke="#6B7280" stroke-width="1" stroke-dasharray="4"/>
+  <rect x="55" y="120" width="70" height="40" rx="4" fill="white" stroke="#6B7280" stroke-width="1"/>
+  <text x="90" y="137" text-anchor="middle" class="small">System A</text>
+  <text x="90" y="152" text-anchor="middle">reads 100</text>
+
+  <!-- System B reads -->
+  <line x1="180" y1="60" x2="180" y2="120" stroke="#6B7280" stroke-width="1" stroke-dasharray="4"/>
+  <rect x="145" y="120" width="70" height="40" rx="4" fill="white" stroke="#6B7280" stroke-width="1"/>
+  <text x="180" y="137" text-anchor="middle" class="small">System B</text>
+  <text x="180" y="152" text-anchor="middle">reads 100</text>
+
+  <!-- System A queues write -->
+  <line x1="260" y1="60" x2="260" y2="120" stroke="#6B7280" stroke-width="1" stroke-dasharray="4"/>
+  <rect x="225" y="120" width="70" height="40" rx="4" fill="#FEF3C7" stroke="#D97706" stroke-width="1"/>
+  <text x="260" y="137" text-anchor="middle" class="small">A queues</text>
+  <text x="260" y="152" text-anchor="middle">set(90)</text>
+
+  <!-- System B queues write -->
+  <line x1="340" y1="60" x2="340" y2="120" stroke="#6B7280" stroke-width="1" stroke-dasharray="4"/>
+  <rect x="305" y="120" width="70" height="40" rx="4" fill="#FEF3C7" stroke="#D97706" stroke-width="1"/>
+  <text x="340" y="137" text-anchor="middle" class="small">B queues</text>
+  <text x="340" y="152" text-anchor="middle">set(80)</text>
+
+  <!-- Final state -->
+  <line x1="430" y1="60" x2="430" y2="70" stroke="#6B7280" stroke-width="1"/>
+  <rect x="390" y="70" width="80" height="30" rx="4" fill="#FEE2E2" stroke="#DC2626" stroke-width="1.5"/>
+  <text x="430" y="89" text-anchor="middle" class="header danger">Health: 80</text>
+
+  <!-- Expected vs actual -->
+  <text x="430" y="115" text-anchor="middle" class="small">last write wins</text>
+  <text x="430" y="130" text-anchor="middle" class="small danger">expected: 70</text>
+  <text x="430" y="145" text-anchor="middle" class="small danger">actual: 80 or 90</text>
+</svg>

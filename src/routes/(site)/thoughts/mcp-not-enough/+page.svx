@@ -1,0 +1,138 @@
+---
+title: Model Context Protocol is not enough
+date: 2025-11-10
+username: andrewgazelka
+---
+
+<script lang="ts" context="module">
+	import IconMdiApi from '~icons/mdi/api';
+	export { IconMdiApi as icon };
+</script>
+
+<script>
+	import StickyNote from '$lib/components/StickyNote.svelte';
+</script>
+
+# Model Context Protocol is not enough
+
+[Model Context Protocol](https://modelcontextprotocol.io/specification/2025-06-18) defines remote procedure calls for AI tools. It has input schemas but no output schemas. Tool responses return an untyped content array. Input gets validated. Output does not.
+
+This breaks composition. A model calls a tool and gets everything back as untyped content. Servers often return human-readable text instead of structured data to improve model performance, but this prevents composing operations entirely. Models cannot map, filter, or chain results.
+
+Worse, all that untyped content fills context windows. Models process dozens of fields they don't need, burning tokens on data they cannot manipulate algebraically. With proper output schemas and operators, models could project just the fields they need and compose operations. Instead they get everything, process everything, and still cannot compose.
+
+## The shell already solved this
+
+Most APIs don't implement MCP. They implement HTTP with an OpenAPI specification. OpenAPI defines input schemas, output schemas, error responses. Nearly the entire web already uses it.
+
+[Nushell](https://nushell.sh/) is a shell with structured data pipelines. Commands output typed tables, lists, and records instead of text. The shell provides algebraic operators: `where` for filtering, `select` for projection, `each` for mapping, `par-each` for parallel operations. These operators compose because data is structured.
+
+Here's the key insight: **you don't need to generate commands from specifications**. Nushell's built-in `http` command already works with any HTTP API. The structure comes from the response data itself:
+
+```nu
+# Fetch GitHub issues - returns structured NUON (token-efficient JSON-like format)
+let issues = http get "https://api.github.com/repos/nushell/nushell/issues"
+
+$issues
+  | where state == "open"
+  | where (labels | any {$in.name == "good first issue"})
+  | select number title html_url
+  | first 5
+```
+
+Even without TypeScript-style compile-time types, Nushell validates structure at runtime. If a field doesn't exist, the pipeline fails immediately with a clear error. This is sufficient for AI agents—they learn from failures just like humans do.
+
+[NUON](https://www.nushell.sh/commands/docs/to_nuon.html) is Nushell's native data format—a token-efficient, JSON-like representation with 1:1 mapping to Nushell values. When `http` returns JSON, it's automatically converted to NUON internally, giving you structured tables, records, and lists you can manipulate directly.
+
+## Why Nushell beats text processing
+
+Traditional shells force you to parse text. Nushell gives you structured data from the start:
+
+```nu
+# Query the GitHub API for pull requests
+http get "https://api.github.com/repos/nushell/nushell/pulls"
+  --headers {Authorization: "Bearer $env.GITHUB_TOKEN"}
+  | where state == "open"
+  | where (labels | any {$in.name == "enhancement"})
+  | select number title user.login created_at
+  | sort-by created_at
+  | reverse
+  | first 5
+```
+
+No `jq`, no `sed`, no `awk`. The data is already structured. Operators compose cleanly.
+
+Nushell provides a standard environment that beats bash for AI agents: you can prompt the same structured operations across different contexts, and it still interfaces with terminal commands you'd call from bash. The difference is that Nushell commands return structured data by default, while bash commands return text that needs parsing.
+
+<StickyNote>
+Nushell's <code>describe</code> command shows you the type of any value. Run <code>$value | describe</code> to see what you're working with. This helps when exploring unfamiliar APIs.
+</StickyNote>
+
+## How this works with AI agents
+
+AI agents need three things to use APIs effectively:
+
+1. **Discovery**: What endpoints exist and what do they do?
+2. **Invocation**: How do I call this endpoint?
+3. **Composition**: How do I chain multiple operations?
+
+MCP solves (1) and (2) but fails at (3). OpenAPI specs solve all three if you have the right tools.
+
+For [Superglide](https://superglide.ai), my AI editor, I'm building this differently: instead of generating typed commands from specs, the agent gets access to:
+
+- Raw OpenAPI specifications stored as YAML files
+- A BM-25 semantic search tool (via the `rerank` plugin) to find relevant endpoints
+- Nushell's `http` command to call any endpoint
+- Nushell's algebraic operators to compose results
+
+The agent workflow looks like this:
+
+1. Search OpenAPI specs for relevant endpoints: `open "openapi/github.yaml" | get paths | rerank "list repository issues"`
+2. Read the matched endpoint to understand parameters and response structure
+3. Construct the HTTP request using `http get` or `http post`
+4. Compose operations using `where`, `select`, `each`, `par-each`
+
+This is more flexible than generated commands because:
+- No build step required
+- Works with any HTTP API, even those without specs
+- The agent can improvise based on actual response structure
+- BM-25 search finds relevant endpoints better than browsing auto-generated help text
+
+## The OAuth problem
+
+The missing piece is authentication. OAuth tokens need to:
+- Be stored securely (Secure Enclave on macOS, equivalent on other platforms)
+- Refresh automatically when expired
+- Work across multiple services without manual configuration
+
+I'm solving this with a Nushell plugin that interfaces with the system keychain and handles OAuth flows. When a command needs authentication:
+
+```nu
+http get "https://api.github.com/user/repos"
+  --headers {Authorization: (oauth token "github")}
+```
+
+The `oauth token` function:
+1. Checks if a valid token exists in the keychain
+2. If expired, uses the refresh token to get a new one
+3. If no token exists, triggers an OAuth flow in the browser
+4. Returns the token for use in the `Authorization` header
+
+This keeps tokens out of environment variables, out of command history, and automatically refreshed.
+
+<StickyNote>
+Currently experimenting with different approaches for multi-service OAuth. The keychain integration works, but the UX for initial authorization flows needs refinement.
+</StickyNote>
+
+## Why this matters for AI
+
+Models are getting better at structured reasoning, but they still need tools that compose. MCP's untyped content arrays are a step backward from what HTTP APIs already provide.
+
+Nushell proves that you don't need custom tool definitions for every API. Give the model:
+- HTTP access
+- Structured data operators
+- Searchable API specifications
+
+It can figure out the rest. The power isn't in generated commands—it's in composable operators that work on any structured data.
+
+I'm building this as open source Nushell plugins for [Superglide](https://superglide.ai). If you're interested in contributing or want to discuss this approach, check out the [GitHub](https://github.com/superduperglide/extensions) or join our [Discord](https://discord.gg/xzH9vcESAP).

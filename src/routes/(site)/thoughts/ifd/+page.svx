@@ -1,0 +1,94 @@
+---
+title: "IFD is fine"
+date: 2026-05-13
+username: andrewgazelka
+---
+
+<script lang="ts" context="module">
+	import IconMdiSwapHorizontal from '~icons/mdi/swap-horizontal';
+	export { IconMdiSwapHorizontal as icon };
+</script>
+
+<script lang="ts">
+	import { useRefs, Cite, References } from '$lib/components/refs';
+	useRefs([
+		{ id: 'nix-ifd', title: 'Import From Derivation, Nix Reference Manual', url: 'https://nix.dev/manual/nix/2.34/language/import-from-derivation' },
+		{ id: 'flake-check-pr', title: "PR #5253: Don't allow IFD in flakes in some commands (Eelco Dolstra)", url: 'https://github.com/NixOS/nix/pull/5253' },
+		{ id: 'jade-blocking', title: 'Stopping evaluation from blocking in Nix (jade.fyi)', url: 'https://jade.fyi/blog/nix-evaluation-blocking/' },
+		{ id: 'snix-announce', title: 'Announcing Snix (2025-03-16)', url: 'https://snix.dev/blog/announcing-snix/' },
+		{ id: 'tvix-rewriting', title: 'Tvix: We are rewriting Nix (TVL blog)', url: 'https://tvl.fyi/blog/rewriting-nix' },
+		{ id: 'devenv-tvix', title: 'devenv is switching its Nix implementation to Tvix', url: 'https://devenv.sh/blog/2024/10/22/devenv-is-switching-its-nix-implementation-to-tvix/' }
+	]);
+</script>
+
+# IFD is fine
+
+Import From Derivation: during evaluation, the Nix language asks for a path whose bytes depend on a derivation's output<Cite id="nix-ifd" />. To produce the next AST node, the evaluator has to build something.
+
+```nix
+let
+  schemaJson = pkgs.runCommand "schema" {} ''
+    ${pkgs.codegen}/bin/codegen ${./input.toml} > $out
+  '';
+  schema = builtins.fromJSON (builtins.readFile schemaJson);
+in
+  buildPackage { inherit schema; }
+```
+
+The `readFile` on `schemaJson` is the IFD. Evaluation cannot continue past `schema` until `schemaJson` is realised.
+
+The community calls this an anti-pattern. [The reference manual](https://nix.dev/manual/nix/2.34/language/import-from-derivation)<Cite id="nix-ifd" /> tells you to avoid it. [`nix flake check` rejects it in pure-eval mode](https://github.com/NixOS/nix/pull/5253)<Cite id="flake-check-pr" />. Hydra rejects it. Every Nix tutorial flags it.
+
+The reason given is performance. The conclusion drawn is that the feature itself is broken. The reason holds for one implementation. The conclusion mistakes that implementation's limit for a property of the language.
+
+## What "blocking" actually means in CppNix
+
+The manual is precise: "the Nix language evaluator is sequential, it only finds store paths to read from one at a time"<Cite id="nix-ifd" />. The reference implementation walks the AST recursively. When a thunk demands the contents of `${drv}/foo`, the evaluator stops, calls out to the daemon, waits for the build, resumes.
+
+Forking eval onto threads does not help. Eval state in CppNix is a shared mutable graph with no concurrency model attached to it. When one branch hits IFD, the whole evaluator stalls. [jade.fyi](https://jade.fyi/blog/nix-evaluation-blocking/)<Cite id="jade-blocking" /> diagnoses it bluntly: "it is, in my opinion, a significant design flaw in the Nix evaluator that it cannot queue all the derivations that are reachable, rather than stopping and building each in order."
+
+The downstream consequences are concrete. `nix flake check` cannot enumerate jobs under a time budget. Hydra cannot pipeline evaluation across the queue. IDE integrations time out on flakes that compute anything outside the source tree. The fix that landed was "ban IFD." It worked because most packaging code does not need IFD. It also taught everyone downstream that the feature is the problem.
+
+## The cost of doing without it
+
+Cut IFD from your flake and every input shape has to be expressible in pure Nix.
+
+Take Rust. `Cargo.lock` parses in pure Nix as TOML, and [crane](https://github.com/ipetkov/crane) does exactly that. Build scripts, path dependencies, workspace expansions, and feature unification live in cargo's resolver, outside the lockfile. The output of `cargo metadata` is what IFD would hand you. crane reimplements enough of the resolver in Nix to skip the call, and accepts the gap where it cannot.
+
+Take git. There is no derivation-free way to ask `git log` a question from inside Nix. The pure-Nix path is to walk the packed-refs format yourself, re-implement ref resolution, parse pack indices. Most projects bail out and commit a pre-computed JSON file, then drift between that file and the working tree forever.
+
+Take code generation. With IFD: build the generator, read its output, evaluate. Without IFD: run the generator at the shell, commit the result, hope the committed copy stays in sync.
+
+This is the actual tradeoff: degrade composition so the evaluator never has to wait. Every project that wants to do anything fancier than packaging has hit this wall. crane, naersk, dream2nix, flox, the half-dozen `2nix` converters: each one either ships a pre-eval shell script or contorts inside the IFD limitation until the abstraction leaks.
+
+## Snix moves the wall
+
+[Snix](https://snix.dev/blog/announcing-snix/)<Cite id="snix-announce" /> (a Rust reimplementation of Nix, forked from Tvix at OceanSprint in March 2025) takes the evaluator apart at the seam CppNix cannot rebuild. From [the original Tvix design notes](https://tvl.fyi/blog/rewriting-nix)<Cite id="tvix-rewriting" />: "a graph of unfinished Derivations/Builds and their associated store paths... which does not need to be written to disk and can grow during runtime as new Derivations with new output paths are discovered."
+
+Eval and build are nodes in one graph. The graph grows as eval discovers more of it. A thunk that needs a build emits a request and yields. The runtime drives other thunks while the build runs. When the result lands, the thunk resumes.
+
+A flake that produces a hundred derivations whose outputs feed another hundred derivations evaluates as far as it can on pure inputs, fires every build it discovered in parallel, and continues as each one returns. CI gets a streamed worklist instead of a fixed one. The work performed is the same.
+
+Tvix's roadmap names the goal explicitly: make IFD "a first-class citizen without significant performance cost"<Cite id="tvix-rewriting" />. [devenv migrated to Tvix in October 2024](https://devenv.sh/blog/2024/10/22/devenv-is-switching-its-nix-implementation-to-tvix/)<Cite id="devenv-tvix" /> and followed the fork to Snix in 2025. The downstream ecosystem is already running on the evaluator that does not stall.
+
+## Edge cases
+
+**Eval triggers builds.** Doesn't that make every evaluation expensive? Laziness already gates this. A thunk nobody forces is a derivation nobody builds. IFD changes *when* the build runs relative to eval. It does not change *what* gets built. The set of derivations the user asked for is the set that runs, regardless of where the eval/build seam sits.
+
+**Determinism.** A common objection is that IFD makes evaluation impure: the resulting value depends on a build that actually ran. Nix builds have content-addressed inputs and deterministic outputs. The same expression against the same store produces the same value. IFD inherits the store's determinism. It does not undermine it.
+
+**Job enumeration.** Hydra wants the full job set before dispatching. With IFD, the set is discovered as eval progresses. That is a scheduler change. Snix's evaluator emits derivations as it finds them, which is what an async dispatcher would want even without IFD. The dispatcher you cannot write against CppNix is the one Snix makes natural.
+
+**Cycles.** Can IFD create a cycle: a derivation whose output is read by the eval that defines it? The store is content-addressed, so the cycle reduces to whether you can compute a hash whose inputs depend on the hash. You cannot. Snix detects the case the same way CppNix does, by tracking the eval frame around each thunk. This is the [Nix-without-the-DAG](/thoughts/nix-cycles) problem from a different angle, and IFD does not change the answer.
+
+**Reproducibility under unsandboxed builds.** The real risk people gesture at when they say "IFD is impure" is the impurity of the underlying build (network access, host tooling, wall-clock dependence). That risk exists for any derivation. IFD just lets you read the result. If the build is reproducible, IFD is reproducible. If the build is not, the problem was the build.
+
+**`nix flake show`.** A flake using IFD will trigger builds just to enumerate outputs. That is a genuine surprise for a command meant to feel like a directory listing. The honest fix is to mark the intent: `flake show` should refuse to run hidden builds by default, and `flake show --realise` should consent to them. Snix's async evaluator can stream the output set incrementally as builds finish, which is closer to what a fast preview wants in the first place. Either way, the answer is to surface the choice rather than to ban the feature.
+
+## The frame is the evaluator
+
+CppNix is one implementation of a small lazy functional language. The performance model people quote at each other ("IFD blocks the evaluator") describes that implementation's scheduling. Snix schedules differently. The same expression that reads as an anti-pattern under CppNix reads as ordinary composition under Snix.
+
+The IFD ban was a polite way to say "the reference evaluator cannot handle this yet." The phrasing outlived the constraint.
+
+<References />

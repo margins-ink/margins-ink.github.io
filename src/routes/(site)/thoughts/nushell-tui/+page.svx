@@ -1,0 +1,114 @@
+---
+title: Giving AI agents `gdb`
+date: 2025-11-10
+username: andrewgazelka
+---
+
+<script lang="ts" context="module">
+	import IconMdiConsole from '~icons/mdi/console';
+	export { IconMdiConsole as icon };
+</script>
+
+# Giving AI agents gdb
+
+Modern AI agents face a fundamental limitation: they cannot interact with terminal applications. Consider the tools developers use daily: debuggers like gdb that step through breakpoints interactively, SSH sessions that require a TUI interface, or git's interactive rebase that launches an editor. These applications render their interfaces to terminal screens that agents cannot perceive or control.
+
+To solve this problem, I built a Nushell plugin that exposes terminal applications as typed commands. The plugin spawns processes in pseudoterminals, reads their visual output as structured data, and accepts input using vim key notation.
+
+```nu
+let debugger = tui spawn gdb ./program
+```
+
+This command spawns a gdb process and returns a record containing the session metadata:
+
+```
+╭────────────┬──────────────────────────────────────╮
+│ id         │ 11600a04-6a47-466b-b54b-ca31c7e4432e │
+│ command    │ gdb                                  │
+│ args       │ [list 1 items]                       │
+│ rows       │ 24                                   │
+│ cols       │ 80                                   │
+│ spawned_at │ now                                  │
+╰────────────┴──────────────────────────────────────╯
+```
+
+To read what the terminal displays, pipe the session to `tui buffer`:
+
+```nu
+$debugger | tui buffer
+```
+
+The command returns the gdb prompt as a structured table:
+
+```
+╭────┬──────────────────────────────────────────────────────────────────────────────────╮
+│  0 │ GNU gdb (GDB) 14.2                                                               │
+│  1 │ Copyright (C) 2023 Free Software Foundation, Inc.                                │
+│  2 │ License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>    │
+│  3 │ This is free software: you are free to change and redistribute it.               │
+│  4 │ There is NO WARRANTY, to the extent permitted by law.                            │
+│  5 │ Type "show copying" and "show warranty" for details.                             │
+│  6 │ This GDB was configured as "aarch64-apple-darwin23.0.0".                         │
+│  7 │ Type "show configuration" for configuration details.                             │
+│  8 │ For bug reporting instructions, please see:                                      │
+│  9 │ <https://www.gnu.org/software/gdb/bugs/>.                                        │
+│ 10 │ Find the GDB manual and other documentation resources online at:                 │
+│ 11 │     <http://www.gnu.org/software/gdb/documentation/>.                            │
+│ 12 │                                                                                  │
+│ 13 │ For help, type "help".                                                           │
+│ 14 │ Type "apropos word" to search for commands related to "word"...                  │
+│ 15 │ Reading symbols from ./program...                                                │
+│ 16 │ (gdb)                                                                            │
+│ 17 │                                                                                  │
+│ 18 │                                                                                  │
+│ 19 │                                                                                  │
+│ 20 │                                                                                  │
+│ 21 │                                                                                  │
+│ 22 │                                                                                  │
+│ 23 │                                                                                  │
+╰────┴──────────────────────────────────────────────────────────────────────────────────╯
+```
+
+You can send input to the debugger and then read its updated state:
+
+```nu
+$debugger | tui send 'break main<Enter>'
+$debugger | tui buffer | find "Breakpoint 1"
+```
+
+## Use cases
+
+The plugin enables several powerful workflows that were previously impossible for AI agents.
+
+Control interactive debuggers programmatically:
+
+```nu
+let debugger = tui spawn gdb ./program
+$debugger | tui send 'break main<Enter>run<Enter>step<Enter>'
+$debugger | tui buffer | find "Breakpoint 1 at"
+```
+
+Execute commands on remote servers through SSH:
+
+```nu
+let session = tui spawn ssh user@server
+$session | tui send 'tail -f /var/log/app.log<Enter>'
+$session | tui buffer
+```
+
+Automate git interactive operations:
+
+```nu
+let rebase = tui spawn git rebase -i HEAD~3
+$rebase | tui send 'jpick<Escape>:wq<Enter>'
+```
+
+Test terminal user interfaces programmatically:
+
+```nu
+let editor = tui spawn vim
+$editor | tui send 'iHello, World!<Escape>:wq test.txt<Enter>'
+assert ($editor | tui buffer | any { $in like "test.txt" })
+```
+
+This plugin is built as an open-source Nushell extension for [Superglide](https://superglide.ai). You can find the source code on [GitHub](https://github.com/superduperglide/extensions) or join the [Discord community](https://discord.gg/xzH9vcESAP).

@@ -1,0 +1,275 @@
+---
+title: "What is a filesystem?"
+date: 2026-05-13
+username: andrewgazelka
+---
+
+<script lang="ts" context="module">
+	import IconMdiFileTreeOutline from '~icons/mdi/file-tree-outline';
+	export { IconMdiFileTreeOutline as icon };
+</script>
+
+<script lang="ts">
+	import { useRefs, Cite, References } from '$lib/components/refs';
+	import Figure from '$lib/components/Figure.svelte';
+	useRefs([
+		{ id: 'posix', title: 'IEEE Std 1003.1-2017, System Interfaces (POSIX)', url: 'https://pubs.opengroup.org/onlinepubs/9699919799/' },
+		{ id: 'open', title: 'open(2): open and possibly create a file', url: 'https://man7.org/linux/man-pages/man2/open.2.html' },
+		{ id: 'read', title: 'read(2): read from a file descriptor', url: 'https://man7.org/linux/man-pages/man2/read.2.html' },
+		{ id: 'write', title: 'write(2): write to a file descriptor', url: 'https://man7.org/linux/man-pages/man2/write.2.html' },
+		{ id: 'lseek', title: 'lseek(2): reposition read/write file offset', url: 'https://man7.org/linux/man-pages/man2/lseek.2.html' },
+		{ id: 'fsync', title: 'fsync(2): synchronize file in-core state with storage', url: 'https://man7.org/linux/man-pages/man2/fsync.2.html' },
+		{ id: 'stat', title: 'stat(2): get file status', url: 'https://man7.org/linux/man-pages/man2/stat.2.html' },
+		{ id: 'unlink', title: 'unlink(2): delete a name and possibly the file it refers to', url: 'https://man7.org/linux/man-pages/man2/unlink.2.html' },
+		{ id: 'mkdir', title: 'mkdir(2): create a directory', url: 'https://man7.org/linux/man-pages/man2/mkdir.2.html' },
+		{ id: 'rename', title: 'rename(2): change the name or location of a file', url: 'https://man7.org/linux/man-pages/man2/rename.2.html' },
+		{ id: 'win32-file', title: 'Win32 File Management API (Microsoft Learn)', url: 'https://learn.microsoft.com/en-us/windows/win32/fileio/file-management' },
+		{ id: 'tmpfs', title: 'Linux kernel documentation: tmpfs', url: 'https://docs.kernel.org/filesystems/tmpfs.html' },
+		{ id: 'proc', title: 'proc(5): process information pseudo-filesystem', url: 'https://man7.org/linux/man-pages/man5/proc.5.html' },
+		{ id: 'sysfs', title: 'sysfs(5): kernel object filesystem', url: 'https://man7.org/linux/man-pages/man5/sysfs.5.html' },
+		{ id: 'nfs', title: 'RFC 7530: Network File System (NFS) Version 4 Protocol', url: 'https://datatracker.ietf.org/doc/html/rfc7530' },
+		{ id: 'fuse', title: 'Linux kernel documentation: Filesystem in Userspace (FUSE)', url: 'https://www.kernel.org/doc/html/latest/filesystems/fuse.html' },
+		{ id: 'sqlitefs', title: 'sqlitefs: FUSE filesystem backed by SQLite', url: 'https://github.com/narumatt/sqlitefs' },
+		{ id: 'gitfs', title: 'gitfs: FUSE filesystem mounting git repositories', url: 'https://github.com/presslabs/gitfs' },
+		{ id: 's3fs', title: 's3fs-fuse: FUSE filesystem backed by Amazon S3', url: 'https://github.com/s3fs-fuse/s3fs-fuse' },
+		{ id: 'flecs', title: 'flecs: a fast entity component system (Sander Mertens)', url: 'https://github.com/SanderMertens/flecs' },
+		{ id: 'sander-mertens', title: 'Sander Mertens on Medium', url: 'https://ajmmertens.medium.com/' },
+		{ id: 'flecs-manual', title: 'Flecs Manual', url: 'https://www.flecs.dev/flecs/md_docs_2Manual.html' },
+		{ id: 'can-bus', title: 'CAN bus (Wikipedia)', url: 'https://en.wikipedia.org/wiki/CAN_bus' },
+		{ id: 'berlin-kay', title: 'Berlin & Kay, Basic Color Terms: Their Universality and Evolution (1969)', url: 'https://en.wikipedia.org/wiki/Basic_Color_Terms:_Their_Universality_and_Evolution' },
+		{ id: 'winawer', title: 'Winawer et al., Russian blues reveal effects of language on color discrimination, PNAS (2007)', url: 'https://www.pnas.org/doi/10.1073/pnas.0701644104' },
+		{ id: 'http-get', title: 'RFC 9110 §9.3.1: HTTP GET method', url: 'https://datatracker.ietf.org/doc/html/rfc9110#name-get' },
+		{ id: 'http-put', title: 'RFC 9110 §9.3.4: HTTP PUT method', url: 'https://datatracker.ietf.org/doc/html/rfc9110#name-put' },
+		{ id: 'inotify', title: 'inotify(7): monitoring filesystem events', url: 'https://man7.org/linux/man-pages/man7/inotify.7.html' },
+		{ id: 'rls', title: 'PostgreSQL: Row Security Policies', url: 'https://www.postgresql.org/docs/current/ddl-rowsecurity.html' },
+		{ id: 'x11-net', title: 'X Window System: Networking (Wikipedia)', url: 'https://en.wikipedia.org/wiki/X_Window_System#Networking' },
+		{ id: 'mount-ns', title: 'mount_namespaces(7): mount namespaces overview', url: 'https://man7.org/linux/man-pages/man7/mount_namespaces.7.html' },
+		{ id: 'fsn', title: 'fsn: SGI 3D File System Navigator (1991)', url: 'https://en.wikipedia.org/wiki/Fsn' },
+		{ id: 'jurassic-park', title: "It's a Unix system. I know this. (Jurassic Park, 1993)", url: 'https://www.youtube.com/watch?v=dFUlAQZB9Ng' },
+		{ id: 'flecs-explorer', title: 'Flecs Explorer: typed-record inspector', url: 'https://www.flecs.dev/explorer/' },
+		{ id: 'flecs-city', title: 'Flecs city demo: live ECS scene', url: 'https://www.flecs.dev/explorer/?remote=true&remote_self=true&host=https%3A%2F%2Fdemos.flecs.dev%2Fcity' },
+		{ id: 'smalltalk', title: "Smalltalk's image-based environment: every object inspectable through the same tools (Wikipedia)", url: 'https://en.wikipedia.org/wiki/Smalltalk#Image-based_persistence' },
+		{ id: 'glamorous-toolkit', title: 'Glamorous Toolkit: a moldable development environment in the Smalltalk lineage', url: 'https://gtoolkit.com/' },
+		{ id: 'java-reflection', title: 'java.lang.reflect — the Java reflection API', url: 'https://docs.oracle.com/javase/tutorial/reflect/' },
+		{ id: 'pharo', title: 'Pharo: a modern open-source Smalltalk environment', url: 'https://pharo.org/' },
+		{ id: 'squeak', title: 'Squeak: an open-source Smalltalk implementation descended from Smalltalk-80', url: 'https://squeak.org/' },
+		{ id: 'elisp', title: 'Emacs Lisp Reference Manual', url: 'https://www.gnu.org/software/emacs/manual/html_node/elisp/index.html' },
+		{ id: 'emacs-hooks', title: 'Emacs Lisp: Hooks — named extension points for composing behavior', url: 'https://www.gnu.org/software/emacs/manual/html_node/elisp/Hooks.html' },
+		{ id: 'emacs-advice', title: 'Emacs Lisp: Advising Functions — wrap any function from any package', url: 'https://www.gnu.org/software/emacs/manual/html_node/elisp/Advising-Functions.html' },
+		{ id: 'magit', title: 'Magit: a complete git porcelain inside Emacs', url: 'https://magit.vc/' },
+		{ id: 'org-mode', title: 'Org-mode: outliner, agenda, spreadsheet, and literate-programming environment', url: 'https://orgmode.org/' },
+		{ id: 'flecs-remote', title: 'Flecs Remote API', url: 'https://www.flecs.dev/flecs/md_docs_2FlecsRemoteApi.html' },
+		{ id: 'flecs-query-lang', title: 'Flecs Query Language reference', url: 'https://www.flecs.dev/flecs/md_docs_2QueryLanguage.html' },
+		{ id: 'flecs-systems', title: 'Flecs Systems Manual', url: 'https://www.flecs.dev/flecs/md_docs_2SystemsManual.html' },
+		{ id: 'flecs-observers', title: 'Flecs Observers Manual', url: 'https://www.flecs.dev/flecs/md_docs_2ObserversManual.html' },
+		{ id: 'flecs-script', title: 'Flecs Script: scene definition language', url: 'https://www.flecs.dev/flecs/md_docs_2FlecsScript.html' },
+		{ id: 'prolog', title: 'Prolog (Wikipedia)', url: 'https://en.wikipedia.org/wiki/Prolog' },
+		{ id: 'datalog', title: 'Datalog (Wikipedia)', url: 'https://en.wikipedia.org/wiki/Datalog' },
+		{ id: 'find', title: 'find(1): search for files in a directory hierarchy', url: 'https://man7.org/linux/man-pages/man1/find.1.html' },
+		{ id: 'locate', title: 'locate(1): find files by name', url: 'https://man7.org/linux/man-pages/man1/locate.1.html' },
+		{ id: 'ripgrep', title: 'ripgrep: recursive grep with PCRE2 and gitignore', url: 'https://github.com/BurntSushi/ripgrep' },
+		{ id: 'fd', title: 'fd: a friendly alternative to find', url: 'https://github.com/sharkdp/fd' },
+		{ id: 'spotlight', title: 'Spotlight metadata indexer (macOS)', url: 'https://support.apple.com/en-us/HT204014' },
+		{ id: 'fswatch', title: 'fswatch: cross-platform file change monitor', url: 'https://github.com/emcrisostomo/fswatch' },
+		{ id: 'recoll', title: 'Recoll: full-text search daemon', url: 'https://www.lesbonscomptes.com/recoll/' },
+		{ id: 'spacetimedb', title: 'SpacetimeDB: server-as-database for live multiplayer state', url: 'https://spacetimedb.com/' },
+		{ id: 'mmap-sync', title: 'mmap-sync: Cloudflare Rust crate for zero-copy shared-memory structs', url: 'https://github.com/cloudflare/mmap-sync' },
+		{ id: 'libmdbx', title: 'libmdbx: multi-process ACID key-value over mmap', url: 'https://github.com/isar/libmdbx' },
+		{ id: 'erlang-hot', title: 'Erlang/OTP code loading and hot upgrades', url: 'https://www.erlang.org/doc/system/code_loading.html' },
+		{ id: 'criu', title: 'CRIU: Checkpoint/Restore in Userspace', url: 'https://criu.org/' },
+		{ id: 'device-file', title: 'Device file (Wikipedia)', url: 'https://en.wikipedia.org/wiki/Device_file' },
+		{ id: 'inode', title: 'inode (Wikipedia)', url: 'https://en.wikipedia.org/wiki/Inode' },
+		{ id: 'mkfifo', title: 'mkfifo(3): make a FIFO special file', url: 'https://man7.org/linux/man-pages/man3/mkfifo.3.html' },
+		{ id: 'unix-socket', title: 'unix(7): Unix domain sockets', url: 'https://man7.org/linux/man-pages/man7/unix.7.html' },
+		{ id: 's3', title: 'Amazon S3 User Guide', url: 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html' },
+		{ id: 'flock', title: 'flock(2): apply or remove an advisory lock on an open file', url: 'https://man7.org/linux/man-pages/man2/flock.2.html' },
+		{ id: 'fcntl', title: 'fcntl(2): manipulate file descriptor', url: 'https://man7.org/linux/man-pages/man2/fcntl.2.html' },
+		{ id: 'ofd-locks', title: 'File-private POSIX locks (Jonathan Corbet, LWN, 2014)', url: 'https://lwn.net/Articles/586904/' },
+		{ id: 'nfs-locks', title: 'Why is flock(2) bad on NFS? (Linux kernel FAQ)', url: 'https://serverfault.com/questions/66919/file-locks-on-an-nfs' },
+		{ id: 'emacs', title: 'GNU Emacs', url: 'https://www.gnu.org/software/emacs/' }
+	]);
+</script>
+
+# What is a filesystem?
+
+A filesystem is a kernel API<Cite id="posix" />: [`open`](https://man7.org/linux/man-pages/man2/open.2.html)<Cite id="open" />, [`read`](https://man7.org/linux/man-pages/man2/read.2.html)<Cite id="read" />, [`write`](https://man7.org/linux/man-pages/man2/write.2.html)<Cite id="write" />, [`lseek`](https://man7.org/linux/man-pages/man2/lseek.2.html)<Cite id="lseek" />, [`fsync`](https://man7.org/linux/man-pages/man2/fsync.2.html)<Cite id="fsync" />, [`stat`](https://man7.org/linux/man-pages/man2/stat.2.html)<Cite id="stat" />, [`unlink`](https://man7.org/linux/man-pages/man2/unlink.2.html)<Cite id="unlink" />, [`mkdir`](https://man7.org/linux/man-pages/man2/mkdir.2.html)<Cite id="mkdir" />, [`rename`](https://man7.org/linux/man-pages/man2/rename.2.html)<Cite id="rename" />. POSIX standardizes that surface across Linux, macOS, and BSD. Windows fills the same role with a different one through [the Win32 file API](https://learn.microsoft.com/en-us/windows/win32/fileio/file-management)<Cite id="win32-file" />. The disk, the tree, the inodes, the persistence: everything past the verbs is implementation.
+
+The contract is small. A single process that writes then reads the same offset gets the bytes it wrote. Durability across crashes is opt-in, gated on `fsync`. Atomic [`rename`](https://man7.org/linux/man-pages/man2/rename.2.html)<Cite id="rename" /> works inside a directory and falls back to copy-plus-delete across mount points. Cross-process visibility is whatever the specific filesystem documents. The folklore around filesystems is much larger than the standard around them.
+
+## Disk is not in the contract
+
+[tmpfs](https://docs.kernel.org/filesystems/tmpfs.html)<Cite id="tmpfs" /> backs files with RAM and forgets them at reboot. [`/proc`](https://man7.org/linux/man-pages/man5/proc.5.html)<Cite id="proc" /> and [`/sys`](https://man7.org/linux/man-pages/man5/sysfs.5.html)<Cite id="sysfs" /> materialize files from kernel data structures on every read. [NFS](https://datatracker.ietf.org/doc/html/rfc7530)<Cite id="nfs" /> hands reads to another machine. [FUSE](https://www.kernel.org/doc/html/latest/filesystems/fuse.html)<Cite id="fuse" /> lets a userspace process expose anything that can answer the verbs: a SQL database ([sqlitefs](https://github.com/narumatt/sqlitefs)<Cite id="sqlitefs" />), a git repo ([gitfs](https://github.com/presslabs/gitfs)<Cite id="gitfs" />), an S3 bucket ([s3fs](https://github.com/s3fs-fuse/s3fs-fuse)<Cite id="s3fs" />), a memory-mapped Excel sheet.
+
+`/proc/self/status` is a function call dressed as a path.
+
+## So can anything be a filesystem?
+
+[flecs](https://github.com/SanderMertens/flecs)<Cite id="flecs" />, [Sander Mertens'](https://ajmmertens.medium.com/)<Cite id="sander-mertens" /> C entity-component-system, exposes entities, components, and queries through [`ecs_set` and `ecs_get`](https://www.flecs.dev/flecs/md_docs_2Manual.html)<Cite id="flecs-manual" />. Wrap it in [FUSE](https://www.kernel.org/doc/html/latest/filesystems/fuse.html)<Cite id="fuse" />. Map each entity to a directory, each component to a file, each query to a magic path. `cat /entities/42/Position` now returns three floats. The data did not move. The verbs in front of it did.
+
+## Is a car a filesystem?
+
+The wheels turn after the steering wheel turns. That's an invariant. Bolt a [CAN-bus](https://en.wikipedia.org/wiki/CAN_bus)<Cite id="can-bus" /> reader to a FUSE driver and `cat /car/wheels/angle` returns the current angle. Nothing about the data forbids it. The word does.
+
+## Words narrow the space of obvious questions
+
+[Berlin and Kay](https://en.wikipedia.org/wiki/Basic_Color_Terms:_Their_Universality_and_Evolution)<Cite id="berlin-kay" /> catalogued languages with two color terms through eleven. Russian distinguishes `синий` (dark blue) and `голубой` (light blue) at the lexical level<Cite id="winawer" />; English collapses both. The photons never changed. Which distinctions felt obvious did, depending on which words came pre-installed.
+
+"Filesystem" pre-installs a shape: hierarchical, byte-addressed, mostly disk-backed. After enough use, the shape stops being one possible API surface and starts being the definition. Whether some new thing "really is a filesystem" becomes a more pressing question than which verbs would actually fit its data.
+
+Try a different word. A filesystem is a database with an unusual query language. Paths are compound keys. `read` and `write` are scoped [GET](https://datatracker.ietf.org/doc/html/rfc9110#name-get)<Cite id="http-get" /> and [PUT](https://datatracker.ietf.org/doc/html/rfc9110#name-put)<Cite id="http-put" />. `fsync` is a durability barrier. [`inotify`](https://man7.org/linux/man-pages/man7/inotify.7.html)<Cite id="inotify" /> is change-data-capture. Permissions are [row-level security](https://www.postgresql.org/docs/current/ddl-rowsecurity.html)<Cite id="rls" />. Under the database frame, "what's the storage?" reads the same as it does for Postgres: NVMe, ramdisk, or `/dev/null`, with no change to what the database means.
+
+## What the shared verbs actually buy
+
+Every Unix process learns `open` and `read` before anything else. Pipes plug into `grep` without negotiation. Sockets and [X11 transports](https://en.wikipedia.org/wiki/X_Window_System#Networking)<Cite id="x11-net" /> show up at file paths. Containers work because the kernel can swap the filesystem namespace under a program through [mount namespaces](https://man7.org/linux/man-pages/man7/mount_namespaces.7.html)<Cite id="mount-ns" /> and the program does not notice.
+
+A shared API also buys tools. Anything that speaks the verbs gets the inspector, the navigator, the search engine, the diff. Build one debugger for the API and every program on the machine inherits it.
+
+[fsn](https://en.wikipedia.org/wiki/Fsn)<Cite id="fsn" />, SGI's 3D file system navigator from 1991, drew directories as platforms and files as colored blocks rising out of them. It is the ["It's a Unix system. I know this."](https://www.youtube.com/watch?v=dFUlAQZB9Ng)<Cite id="jurassic-park" /> terminal from Jurassic Park. The trick was not the 3D graphics. fsn worked on any program's data because every program stored its data through the same verbs.
+
+<Figure
+	src="/thoughts/filesystems/fsn.png"
+	alt="fsn: SGI's 1991 3D File System Navigator. Directories rendered as platforms, files as colored blocks rising from a 3D landscape, navigated by an inspector pane on the left."
+	caption="fsn (1991). One inspector for every program because every program used the same substrate."
+/>
+
+The [Flecs Explorer](https://www.flecs.dev/explorer/)<Cite id="flecs-explorer" /> is the same idea pulled up one level of abstraction. Instead of inspecting a filesystem of bytes, it inspects an [entity-component world](https://www.flecs.dev/flecs/md_docs_2Manual.html)<Cite id="flecs-manual" /> of typed records. Each entity has a name, each component has a schema, queries are first-class. Point it at any flecs program and watch its live state: a 3D city, a simulation, a UI tree, a game world.
+
+<Figure
+	src="/thoughts/filesystems/flecs-explorer.png"
+	alt="Flecs Explorer showing a 3D city scene next to an entity tree (Building, City, Pavement, Tree, camera, light) and a component inspector listing Component, OnInstantiate, struct, TypeSerializer, type, Script fields on the selected Building entity."
+	caption="Flecs Explorer (2024). Same inspector idea as fsn, generalized: typed components instead of opaque bytes."
+/>
+
+The conceptual move from fsn to Flecs Explorer is the move the post has been arguing. fsn assumed one substrate and built tools against it. Flecs Explorer makes the substrate itself the variable: any program publishing entities and components gets the inspector, the navigator, the query bar. If 3D geometry is `(Position, Mesh, Material)` components on entities, as the [Flecs city demo](https://www.flecs.dev/explorer/?remote=true&remote_self=true&host=https%3A%2F%2Fdemos.flecs.dev%2Fcity)<Cite id="flecs-city" /> shows, then flecs *is* the filesystem-equivalent for that scene. Same verbs everywhere, plus types, plus queries.
+
+Model-generated UIs are where this gets sharp. A model staring at a flat directory of opaque bytes has to guess what each file is. A model staring at typed components knows the columns and can render them without prompting. [Smalltalk](https://en.wikipedia.org/wiki/Smalltalk#Image-based_persistence)<Cite id="smalltalk" /> went further than reflection. Java's [`java.lang.reflect`](https://docs.oracle.com/javase/tutorial/reflect/)<Cite id="java-reflection" /> lets you inspect and call types compiled to disk; the source still lives in files and editing it means stopping the program. Smalltalk's image *is* the program: classes, methods, the compiler, and the development tools live as objects in one graph, persisted as a single file. The Browser reads and rewrites that graph. The Debugger opens on the failing stack and lets you edit the failing method in place before resuming the call. There is no separate compiled artifact to chase. A flecs-shaped Unix would ship the same property at OS scale, with components in place of slots and queries in place of message sends.
+
+<Figure
+	src="/thoughts/filesystems/smalltalk.png"
+	alt="A Squeak Smalltalk System Browser. Four side-by-side selector panes narrow from package (Kernel-Numbers) to class (Fraction) to method category (arithmetic) to method (lcm:), above an editable source pane showing the lcm: method body `^self // (self gcd: n) * n`."
+	caption="The [Squeak](https://squeak.org/)<Cite id='squeak' /> System Browser narrowing package → class → method category → method, with the editable source pane below. The window is a tool walking the live image; editing the source mutates the running program. ([Wikimedia](https://commons.wikimedia.org/wiki/File:Squeak_System_Browser_Fraction.png))"
+/>
+
+The inspector loop has the same shape in both worlds. Smalltalk's Inspector, simplified:
+
+```smalltalk
+"Dump every instance variable on any object to the Transcript."
+obj class allInstVarNames do: [:name |
+    Transcript show: name, ' = ', (obj instVarNamed: name) printString; cr]
+```
+
+The Flecs Explorer is doing the same walk against components instead of slots:
+
+```text
+// Dump every component on any entity, with its JSON form.
+for component in entity.components:
+    print(component.name, "=", entity.get(component).as_json())
+```
+
+Each line in one snippet has a counterpart in the other: `object` maps to `entity`, `instance variable` to `component`, `send a message` to `match a query`. The tool is a walk over typed runtime state. Building a new tool ([Glamorous Toolkit](https://gtoolkit.com/)<Cite id="glamorous-toolkit" /> in the Smalltalk lineage, the [Flecs Explorer](https://www.flecs.dev/explorer/) for ECS) is writing a new walk.
+
+[Emacs](https://www.gnu.org/software/emacs/)<Cite id="emacs" /> reaches the same property through a different mechanism. The core is an [Emacs Lisp](https://www.gnu.org/software/emacs/manual/html_node/elisp/index.html)<Cite id="elisp" /> runtime with an editor on top: every buffer, every menu, every keybinding, every major mode lives as elisp in one shared image. Hit `C-h k C-x C-s` and Emacs jumps to the source of `save-buffer` inside the running process. Edit the function. The next save uses your code.
+
+Composition runs through [hooks](https://www.gnu.org/software/emacs/manual/html_node/elisp/Hooks.html)<Cite id="emacs-hooks" /> and [advice](https://www.gnu.org/software/emacs/manual/html_node/elisp/Advising-Functions.html)<Cite id="emacs-advice" />: named extension points exposed as data. Any package adds behavior by registering a function on a named hook. Any package wraps an existing function (including functions it does not own) with advice. No central registry coordinates the additions.
+
+```elisp
+;; Add behavior at "a file just opened". Any package can do this.
+(add-hook 'find-file-hook
+          (lambda () (highlight-todos-in-buffer)))
+
+;; Wrap an existing function from any package, even one you didn't write.
+(advice-add 'save-buffer :before
+            (lambda (&rest _) (delete-trailing-whitespace)))
+```
+
+Forty years of accumulated packages compose through this surface. [Magit](https://magit.vc/)<Cite id="magit" /> is a complete git porcelain implemented as elisp in the same image as the editor. [Org-mode](https://orgmode.org/)<Cite id="org-mode" /> is an outliner, an agenda, a spreadsheet, and a literate-programming environment for fifty-plus languages, all in one buffer type. They interoperate because they share the runtime.
+
+Emacs is not message-passing. The composability comes from a different design: extension points exposed as data, one shared elisp address space, no separate plugin API to negotiate. The end-state property is the same as Smalltalk's. A flecs-shaped Unix would add a third member to this family: components are the extension points, observers are the advice, queries are how tools find what to act on. Three different mechanisms (objects + message-passing, lisp + hooks, entities + components), one substrate property.
+
+## From paths to queries
+
+The current filesystem ships one query interface: paths. Every other way of asking the question ([`find`](https://man7.org/linux/man-pages/man1/find.1.html)<Cite id="find" />, [`locate`](https://man7.org/linux/man-pages/man1/locate.1.html)<Cite id="locate" />, [Spotlight](https://support.apple.com/en-us/HT204014)<Cite id="spotlight" />, [ripgrep](https://github.com/BurntSushi/ripgrep)<Cite id="ripgrep" />, [fd](https://github.com/sharkdp/fd)<Cite id="fd" />) is a layer on top with its own index, its own daemon, and its own opinion about what's worth caching. The substrate gives you one access pattern; the rest is bolted on.
+
+Flecs already ships a [query DSL](https://www.flecs.dev/flecs/md_docs_2QueryLanguage.html)<Cite id="flecs-query-lang" /> that reads like [Prolog](https://en.wikipedia.org/wiki/Prolog)<Cite id="prolog" /> terms over typed components. A query is a conjunction of constraints on which components an entity carries and how it relates to other entities:
+
+```text
+Position, Velocity, (ChildOf, $room), Room($room)
+```
+
+That clause matches every entity with `Position` and `Velocity`, descending from some `$room` entity, where the room is itself tagged `Room`. The variable `$room` binds across terms the way it does in Prolog or [Datalog](https://en.wikipedia.org/wiki/Datalog)<Cite id="datalog" />.
+
+Apply that frame to files. A file is an entity. Bytes, mimetype, modification time, owner, embedding vector, full-text index: each becomes a component with a typed schema. Hierarchy is a `ChildOf` relation. The path is one possible index into the world, alongside any other component you decide to range over.
+
+```text
+File, (Suffix, ".rs"), (ChildOf:Cascade, src),
+  Size($s), $s > 1024,
+  ModifiedAt($t), $t > now() - 1h
+```
+
+That replaces `find /src -name '*.rs' -size +1k -mmin -60` with a query the kernel can plan against an index, the Explorer can render as a live table, and a model can generate from natural language without learning which flag is which.
+
+Then turn the dial. Flecs has two reactive primitives over the same query language. A [system](https://www.flecs.dev/flecs/md_docs_2SystemsManual.html)<Cite id="flecs-systems" /> is a function that runs on every tick over the matching entities. An [observer](https://www.flecs.dev/flecs/md_docs_2ObserversManual.html)<Cite id="flecs-observers" /> uses the same query but fires on lifecycle events (`OnAdd`, `OnSet`, `OnRemove`) the moment a transition happens. Ticks are for cron-shaped work; events are for `inotify`-shaped work.
+
+```c
+// File watcher: fires whenever ModifiedAt is set on a File.
+observer OnEdit on(OnSet, ModifiedAt) (File, Path)
+  print("changed: $Path")
+```
+
+That replaces `inotify_add_watch` plus `epoll` plus the event-loop glue. The sibling primitive on the tick side gives you cron: `system Reindexer every 1m (File, Path) → reindex($Path)`. Between them, observers and systems subsume [fswatch](https://github.com/emcrisostomo/fswatch)<Cite id="fswatch" />, [Recoll's](https://www.lesbonscomptes.com/recoll/)<Cite id="recoll" /> reindexer, Spotlight's metadata extractors, antivirus scanners, dedup engines. The OS today ships a dozen independent implementations of "query plus reaction" because the substrate does not carry the abstraction. ECS carries both halves as primitives.
+
+Composability falls out. Tag a directory with an `Embed` marker and write one observer:
+
+```c
+// Auto-embed any File under an Embed-tagged ancestor whose Bytes were just set.
+observer Embedder on(OnSet, Bytes)
+  (File, Bytes($b), !Embedding, (ChildOf:Cascade, $parent), Embed($parent))
+  $vec = embed($b)
+  set Embedding { $vec }
+```
+
+Tag `~/notes` with `Embed`: embeddings appear and stay fresh. Tag a Slack export: same. Drop model context into a workspace folder: same. The rule lives in one place; iteration and change notification are the substrate's job, not the rule's.
+
+This is the property that makes the substrate worth the move. The query language is the API surface, so a module needs no separate plugin layer to design, document, or version. A module ships its components and observers; another module reacts by querying them. The substrate routes events to whichever consumers match. Modules don't have to coordinate; they compose because they share the substrate. Layered stacks usually approximate this with plugin APIs, dependency-injection containers, or IPC bridges, with results that range from elegant (the [Emacs](https://www.gnu.org/software/emacs/)<Cite id="emacs" /> hook system) to fragile (every browser extension API rewrite of the last fifteen years).
+
+A new tool can hang `LicenseAudit`, `MalwareScore`, `CitationCount`, or `SemanticTags` off any file entity. Existing queries keep matching whatever they were matching. New queries add the new component to their clause. Flecs calls these bundles [modules](https://www.flecs.dev/flecs/md_docs_2Manual.html)<Cite id="flecs-manual" />: components, systems, and observers grouped under a namespace, dropped into one world in any order. Integration cost tends to scale with the number of modules rather than the number of pairs of modules, because the adapters are the queries and the queries already exist.
+
+The Prolog comparison sharpens here. Prolog's win was that the same predicate (`ancestor/2`) serves as a query, an inference rule, and a structural constraint. Flecs queries do the same trick for runtime state: the clause `Position, Velocity` is what a [system](https://www.flecs.dev/flecs/md_docs_2SystemsManual.html) iterates, what an [observer](https://www.flecs.dev/flecs/md_docs_2ObserversManual.html)<Cite id="flecs-observers" /> reacts to, and what the [Explorer](https://www.flecs.dev/explorer/) renders. One declarative form. The verb is chosen at the call site.
+
+Flecs even has its own [scene definition language](https://www.flecs.dev/flecs/md_docs_2FlecsScript.html)<Cite id="flecs-script" />, the same syntax the city demo's `scene.flecs` file uses. The format is already self-hosting: you describe a world in it, you query the world in it, you react to changes in the world in it. The shell, the IDE, the configuration manager, and the daemon supervisor all reduce to consumers of one substrate.
+
+What this buys is a filesystem-shaped substrate where every tool that walks the tree is a query, every daemon that watches for changes is a system, every layer that extracts metadata is a component plus a system, every UI is a query rendered through whatever frontend (terminal, tree, 3D city, model-generated form) the consumer prefers.
+
+What this costs is the engine. Persistent ECS at filesystem scale is not solved at the polish level needed to replace POSIX. The pieces exist ([libmdbx](https://github.com/isar/libmdbx) for mmap-backed ACID storage; [SpacetimeDB](https://spacetimedb.com/)<Cite id="spacetimedb" /> for a more aggressive bet on multiplayer typed state; flecs for the query engine; mmap-sync for the IPC primitive), but nobody has shipped them as "your shell speaks queries instead of paths." Yet.
+
+## IPC is not in the contract either
+
+Two processes sharing a tmpfs file see each other's writes. Two processes each reading `/proc/self/status` see independent views. Two processes mounting different overlayfs layers see the same path resolve differently. POSIX doesn't promise cross-process visibility; the specific filesystem either offers it or doesn't.
+
+In practice the namespace is the feature. `/tmp/foo.sock`, `/dev/shm/cache`, `/var/run/baz.pid`: two processes that can agree on a string can rendezvous through Unix domain sockets, named pipes, or shared memory regions bound to that string. Enough code depends on this convention that the namespace itself is the load-bearing piece.
+
+A flecs world is the same kind of namespace under different keys. Two processes can share one world through the [REST endpoint](https://www.flecs.dev/flecs/md_docs_2FlecsRemoteApi.html)<Cite id="flecs-remote" /> for the cheap case, or through shared memory and a custom sync layer for the fast one. The primitives already exist: [mmap-sync](https://github.com/cloudflare/mmap-sync)<Cite id="mmap-sync" /> ships single-writer, multi-reader zero-copy typed structs over `/dev/shm` for exactly this shape; [libmdbx](https://github.com/isar/libmdbx)<Cite id="libmdbx" /> does multi-process ACID over mmap with no server process. Gluing an ECS on top is application work, not infrastructure work. Observers carry the change notifications that [`inotify`](https://man7.org/linux/man-pages/man7/inotify.7.html)<Cite id="inotify" /> carries for paths. The rendezvous is what people actually wanted from `/tmp/foo.sock`. It transfers.
+
+## Persistence is a hardware artifact
+
+`fsync` exists because RAM forgets when power dies and disks remember. Snapshot the whole VM atomically and the asymmetry softens into a latency story. Erlang has lived near this line for forty years through [hot code loading](https://www.erlang.org/doc/system/code_loading.html)<Cite id="erlang-hot" />. [CRIU](https://criu.org/)<Cite id="criu" /> and modern hypervisors are dragging the rest of the stack toward it.
+
+Layer flecs on top: snapshot memory, get persistence; expose verbs, get the API. A database, a filesystem, and a live application substrate collapse into one interface. The three labels were tracking three contingent properties of disk-era hardware.
+
+## Edge cases that test the frame
+
+[Device files](https://en.wikipedia.org/wiki/Device_file)<Cite id="device-file" />. `/dev/null` accepts every byte you write and returns nothing on read. `/dev/zero` produces infinite zeros. `/dev/urandom` produces noise. The "write-then-read returns the bytes" invariant does not hold. The frame predicts this: these files are function calls dressed as paths, and the filesystem-as-API view treats their behavior as the implementation answering the verbs. The filesystem-as-disk view has to call them magic.
+
+[Open-but-deleted files](https://man7.org/linux/man-pages/man2/unlink.2.html)<Cite id="unlink" />. Process opens `log.txt`. Another process `unlink`s it. The first process keeps writing and reading, and the bytes are still there. The path is gone, but the [inode](https://en.wikipedia.org/wiki/Inode)<Cite id="inode" /> lives on as long as some file descriptor references it. The path was one index into the data; the descriptor is another. Treating the hierarchy as the file mistakes the index for the row.
+
+[Named pipes](https://man7.org/linux/man-pages/man3/mkfifo.3.html)<Cite id="mkfifo" /> and [Unix domain sockets](https://man7.org/linux/man-pages/man7/unix.7.html)<Cite id="unix-socket" />. `mkfifo /tmp/q` creates an entry that two processes use as a channel: writer blocks until reader connects. The "file" never stores anything. POSIX puts IPC into the filesystem namespace deliberately. The verbs already work, so any program that understands `open` and `read` understands the channel without learning a new API. That is the shared-substrate payoff made concrete.
+
+[Object storage](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html)<Cite id="s3" /> (S3, GCS, Azure Blob) supports GET and PUT but not atomic `rename`, not append, not directories (only flat keys whose names happen to contain `/`). Is it a filesystem? By the strict POSIX definition, no: the contract is narrower. By the database reframe, yes: it's the same shape with a different subset of verbs implemented. The honest move is to publish *which* verbs your storage supports rather than fight over the label.
+
+[`flock`](https://man7.org/linux/man-pages/man2/flock.2.html)<Cite id="flock" /> and [`fcntl`](https://man7.org/linux/man-pages/man2/fcntl.2.html)<Cite id="fcntl" /> advisory locks. Their ownership semantics surprised callers often enough that Linux shipped [open-file-description locks](https://lwn.net/Articles/586904/)<Cite id="ofd-locks" /> in 2014 as a fcntl variant with saner rules; the LWN coverage walks through the original design's failure modes. On [NFS](https://datatracker.ietf.org/doc/html/rfc7530)<Cite id="nfs" /> the surprises compound: the [NFS locking caveats](https://serverfault.com/questions/66919/file-locks-on-an-nfs)<Cite id="nfs-locks" /> are widely cited folklore precisely because the documented behavior and the deployed behavior keep diverging. This is the genuine break in the post's frame. The POSIX contract treats cross-process coordination as a filesystem feature, and the implementation drifted far enough from the spec that the kernel had to ship a second version of it. Treat advisory locks the way you treat eventual consistency in a database. Measure the guarantees this filesystem on this kernel actually provides before anything load-bearing depends on them.
+
+## What survives the strip-down
+
+The verbs are a contract between strangers. Two programs that share an API can compose without coordinating; that's the only part of "filesystem" that pulls weight. Hierarchy, persistence, byte-addressing, the file metaphor itself: each is a useful default for some workloads and a tax on others, and each is renegotiable the moment you notice it isn't in the contract.
+
+<References />

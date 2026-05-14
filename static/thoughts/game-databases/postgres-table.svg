@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 240" fill="none">
+  <style>
+    text { font-family: ui-monospace, monospace; font-size: 12px; fill: #374151; }
+    .header { font-weight: 600; fill: #111827; }
+    .label { font-size: 14px; font-weight: 600; fill: #111827; }
+  </style>
+
+  <!-- Title -->
+  <text x="200" y="24" text-anchor="middle" class="label">PostgreSQL: Row-Oriented</text>
+
+  <!-- Table outline -->
+  <rect x="40" y="40" width="320" height="180" rx="4" stroke="#9CA3AF" stroke-width="1.5" fill="white"/>
+
+  <!-- Header row -->
+  <rect x="40" y="40" width="320" height="32" rx="4" fill="#F3F4F6"/>
+  <line x1="40" y1="72" x2="360" y2="72" stroke="#9CA3AF" stroke-width="1"/>
+
+  <!-- Column dividers -->
+  <line x1="100" y1="40" x2="100" y2="220" stroke="#D1D5DB" stroke-width="1"/>
+  <line x1="180" y1="40" x2="180" y2="220" stroke="#D1D5DB" stroke-width="1"/>
+  <line x1="260" y1="40" x2="260" y2="220" stroke="#D1D5DB" stroke-width="1"/>
+
+  <!-- Header text -->
+  <text x="70" y="60" text-anchor="middle" class="header">id</text>
+  <text x="140" y="60" text-anchor="middle" class="header">x</text>
+  <text x="220" y="60" text-anchor="middle" class="header">y</text>
+  <text x="310" y="60" text-anchor="middle" class="header">vel_x</text>
+
+  <!-- Row dividers -->
+  <line x1="40" y1="104" x2="360" y2="104" stroke="#E5E7EB" stroke-width="1"/>
+  <line x1="40" y1="136" x2="360" y2="136" stroke="#E5E7EB" stroke-width="1"/>
+  <line x1="40" y1="168" x2="360" y2="168" stroke="#E5E7EB" stroke-width="1"/>
+
+  <!-- Row 1 - highlighted to show row storage -->
+  <rect x="41" y="73" width="318" height="30" fill="#E5E7EB" opacity="0.5"/>
+  <text x="70" y="92" text-anchor="middle">1</text>
+  <text x="140" y="92" text-anchor="middle">10.5</text>
+  <text x="220" y="92" text-anchor="middle">20.3</text>
+  <text x="310" y="92" text-anchor="middle">1.2</text>
+
+  <!-- Row 2 -->
+  <text x="70" y="124" text-anchor="middle">2</text>
+  <text x="140" y="124" text-anchor="middle">15.0</text>
+  <text x="220" y="124" text-anchor="middle">8.7</text>
+  <text x="310" y="124" text-anchor="middle">0.5</text>
+
+  <!-- Row 3 -->
+  <text x="70" y="156" text-anchor="middle">3</text>
+  <text x="140" y="156" text-anchor="middle">3.2</text>
+  <text x="220" y="156" text-anchor="middle">44.1</text>
+  <text x="310" y="156" text-anchor="middle">2.0</text>
+
+  <!-- Row 4 -->
+  <text x="70" y="188" text-anchor="middle">4</text>
+  <text x="140" y="188" text-anchor="middle">22.8</text>
+  <text x="220" y="188" text-anchor="middle">11.5</text>
+  <text x="310" y="188" text-anchor="middle">0.8</text>
+
+  <!-- Arrow showing row-wise storage -->
+  <path d="M 375 88 L 390 88 L 390 180 L 375 180" stroke="#6B7280" stroke-width="1.5" fill="none"/>
+  <text x="395" y="138" class="label" font-size="11">rows in</text>
+  <text x="395" y="152" class="label" font-size="11">memory</text>
+</svg>

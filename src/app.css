@@ -1,0 +1,327 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,450;14..32,500;14..32,550&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design System
+ * Inspired by Linear, Notion, Apple - soft, warm, considered
+ */
+
+:root {
+    /* Typography */
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono: 'Fira Code', 'SF Mono', ui-monospace, monospace;
+    --font-mono-features: "liga" 1, "calt" 1;
+
+    /* Layout */
+    --content-max-width: 640px;
+    --content-padding: 5rem 1.5rem;
+
+    /*
+     * Light mode palette
+     * Warm off-white base with carefully considered grays
+     */
+    --background: #fafaf9;
+    --background-secondary: #f5f5f4;
+
+    /* Text hierarchy - not pure black, warmer charcoals */
+    --text-primary: #1c1917;      /* Headings - darkest, warm stone */
+    --text-secondary: #44403c;    /* Body text - softer, readable */
+    --text-tertiary: #78716c;     /* Muted text - subtle warmth */
+    --text-quaternary: #a8a29e;   /* Placeholder, disabled */
+
+    /* Surfaces */
+    --surface: #ffffff;
+    --surface-elevated: #ffffff;
+
+    /* Borders - barely visible, warm */
+    --border: #e7e5e4;
+    --border-subtle: #f5f5f4;
+
+    /* Code */
+    --code-bg: #f5f5f4;
+    --code-text: #1c1917;
+
+    /* Accent - subtle, not distracting */
+    --accent: #78716c;
+
+    --radius: 6px;
+}
+
+/* Dark palette - applied via media query or .dark class */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --background: #161514;
+        --background-secondary: #1c1b1a;
+        --text-primary: #fafaf9;
+        --text-secondary: #d6d3d1;
+        --text-tertiary: #a8a29e;
+        --text-quaternary: #78716c;
+        --surface: #1c1b1a;
+        --surface-elevated: #231f1e;
+        --border: #292524;
+        --border-subtle: #1c1b1a;
+        --code-bg: #1c1b1a;
+        --code-text: #e7e5e4;
+        --accent: #a8a29e;
+    }
+}
+
+/* Manual dark mode override */
+.dark {
+    --background: #161514;
+    --background-secondary: #1c1b1a;
+    --text-primary: #fafaf9;
+    --text-secondary: #d6d3d1;
+    --text-tertiary: #a8a29e;
+    --text-quaternary: #78716c;
+    --surface: #1c1b1a;
+    --surface-elevated: #231f1e;
+    --border: #292524;
+    --border-subtle: #1c1b1a;
+    --code-bg: #1c1b1a;
+    --code-text: #e7e5e4;
+    --accent: #a8a29e;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+
+body {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem; /* 15px - slightly smaller, more refined */
+    line-height: 1.7;
+    color: var(--text-secondary);
+    background: var(--background);
+    padding: var(--content-padding);
+    max-width: var(--content-max-width);
+    margin: 0 auto;
+    font-weight: 400;
+    letter-spacing: -0.011em; /* Subtle tightening for Inter */
+}
+
+/*
+ * Typography Scale
+ * Precise, intentional hierarchy
+ */
+
+h1, h2, h3, strong, th, td:first-child {
+    color: var(--text-primary);
+}
+
+h1, h2, strong, th {
+    font-weight: 550;
+}
+
+h1 {
+    font-size: 1.75rem;
+    margin-bottom: 1.25rem;
+    letter-spacing: -0.025em;
+    line-height: 1.25;
+}
+
+h2 {
+    font-size: 1.125rem;
+    margin-top: 2.5rem;
+    margin-bottom: 0.625rem;
+    letter-spacing: -0.02em;
+    line-height: 1.35;
+}
+
+h3 {
+    font-size: 0.9375rem;
+    font-weight: 500;
+    margin-top: 1.75rem;
+    margin-bottom: 0.5rem;
+    letter-spacing: -0.015em;
+    line-height: 1.4;
+}
+
+p {
+    margin-bottom: 1.125rem;
+}
+
+ul, ol {
+    margin-bottom: 1.125rem;
+    padding-left: 1.125rem;
+}
+
+li {
+    margin-bottom: 0.25rem;
+}
+
+li::marker {
+    color: var(--text-tertiary);
+}
+
+a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+a:hover {
+    color: var(--text-tertiary);
+}
+
+/*
+ * Code styling
+ */
+
+code {
+    font-family: var(--font-mono);
+    font-feature-settings: var(--font-mono-features);
+    font-size: 0.8125em;
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: 0.175em 0.375em;
+    border-radius: 4px;
+    font-weight: 400;
+}
+
+pre {
+    background: var(--code-bg) !important;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.875rem 1rem;
+    overflow-x: auto;
+    margin: 1.5rem 0;
+    line-height: 1 !important;
+}
+
+pre code {
+    background: none !important;
+    padding: 0;
+    font-size: 0.8125rem;
+    line-height: 1 !important;
+}
+
+/* Shiki dual theme support */
+pre.shiki span,
+code.shiki-inline span {
+    color: var(--shiki-light);
+    background-color: transparent !important;
+}
+
+code.shiki-inline {
+    white-space: pre;
+}
+
+@media (prefers-color-scheme: dark) {
+    pre.shiki span,
+    code.shiki-inline span {
+        color: var(--shiki-dark);
+    }
+}
+
+.dark pre.shiki span,
+.dark code.shiki-inline span {
+    color: var(--shiki-dark);
+}
+
+em {
+    font-style: italic;
+}
+
+/*
+ * Responsive
+ */
+
+@media (max-width: 640px) {
+    :root {
+        --content-padding: 3rem 1.25rem;
+    }
+
+    body {
+        font-size: 0.875rem;
+    }
+
+    h1 {
+        font-size: 1.5rem;
+    }
+
+    h2 {
+        font-size: 1rem;
+        margin-top: 2rem;
+    }
+
+    h3 {
+        font-size: 0.875rem;
+    }
+}
+
+/*
+ * KaTeX
+ */
+
+.katex {
+    font-size: 1em;
+}
+
+.katex-display {
+    margin: 1.25rem 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+/*
+ * Tables
+ */
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5rem 0;
+    font-size: 0.875rem;
+}
+
+th, td {
+    text-align: left;
+    padding: 0.625rem 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+th, td:first-child {
+    white-space: nowrap;
+}
+
+td {
+    color: var(--text-secondary);
+}
+
+td:first-child {
+    font-weight: 450;
+}
+
+/* Zebra striping - subtle */
+tbody tr:nth-child(even) {
+    background: var(--background-secondary);
+}
+
+/* Hover state */
+tbody tr:hover {
+    background: var(--border-subtle);
+}
+
+/*
+ * Selection
+ */
+
+::selection {
+    background: var(--text-primary);
+    color: var(--background);
+}
+

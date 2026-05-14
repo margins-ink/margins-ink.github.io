@@ -1,0 +1,330 @@
+---
+title: The Rerun Problem
+date: 2025-12-06
+status: WIP
+username: andrewgazelka
+---
+
+<script lang="ts">
+	import GenerationSimulator from './GenerationSimulator.svelte';
+	import RetriesSimulator from './RetriesSimulator.svelte';
+	import QueueTimeline from './QueueTimeline.svelte';
+	import SideBySide from './SideBySide.svelte';
+</script>
+
+# The Rerun Problem
+
+You have 1 million images. Each needs vectorization—embeddings for similarity search. Processing takes ~10 seconds per image. A button triggers reprocessing for all of them.
+
+Simple, right? Press button, images process. But the real world is messy:
+
+- Someone presses the button while processing is still running
+- Some images fail and need retries
+- Some images keep failing—corrupted files that poison your queue
+- You need visibility into what's happening
+
+Let's build up a solution.
+
+---page---
+
+## The Setup
+
+You're running image vectorization. Maybe you updated your embedding model. Maybe you changed preprocessing. Maybe you're migrating to a new vector database. Whatever the reason—you need to reprocess everything.
+
+You can't process all million at once—you have 2 workers. They pull from a queue, vectorize, store embeddings, repeat.
+
+<QueueTimeline />
+
+At 10 seconds per image with 2 workers, that's ~58 days to process everything. Reality is brutal.
+
+---page---
+
+## Problem 1: The Model Update
+
+Halfway through, you deploy a new embedding model. The old embeddings are now stale—you need everything reprocessed with the new model.
+
+This isn't a fat-finger. You *want* to cancel the old work and restart fresh.
+
+**The naive approach:**
+
+```sql
+UPDATE images SET status = 'pending' WHERE status = 'completed';
+```
+
+But what about the images currently being vectorized? And what about images still queued but not started?
+
+<SideBySide />
+
+The problem: status flags create a race condition. You can't re-queue running tasks (they'd process twice with the old model), so they get skipped. The user expected everything to use the new model, but in-flight images slip through with stale embeddings.
+
+## Solution: Generation Numbers
+
+Instead of boolean states, use a monotonically increasing generation:
+
+<GenerationSimulator />
+
+```sql
+CREATE TABLE images (
+  id BIGINT PRIMARY KEY,
+  target_gen BIGINT DEFAULT 0,
+  completed_gen BIGINT DEFAULT 0,
+  INDEX idx_pending (target_gen, completed_gen)
+);
+
+-- Rerun all: just bump the target
+UPDATE images SET target_gen = target_gen + 1;
+
+-- Find work: target > completed
+SELECT * FROM images
+WHERE target_gen > completed_gen
+FOR UPDATE SKIP LOCKED;
+
+-- Complete: set completed = target (captured at pickup)
+UPDATE images SET completed_gen = ? WHERE id = ?;
+```
+
+**What's `FOR UPDATE SKIP LOCKED`?** It's MySQL's secret weapon for job queues:
+- `FOR UPDATE` locks the rows you select so no other worker can grab them
+- `SKIP LOCKED` means "if a row is already locked, skip it instead of waiting"
+
+Without it, Worker 2 would block waiting for Worker 1 to finish. With it, Worker 2 just grabs the next available row. No blocking, no double-processing.
+
+Now "Reprocess All" is a single atomic increment. Images in progress complete their current generation, then immediately become eligible again for the new model. No race conditions. No stale embeddings slipping through.
+
+---page---
+
+## Problem 2: Failures and Stragglers
+
+Real vectorization fails. Images are corrupted. APIs timeout. Memory runs out on huge images. Some images are just cursed.
+
+<RetriesSimulator />
+
+We need:
+- **Retry with backoff** - don't hammer a failing service
+- **Max retries** - eventually give up on stragglers
+- **Dead letter queue (DLQ)** - a "graveyard" where images go after exhausting all retries. They sit there for inspection instead of being lost forever. You can investigate why they failed, fix the issue, and replay them.
+- **Visibility** - see what's failing and why
+
+```sql
+CREATE TABLE images (
+  id BIGINT PRIMARY KEY,
+  target_gen BIGINT DEFAULT 0,
+  completed_gen BIGINT DEFAULT 0,
+
+  -- Retry tracking
+  attempts INT DEFAULT 0,
+  last_error TEXT,
+  next_attempt_at TIMESTAMP NULL,
+
+  -- Dead letter
+  dead BOOLEAN DEFAULT FALSE,
+
+  -- Index for finding workable images
+  INDEX idx_workable (dead, next_attempt_at, target_gen, completed_gen)
+);
+```
+
+Now your worker loop becomes:
+
+```sql
+-- Find work: needs run, not dead, ready for attempt
+SELECT * FROM images
+WHERE target_gen > completed_gen
+  AND dead = FALSE
+  AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+FOR UPDATE SKIP LOCKED
+LIMIT 100;
+```
+
+On failure:
+
+```python
+image.attempts += 1
+if image.attempts >= MAX_RETRIES:
+    image.dead = True
+    image.last_error = error
+else:
+    # Exponential backoff: 10s, 30s, 1m, 5m, 30m
+    delay = min(30 * 60, 10 * (3 ** image.attempts))
+    image.next_attempt_at = now() + delay
+    image.last_error = error
+```
+
+---page---
+
+## Problem 3: MySQL Doesn't Scale
+
+1 million images. 10 seconds each. That's 116 days of sequential work.
+
+Even with 1000 workers doing `FOR UPDATE SKIP LOCKED`:
+- Lock contention on the images table
+- Index bloat from constant updates
+- Connection pool exhaustion
+
+You need ~100k tasks/second throughput. MySQL gives you maybe 10k with heavy tuning.
+
+---page---
+
+## Enter QStash
+
+QStash is Upstash's managed queue. It handles the hard parts:
+
+- **Automatic retries** with exponential backoff (10s → 30s → 1m → 5m → 30m → 1h)
+- **Dead letter queue** for messages that exhaust retries
+- **Flow control** to limit parallelism and rate
+- **Callbacks** for success/failure notifications
+- **Observability** built in
+
+The key insight: **HTTP status codes are the completion signal**.
+
+### Flow Control
+
+Flow control lets you limit how QStash delivers messages. Two parameters:
+
+- **`parallelism`** - max concurrent in-flight requests. QStash waits for a response before starting another. Set to 100 means at most 100 requests active at once.
+- **`rate` + `period`** - max requests per time window. `rate=10, period=1m` means 10 requests per minute max.
+
+Why does this matter? Your vectorization API might have concurrency limits, rate limits, or you just don't want to DDoS yourself. Flow control handles the backpressure—QStash queues the excess and drips them out as capacity frees up.
+
+```typescript
+// src/lib/qstash.ts
+import { Client } from "@upstash/qstash";
+
+const client = new Client({ token: process.env.QSTASH_TOKEN });
+
+await client.batchJSON(
+  images.map(image => ({
+    // QStash will POST to this URL
+    url: "https://my-app.com/vectorize",
+
+    // JSON payload sent as request body
+    body: { imageId: image.id, generation: currentGen },
+
+    // Retry up to 5 times on failure (5XX response)
+    // Default backoff: 10s → 30s → 1m → 5m → 30m
+    retries: 5,
+
+    flowControl: {
+      // Arbitrary string to group related messages
+      // All messages with same key share the same limits
+      key: "vectorizer",
+
+      // Max 100 requests in-flight at once
+      // QStash waits for response before sending next
+      parallelism: 100,
+
+      // Optional: rate limit (e.g., rate: 1000, period: "1m")
+    },
+  }))
+);
+```
+
+Your endpoint:
+
+```typescript
+// src/routes/vectorize.ts
+import { Hono } from 'hono';
+import { zValidator } from '@hono/zod-validator';
+import { z } from 'zod';
+import { eq, and, lt } from 'drizzle-orm';
+import { db } from '../db';
+import { images } from '../db/schema';
+
+const app = new Hono();
+
+const vectorizeSchema = z.object({
+  imageId: z.number(),
+  generation: z.number(),
+});
+
+app.post('/vectorize', zValidator('json', vectorizeSchema), async (c) => {
+  // QStash POSTs the body you specified above
+  const { imageId, generation } = c.req.valid('json');
+
+  // Atomic claim - prevents double processing
+  // Only updates if completedGen < generation (needs work)
+  // Returns 0 rows affected if already processed
+  const [result] = await db
+    .update(images)
+    .set({ completedGen: generation })
+    .where(and(eq(images.id, imageId), lt(images.completedGen, generation)));
+
+  if (result.affectedRows === 0) {
+    // Already processed (maybe by retry, maybe by newer generation)
+    // Return 200 so QStash doesn't retry
+    return c.text('Already done', 200);
+  }
+
+  try {
+    await vectorizeImage(imageId);
+    // 2XX = success, QStash marks delivered, won't retry
+    return c.text('OK', 200);
+  } catch (error) {
+    // 5XX = failure, QStash will retry with backoff
+    return c.text(error.message, 500);
+  }
+});
+
+export default app;
+```
+
+**The HTTP contract:**
+- Return **2XX** → QStash marks delivered, done
+- Return **5XX** → QStash retries with exponential backoff
+- Exhaust retries → Message goes to dead letter queue (DLQ)
+
+---page---
+
+## The "Reprocess All" Button with QStash
+
+```typescript
+// src/lib/reprocess.ts
+import { sql } from 'drizzle-orm';
+import { Client } from "@upstash/qstash";
+import { db } from './db';
+import { config, images } from './db/schema';
+
+const client = new Client({ token: process.env.QSTASH_TOKEN });
+
+export async function reprocessAll() {
+  // Bump generation atomically
+  await db
+    .update(config)
+    .set({ generation: sql`generation + 1` });
+
+  // Get the new value (MySQL doesn't support RETURNING)
+  const [row] = await db.select({ generation: config.generation }).from(config);
+  const newGen = row.generation;
+
+  // Get all image IDs
+  const allImages = await db.select({ id: images.id }).from(images);
+
+  // Batch enqueue in chunks of 100 (QStash batch limit)
+  for (let i = 0; i < allImages.length; i += 100) {
+    const batch = allImages.slice(i, i + 100);
+    await client.batchJSON(
+      batch.map(img => ({
+        url: "https://my-app.com/vectorize",
+        body: { imageId: img.id, generation: newGen },
+        flowControl: { key: "vectorizer", parallelism: 100 },
+      }))
+    );
+  }
+}
+```
+
+Press the button anytime. Generation increments. QStash handles delivery, retries, dead letters. Your endpoint is idempotent. No stale embeddings. No double processing.
+
+---page---
+
+## Summary
+
+| Approach | Handles Reruns | Retries | Dead Letter | Scales | Complexity |
+|----------|---------------|---------|-------------|--------|------------|
+| MySQL only | Generation numbers | Manual | Manual | ~10k/s | Medium |
+| MySQL + Redis | Generation numbers | Manual | Manual | ~50k/s | High |
+| QStash | Generation numbers | Automatic | Automatic | ~100k/s | Low |
+
+The generation number pattern solves the "model update" problem—no stale embeddings slip through.
+QStash solves retries, dead letters, and scale.
+Your code stays simple.

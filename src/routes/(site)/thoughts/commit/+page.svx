@@ -1,0 +1,90 @@
+---
+title: "commit: Zero-Allocation Commit Tracking for Rust"
+date: 2025-11-10
+visible: false
+username: andrewgazelka
+---
+
+# commit: Zero-Allocation Commit Tracking for Rust
+
+When you serialize data, you need to know which version of your code produced it. Version numbers are arbitrary and require manual maintenance. Git commits are the source of truth. This library embeds commit information directly into your types at compile time with zero runtime allocation.
+
+## The Problem
+
+Schema evolution is hard. You serialize data today with version 1.0 of your code. Six months later, you deserialize it with version 2.0. The structure changed. Fields were added, removed, or renamed. Without knowing which version wrote the data, you cannot safely migrate it.
+
+Traditional solutions use version numbers in the schema. This requires remembering to increment the version every time you change the serialization format. Humans forget. Commits do not.
+
+## Design
+
+[commit](https://github.com/andrewgazelka/commit) provides three crates that work together:
+
+- `commit-info`: Core commit tracking with zero-allocation history lookups via `include_bytes!`
+- `commit-pinned`: Wrapper type that pins any `T` to a commit with full serde support
+- `commit`: Unified interface that re-exports both
+
+The key insight: embed git history as raw bytes at compile time. Every commit gets a deterministic index based on temporal ordering. Compare commits without string operations or allocations.
+
+## Usage
+
+Pin data to the current commit when serializing:
+
+```rust
+use commit::Pinned;
+
+let data = Pinned::new(MyStruct {
+    field: "value"
+});
+serde_json::to_writer(file, &data)?;
+```
+
+Check which commit produced the data when deserializing:
+
+```rust
+let data: Pinned<MyStruct> = serde_json::from_reader(file)?;
+let time = data.commit_time()?;
+```
+
+Define schema version boundaries using commit hashes:
+
+```rust
+const V2_IDX: u16 = commit::Time::from_hash_const(&SCHEMA_V2_COMMIT).index();
+const V3_IDX: u16 = commit::Time::from_hash_const(&SCHEMA_V3_COMMIT).index();
+
+let version = match time.index() {
+    ..=V3_IDX => "v3",
+    ..V2_IDX => "v2",
+    _ => "v1",
+};
+```
+
+The commit index is deterministic and monotonic. Older commits have lower indices. This enables temporal comparisons without parsing dates or hashing strings at runtime.
+
+## Implementation
+
+The library uses build scripts to capture git history at compile time. Commit hashes are SHA-256 digests of git commit identifiers. The full history is embedded as a byte array with `include_bytes!`.
+
+Looking up a commit's temporal position requires no allocation. The embedded history uses a compact binary format. Indices are computed once at compile time.
+
+This approach has zero runtime cost. No file I/O. No heap allocations. No string comparisons. Just array indexing into precomputed data.
+
+## Use Cases
+
+Commit tracking works well for:
+
+- Schema migration in long-lived serialized data
+- Debugging which version of code produced problematic data
+- Temporal ordering of data artifacts without timestamp coordination
+- Audit trails that pin data to exact code versions
+
+This complements semantic versioning rather than replacing it. Semantic versions communicate intent to users. Commit hashes provide precise technical tracking.
+
+## Try It
+
+```bash
+cargo add --git https://github.com/andrewgazelka/commit commit
+```
+
+The library integrates with serde automatically. Wrap any serializable type with `Pinned` and the commit hash travels with your data.
+
+Source code: [github.com/andrewgazelka/commit](https://github.com/andrewgazelka/commit)

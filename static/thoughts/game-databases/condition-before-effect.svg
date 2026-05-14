@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 200" fill="none">
+  <style>
+    text { font-family: ui-monospace, monospace; font-size: 11px; fill: #374151; }
+    .header { font-weight: 600; fill: #111827; font-size: 12px; }
+    .label { font-size: 14px; font-weight: 600; fill: #111827; }
+    .small { font-size: 9px; fill: #6B7280; }
+    .danger { fill: #DC2626; }
+    .success { fill: #059669; }
+  </style>
+
+  <!-- Title -->
+  <text x="250" y="20" text-anchor="middle" class="label">CRDT Problem: Condition-Before-Effect</text>
+
+  <!-- Timeline -->
+  <line x1="40" y1="55" x2="460" y2="55" stroke="#9CA3AF" stroke-width="2"/>
+
+  <!-- Initial state -->
+  <rect x="45" y="65" width="70" height="28" rx="4" fill="#F3F4F6" stroke="#9CA3AF" stroke-width="1"/>
+  <text x="80" y="83" text-anchor="middle" class="header">HP: 100</text>
+
+  <!-- Poison system reads and decides -->
+  <line x1="140" y1="55" x2="140" y2="100" stroke="#6B7280" stroke-width="1" stroke-dasharray="4"/>
+  <rect x="100" y="100" width="80" height="50" rx="4" fill="white" stroke="#6B7280" stroke-width="1"/>
+  <text x="140" y="115" text-anchor="middle" class="small">Poison System</text>
+  <text x="140" y="130" text-anchor="middle">if HP > 50:</text>
+  <text x="140" y="143" text-anchor="middle" class="danger">apply poison</text>
+
+  <!-- Damage system -->
+  <line x1="240" y1="55" x2="240" y2="100" stroke="#6B7280" stroke-width="1" stroke-dasharray="4"/>
+  <rect x="200" y="100" width="80" height="40" rx="4" fill="#DBEAFE" stroke="#3B82F6" stroke-width="1"/>
+  <text x="240" y="117" text-anchor="middle" class="small">Damage System</text>
+  <text x="240" y="133" text-anchor="middle" class="header">Sub(60)</text>
+
+  <!-- Final state with problem -->
+  <line x1="420" y1="55" x2="420" y2="65" stroke="#6B7280" stroke-width="1"/>
+  <rect x="375" y="65" width="80" height="28" rx="4" fill="#D1FAE5" stroke="#059669" stroke-width="1.5"/>
+  <text x="415" y="83" text-anchor="middle" class="header success">HP: 40</text>
+
+  <!-- Problem callout -->
+  <rect x="330" y="105" width="140" height="55" rx="4" fill="#FEE2E2" stroke="#DC2626" stroke-width="1"/>
+  <text x="400" y="122" text-anchor="middle" class="small danger">Value correct: 40</text>
+  <text x="400" y="138" text-anchor="middle" class="small danger">Decision wrong:</text>
+  <text x="400" y="152" text-anchor="middle" class="small danger">poison applied at HP=40</text>
+
+  <!-- Arrow showing the problem -->
+  <path d="M 180 125 L 330 125" stroke="#DC2626" stroke-width="1" stroke-dasharray="3" marker-end="url(#redarrow)"/>
+  <defs>
+    <marker id="redarrow" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+      <path d="M 0 0 L 6 3 L 0 6 Z" fill="#DC2626"/>
+    </marker>
+  </defs>
+  <text x="255" y="118" text-anchor="middle" class="small danger">read stale</text>
+
+  <!-- Bottom note -->
+  <text x="250" y="185" text-anchor="middle" class="small">Threshold check saw 100, but final value is 40. Poison should not have been applied.</text>
+</svg>

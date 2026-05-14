@@ -1,0 +1,166 @@
+---
+title: Nix without the DAG
+date: 2026-05-13
+status: WIP
+username: andrewgazelka
+---
+
+<script lang="ts" context="module">
+	import IconMdiGraphOutline from '~icons/mdi/graph-outline';
+	export { IconMdiGraphOutline as icon };
+</script>
+
+# Nix without the DAG
+
+Nix is a directed acyclic graph. Each derivation hashes its inputs, and the hash names the output. The acyclicity is load-bearing.
+
+Consider what happens with a cycle. A depends on B, B depends on A. To compute A's hash you need B's hash. To compute B's hash you need A's. There is no fixed point to anchor on, so neither hash exists. Content addressing collapses.
+
+But cycles do show up in building, and Nix has to handle them.
+
+## The cycles Nix already pretends don't exist
+
+The classic case is the bootstrap compiler. GCC is written in C. To build GCC you need a C compiler. Nix breaks this cycle by materializing a precompiled "bootstrap seed" as a leaf node: a binary blob that exists outside the derivation graph and is trusted by fiat.
+
+```nix
+gcc_0 = bootstrap_seed;                    # opaque binary, trusted leaf
+gcc_1 = build { src = gcc_src; cc = gcc_0; };
+gcc_2 = build { src = gcc_src; cc = gcc_1; };  # self-hosted, reproducible from gcc_1
+```
+
+Profile-guided optimization is a real cycle. Build the program, run it, collect profiles, rebuild using those profiles. Nix unfolds this into a chain of distinct nodes: build A, run A to produce profile P, build B using P. The cycle becomes a sequence of frozen snapshots.
+
+```nix
+prog_a  = build { src = app_src; profile = null; };
+profile = run prog_a workload;
+prog_b  = build { src = app_src; profile = profile; };
+```
+
+Mutually recursive packages get the same treatment. GHC and Cabal historically had tangled dependencies. The fix was always to stage them by hand: a frozen earlier GHC builds the current Cabal, which builds the current GHC.
+
+```nix
+ghc_prev = trusted_binary;                         # frozen earlier release
+cabal    = build { src = cabal_src; ghc = ghc_prev; };
+ghc      = build { src = ghc_src;   inherit cabal; };
+```
+
+Nix does not reject cyclic intent. It requires you to unfold cycles into a DAG manually.
+
+## Could you hash a cycle?
+
+In principle, yes. Content addressing of cyclic structures is a solved problem in other contexts. You can compute hashes over strongly connected components rather than individual nodes. You can use bisimulation-style equivalence to decide when two cyclic structures are the same. The IPLD and Merkle-DAG communities have worked this out for similar reasons.
+
+A cyclic build system would need a different evaluation model. Instead of "compute the hash, then build," it would compute a fixed point: keep iterating until the graph stabilizes. This is exactly what Datalog does for queries. Recursive rules are first-class, and the semantics is "compute the least fixed point of the rules."
+
+```prolog
+% the rule refers to itself; the engine still terminates
+ancestor(X, Y) :- parent(X, Y).
+ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
+```
+
+Haskell goes further. `let xs = 0 : xs` is a valid expression. It denotes an infinite list of zeros, represented in memory as a literal cycle: a cons cell whose tail points back to itself. Lazy evaluation makes this work. You only force as much of the structure as you need, so a cyclic description can describe a productive computation.
+
+```haskell
+fibs = 0 : 1 : zipWith (+) fibs (tail fibs)
+```
+
+A finite, cyclic description of an infinite sequence. The graph has cycles. The computation terminates per-element.
+
+A Nix-shaped system built on these primitives could allow cyclic derivations whose "build" is a fixed-point computation. Convergence would replace topological order as the correctness criterion.
+
+## Why split build from runtime at all
+
+Three reasons, in descending order of how much they actually matter today.
+
+Historical: separate compilation came from machines that could not fit the compiler and the program in memory at once. You compiled, threw the compiler away, and ran. The artifact had to be smaller and cheaper than the process that produced it.
+
+Practical: caching. If you can name the build output by the hash of its inputs, you can skip rebuilding when those inputs are unchanged. The build/runtime split is what lets Nix exist as a thing distinct from the program.
+
+Political: opaque artifacts. A binary blob is a node whose preimage you are not allowed to see. Proprietary software needs a frozen output that nobody upstream can introspect or rebuild. The boundary between source and binary is partly a legal artifact.
+
+The first reason barely applies anymore. The second is real and load-bearing. The third is the one worth being suspicious of.
+
+## What no boundary looks like
+
+Some systems erase the build/runtime split entirely.
+
+A Smalltalk image is the running system. There is no separate build step. You modify code by editing the live graph of objects, and the image persists with your changes. Common Lisp behaves similarly. Erlang has hot code swapping in the same family: replace a function in a running process, and the next call uses the new version.
+
+These systems treat the program as a perpetually mutable graph rather than a series of frozen snapshots. They feel alien if you grew up with `make`, because they refuse to draw the line between "writing" and "running."
+
+The closest thing to "Nix at runtime" is [Unison](https://www.unison-lang.org/). Every function in Unison is content-addressed by the hash of its AST (modulo names). There are no files. The codebase is a database of hashed terms, with names as pointers into it. Two libraries depending on different versions of the same function see two different hashes and coexist without conflict. Renaming is a metadata change. Refactoring stores a new term and updates the name pointer. Dependency hell does not happen, because there is no shared mutable namespace to fight over.
+
+```haskell
+-- the function is stored under its hash; the name is a pointer
+square : Nat -> Nat
+square x = x * x
+
+-- conceptually:
+--   #a91f3b  :=  \\x -> x * x
+--   "square" ->  #a91f3b
+-- editing creates a new hash; "square" is repointed
+```
+
+Unison is what you get when you take Nix's content-addressing all the way down: into the language, into the runtime, into the source itself.
+
+## What `bun dev` is reaching for
+
+Run `bun dev` or Vite and the wall starts to flicker. Edit a React component. The browser updates without reloading. The component's local state survives. Something that looks a lot like live image programming is happening on top of a stack that does not believe in it.
+
+What is actually going on:
+
+1. A file watcher notices the change.
+2. The dev server transforms the new source (TS to JS, JSX to function calls). No bundle. Each module is served on its own ESM URL.
+3. A websocket pushes an HMR signal to the browser.
+4. The browser fetches the new module text and replaces the old module in its runtime registry.
+5. React Fast Refresh inspects the change. If only function bodies moved, it preserves the fiber tree and reruns affected components with the new code. If the module's shape moved (new export, new hook), it gives up and forces a full reload.
+
+This is hot swap. Erlang has done it since the 80s. The difference is that Erlang treats it as a first-class language feature with explicit `code_change` callbacks for state migration. HMR treats it as a framework-specific best effort that quietly degrades to full reload when confused.
+
+```erlang
+%% gen_server callback fired by the runtime during a hot upgrade.
+%% the old state shape arrives; you return the new one.
+code_change({down, _Vsn}, {state, Count, _Label}, _Extra) ->
+    {ok, {state, Count}};                       %% v2 -> v1
+code_change(_OldVsn, {state, Count}, _Extra) ->
+    {ok, {state, Count, <<"unlabeled">>}}.      %% v1 -> v2
+```
+
+The migration is data the runtime executes, not a hope.
+
+The reason HMR is fragile is that JavaScript modules are not content-addressed. A module is identified by its file path. When you swap a module behind a path, anything that already captured a value from that module holds a dangling reference to the old version. React Fast Refresh works because React owns its component registry, identifies components by function reference plus a hint, and can rewire its own internals. Anything outside React's tree (an imperatively attached event handler, a closure captured into `setTimeout`, a third-party library holding references) silently drifts.
+
+Now run `bun build` for production. Different mechanism entirely. The same source becomes a bundle: many inputs collapsed into one output, hashed, served from a CDN, replaced by a deployment that drops the running process. This is a derivation. It is the same operation Nix does for packages, applied to JavaScript modules. The build/run boundary is back. Live editing is gone. State preservation across deploys is your problem.
+
+The split exists because the dev mechanism does not survive contact with the real world (multiple users, persistent state, security), and the prod mechanism does not survive contact with iteration speed (full reload on every save).
+
+In a content-addressed graph each module is a hash. Each named binding is a pointer from name to hash. Editing a function does not replace the old function. It creates a new hash and moves the name. The running system holds either a name (mutable) or a hash (frozen). Hot reload is what happens when a name moves. Production deploy is what happens when a name moves. The mechanism is the same.
+
+The hard problem stays: state migration. Given old hash H1 and new hash H2, what is the migration H1 → H2? Usually identity. Sometimes not. Erlang makes the migration explicit. React Fast Refresh pretends it does not exist and hopes nothing important was attached to the old module. The content-addressed model does not solve this. It makes the question well-posed.
+
+The difference between `bun dev` and `bun build` is who is allowed to move the pointer. In dev, your file saves move it, locally, for one user. In production, your release process moves it, atomically, for everyone. Everything else is mechanism that exists because dev and prod cannot agree on what a module is.
+
+## The wall
+
+Imagine one content-addressed graph spanning kernel, libraries, applications, and running processes. No build/runtime boundary. Every node has a preimage. Every node can be overridden, and everything downstream recomputes.
+
+NixOS approaches this for open-source software. Overlays and overrides let you patch anything in the dependency tree. But the wall stands at two places:
+
+1. Proprietary blobs: opaque nodes whose preimage is hidden by law or business model.
+2. The runtime/build boundary: the running system is not itself a derivation you can edit.
+
+Both walls are enforced by social facts. The computation works. Hashing cyclic structures is well-understood. Lazy evaluation handles fixed points. Datalog handles recursion. Unison handles content-addressed code at the function level. The pieces exist. They are not assembled at scale.
+
+Your Spotify client is not a node in the same graph as your kernel. The graph could represent it. The graph would also let you modify it, and someone does not want you to.
+
+## What you were sniffing
+
+DAG-ness is a property of how we have chosen to factor the problem. The factoring is useful. Content addressing needs it for the simple hash model. Caching depends on it. Reasoning about builds gets easier when there is a topological order.
+
+Drop those constraints and you can have cycles. Drop the build/runtime distinction and you can have a live program-graph. Drop the boundary between source and binary and you can have Unison. Drop the boundary between dev and prod and you can have one mechanism for editing a running system, at any scale.
+
+The framing underneath all of this: every interesting operation in software is a name-to-hash binding in a content-addressed graph. Compiling resolves a name. Linking resolves more names. Installing puts hashes on disk. Loading puts hashes in memory. Hot reload moves a pointer. Deploying moves a pointer. Branching is a pointer. A package version is a pointer. A function signature change is a new hash with the old name aimed somewhere new.
+
+The difference between any two of these operations is who is allowed to move which pointers, and when. `nix build`, `bun dev`, `git checkout`, `npm install`, `kubectl rollout`: all the same primitive, gated by different policies and audiences.
+
+None of this is dominant. The reason is inertia, mostly. Property regimes, partly. Computational necessity, hardly at all. The walls are about who holds the pen. Computation never required them.

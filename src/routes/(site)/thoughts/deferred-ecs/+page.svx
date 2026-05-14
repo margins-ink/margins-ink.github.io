@@ -1,0 +1,94 @@
+---
+title: Game Databases
+date: 2025-11-30
+status: WIP
+username: andrewgazelka
+---
+
+<script lang="ts" context="module">
+	import IconMdiDatabase from '~icons/mdi/database';
+	export { IconMdiDatabase as icon };
+</script>
+
+# Game Databases
+
+Every game engine answers the same question: how do you store and query game state? The answer looks a lot like database design.
+
+## ECS is a Database
+
+Entity Component System is a database architecture. Entities are row IDs. Components are columns. Systems are queries.
+
+Flecs makes this explicit. An entity with `Position` and `Velocity` is a row in a table with those columns. Query for all `(Position, Velocity)` entities and you're doing a SELECT. Add a component? ALTER TABLE. Remove an entity? DELETE.
+
+Traditional databases store data row-by-row:
+
+<img src="/thoughts/game-databases/postgres-table.svg" alt="PostgreSQL row-oriented storage" style="max-width: 100%; margin: 1.5rem 0;" />
+
+The archetype model in Flecs and Bevy uses columnar storage instead. Entities with the same component set live contiguously in memory:
+
+<img src="/thoughts/game-databases/ecs-archetype.svg" alt="ECS archetype columnar storage" style="max-width: 100%; margin: 1.5rem 0;" />
+
+Cache-friendly iteration. Vectorizable operations. The same insight that made columnar databases fast for analytics.
+
+## The Consistency Problem
+
+Databases solved consistency decades ago. ACID transactions. Isolation levels. Serializable execution.
+
+Games want parallelism—physics, AI, and networking running concurrently. But concurrent writes to shared state means races, locks, or something cleverer.
+
+Most ECS frameworks punt on this. Bevy schedules systems to avoid conflicts: two systems touching the same component run sequentially. Flecs uses staging—writes buffer, apply later.
+
+## Deferred Writes
+
+I'm building a parallel Minecraft engine. The ECS defers all `.set()` calls until tick end. Every system sees a consistent snapshot. No locks. Full parallelism.
+
+The cost? Systems decide on stale data.
+
+**Lost updates.** Two systems read `Health = 100`. One queues `-10`, one queues `-20`. Last write wins:
+
+<img src="/thoughts/game-databases/deferred-writes.svg" alt="Lost update problem with deferred writes" style="max-width: 100%; margin: 1.5rem 0;" />
+
+You get 90 or 80, not 70. Damage, velocity impulses, resource counts—anything accumulative breaks.
+
+**Read-after-write.** System A writes `Position`. System B reads it later in the same tick. B sees the old value. For Minecraft: place a redstone torch, neighboring dust should react *this tick*. Lighting should cascade immediately.
+
+**Spawn-then-configure.** Spawn an entity, immediately configure it. If spawn is deferred, what handle do you have? Pending-entity abstractions ripple into relationships and hierarchies.
+
+**Transactions.** Pick up item: check inventory, add item, remove from world. If deferred, other systems see inconsistent state. Or two systems race and double-pick-up.
+
+## Escape Hatches
+
+Real engines don't go pure-deferred:
+
+- **Sync points**: Flush command buffers mid-tick at explicit barriers
+- **Immediate writes**: Component values write immediately; structural changes defer
+- **Double-buffering**: Read current, write next, swap at tick boundary
+- **Dependency declarations**: Tell scheduler what needs to see what
+
+## CRDTs: A Different Tradeoff
+
+What if writes composed instead of overwrote? Operation-based CRDTs: `Sub(10)` and `Sub(20)` compose to `Sub(30)` regardless of order:
+
+<img src="/thoughts/game-databases/crdt-composition.svg" alt="CRDT operations composing correctly" style="max-width: 100%; margin: 1.5rem 0;" />
+
+No lost updates. But new problems emerge.
+
+**Condition-before-effect.** This is the deeper issue:
+
+<img src="/thoughts/game-databases/condition-before-effect.svg" alt="Condition-before-effect problem" style="max-width: 100%; margin: 1.5rem 0;" />
+
+The value converges correctly. The *decision* was wrong.
+
+**Non-commutativity.** "Take 50 damage, heal 10% of max" differs from the reverse. Armor with flat reduction before multipliers. CRDTs need commutativity. Redesign mechanics or reintroduce ordering.
+
+**Absolute assignments.** Clamp health to max. Set health to 50 for a cutscene. These aren't deltas—they don't compose with pending ops. Now you're building LWW-Register + counter hybrids.
+
+## The Fundamental Tension
+
+Game state is a database. You want ACID-like consistency. You want parallel execution. You want low latency.
+
+Pick two.
+
+Deferred writes give you parallelism and consistency (within a tick), but decisions lag reality. Immediate writes give you fresh reads, but require coordination. CRDTs give you convergence, but not correct branching.
+
+Every engine makes a different tradeoff. Understanding the tradeoff is the point.

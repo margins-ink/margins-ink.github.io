@@ -1,0 +1,66 @@
+---
+title: "human-id: High-Performance Human-Readable IDs in Rust"
+date: 2025-11-10
+visible: false
+username: andrewgazelka
+---
+
+# human-id: High-Performance Human-Readable IDs in Rust
+
+Generated IDs need to be unique, but they do not need to be unreadable. UUIDs like `550e8400-e29b-41d4-a716-446655440000` work but are hostile to humans. Database autoincrement IDs leak information about scale and sequencing. Human-readable IDs solve both problems.
+
+## Design
+
+[human-id](https://github.com/andrewgazelka/human-id) generates IDs by combining random words with hyphens. Three words like `blue-moon-fire` are easier to remember, speak, and type than a UUID. The library uses a curated list of 640 common English words between 3 and 8 characters. Each word is easy to pronounce and contains only ASCII letters.
+
+The word list comes from the [Google 10,000 most common English words](https://github.com/first20hours/google-10000-english), filtered for pronounceability and length. With 640 words, three-word IDs provide over 262 million unique combinations. Four-word IDs provide over 167 billion.
+
+## Performance
+
+Performance matters for ID generation. human-id generates over 7 million IDs per second at 135 nanoseconds per ID. The implementation uses `include_bytes!` to embed the word list directly in the binary with precomputed indices. This eliminates file I/O and parsing at runtime.
+
+```rust
+// Generate ID with 3 words
+let id = human_id::gen_id(3);
+println!("{}", id); // "blue-moon-fire"
+```
+
+The library also provides a zero-allocation version that writes directly to any `fmt::Write` implementation:
+
+```rust
+let mut buffer = String::new();
+human_id::write_id(&mut buffer, 3).unwrap();
+```
+
+This API avoids allocating intermediate strings when the caller already has a buffer.
+
+## Implementation
+
+The core is simple. The word list is embedded at compile time. Random selection uses `fastrand` for speed. The implementation joins words with hyphens:
+
+1. Embed word list with `include_bytes!` and precompute word boundaries
+2. Select N random words using `fastrand`
+3. Join with hyphens
+
+Zero runtime overhead for word storage. Minimal allocation for the output string.
+
+## Use Cases
+
+Human-readable IDs work well for:
+
+- User-facing references (order IDs, ticket numbers)
+- Short-lived session identifiers
+- Developer-friendly resource names
+- Shareable links that need to be memorable
+
+They do not replace UUIDs for cryptographic purposes or when you need guarantees about global uniqueness across distributed systems.
+
+## Try It
+
+```bash
+cargo add --git https://github.com/andrewgazelka/human-id human_id
+```
+
+The repository includes benchmarks and examples. Run `cargo run --release --example benchmark` to see performance on your hardware.
+
+Source code: [github.com/andrewgazelka/human-id](https://github.com/andrewgazelka/human-id)
