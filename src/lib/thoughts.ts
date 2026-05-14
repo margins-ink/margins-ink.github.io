@@ -72,12 +72,8 @@ export const thoughts: Thought[] = Object.entries(modules)
 	})
 	.filter(thought => thought.visible)
 	.sort((a, b) => {
-		// Drafts always sort after non-drafts
-		const aDraft = a.status === 'WIP' ? 1 : 0;
-		const bDraft = b.status === 'WIP' ? 1 : 0;
-		if (aDraft !== bDraft) return aDraft - bDraft;
-
-		// Sort by date (newest first), fallback to alphabetical
+		// Pure date-desc. Drafts carry their own visual signal (tag + dim);
+		// no reason to also reorder them out of chronology.
 		if (a.date && b.date) {
 			return new Date(b.date).getTime() - new Date(a.date).getTime();
 		}
