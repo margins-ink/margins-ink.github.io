@@ -54,6 +54,8 @@ prompts:
 		{ id: 'http-put', title: 'RFC 9110 §9.3.4: HTTP PUT method', url: 'https://datatracker.ietf.org/doc/html/rfc9110#name-put' },
 		{ id: 'inotify', title: 'inotify(7): monitoring filesystem events', url: 'https://man7.org/linux/man-pages/man7/inotify.7.html' },
 		{ id: 'rls', title: 'PostgreSQL: Row Security Policies', url: 'https://www.postgresql.org/docs/current/ddl-rowsecurity.html' },
+		{ id: 'codd', title: 'Codd, A Relational Model of Data for Large Shared Data Banks, CACM (1970)', url: 'https://dl.acm.org/doi/10.1145/362384.362685' },
+		{ id: 'serializable', title: 'Serializability (Wikipedia)', url: 'https://en.wikipedia.org/wiki/Serializability' },
 		{ id: 'x11-net', title: 'X Window System: Networking (Wikipedia)', url: 'https://en.wikipedia.org/wiki/X_Window_System#Networking' },
 		{ id: 'mount-ns', title: 'mount_namespaces(7): mount namespaces overview', url: 'https://man7.org/linux/man-pages/man7/mount_namespaces.7.html' },
 		{ id: 'fsn', title: 'fsn: SGI 3D File System Navigator (1991)', url: 'https://en.wikipedia.org/wiki/Fsn' },
@@ -129,6 +131,8 @@ The wheels turn after the steering wheel turns. That's an invariant. Bolt a [CAN
 "Filesystem" pre-installs a shape: hierarchical, byte-addressed, mostly disk-backed. After enough use, the shape stops being one possible API surface and starts being the definition. Whether some new thing "really is a filesystem" becomes a more pressing question than which verbs would actually fit its data.
 
 Try a different word. A filesystem is a database with an unusual query language. Paths are compound keys. `read` and `write` are scoped [GET](https://datatracker.ietf.org/doc/html/rfc9110#name-get)<Cite id="http-get" /> and [PUT](https://datatracker.ietf.org/doc/html/rfc9110#name-put)<Cite id="http-put" />. `fsync` is a durability barrier. [`inotify`](https://man7.org/linux/man-pages/man7/inotify.7.html)<Cite id="inotify" /> is change-data-capture. Permissions are [row-level security](https://www.postgresql.org/docs/current/ddl-rowsecurity.html)<Cite id="rls" />. Under the database frame, "what's the storage?" reads the same as it does for Postgres: NVMe, ramdisk, or `/dev/null`, with no change to what the database means.
+
+The strict-definition objection lands here. [Codd's bar](https://dl.acm.org/doi/10.1145/362384.362685)<Cite id="codd" /> for a database is an explicit data model, a query planner, and isolation semantics. POSIX ships none. Bytes are untyped, the only index is the path tree, [serializability](https://en.wikipedia.org/wiki/Serializability)<Cite id="serializable" /> across processes is whatever the specific filesystem felt like documenting (usually nothing past per-syscall atomicity). `find -name '*.rs' -size +1k` is the symptom: every Unix user has, at some point, written that query against an engine with no schema, no planner, and no index, and accepted the linear scan because the substrate did not offer an alternative. By Codd's bar the current filesystem is a bad database. The flecs section below is what paying the missing properties looks like: typed components for the data model, the query DSL for the planner's input, observers and systems for change-data-capture and triggers, world snapshots for the transaction boundary. The reframe is prescriptive. The interesting work is building the substrate that earns the noun.
 
 ## What the shared verbs actually buy
 
