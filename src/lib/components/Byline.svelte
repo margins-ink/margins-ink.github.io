@@ -1,9 +1,17 @@
 <script lang="ts">
+	import GitHubLogo from './GitHubLogo.svelte';
+
 	let {
 		username,
 		date,
-		readingTime
-	}: { username?: string; date?: string; readingTime?: number } = $props();
+		readingTime,
+		sourceUrl
+	}: {
+		username?: string;
+		date?: string;
+		readingTime?: number;
+		sourceUrl?: string;
+	} = $props();
 
 	function formatDate(d: string): string {
 		const parsed = new Date(d);
@@ -41,6 +49,19 @@
 		{#if readingTime}
 			<span class="sep">·</span>
 			<span class="reading-time">{readingTime} min</span>
+		{/if}
+		{#if sourceUrl}
+			<span class="sep">·</span>
+			<a
+				class="source"
+				href={sourceUrl}
+				target="_blank"
+				rel="noopener noreferrer"
+				aria-label="View source folder on GitHub"
+			>
+				<GitHubLogo size={13} />
+				<span>source</span>
+			</a>
 		{/if}
 	</header>
 {/if}
@@ -87,5 +108,18 @@
 	time,
 	.reading-time {
 		color: var(--text-tertiary);
+	}
+
+	.source {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3125rem;
+		color: var(--text-tertiary);
+		text-decoration: none;
+		transition: color 0.15s ease;
+	}
+
+	.source:hover {
+		color: var(--text-primary);
 	}
 </style>

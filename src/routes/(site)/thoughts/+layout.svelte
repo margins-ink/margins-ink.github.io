@@ -7,8 +7,11 @@
 	import PageNav from '$lib/components/PageNav.svelte';
 	import Byline from '$lib/components/Byline.svelte';
 	import { plainTitle } from '$lib/title';
+	import { sourceFolderUrl } from '$lib/github';
 
 	const { data, children }: { data: LayoutData; children: any } = $props();
+
+	const sourceUrl = $derived(sourceFolderUrl(page.url.pathname));
 
 	const currentPage = $derived.by(() => {
 		if (!browser) return 1;
@@ -48,7 +51,12 @@
 	{/if}
 	<article class="thought-content" data-current-page={currentPage}>
 		{#if data.username}
-			<Byline username={data.username} date={data.date} readingTime={data.readingTime} />
+			<Byline
+				username={data.username}
+				date={data.date}
+				readingTime={data.readingTime}
+				{sourceUrl}
+			/>
 		{/if}
 		{@render children?.()}
 		{#if isPaginated}

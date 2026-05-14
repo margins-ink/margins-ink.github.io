@@ -1,12 +1,26 @@
 <script lang="ts">
 	import { thoughts } from '$lib/thoughts';
+	import { REPO_URL } from '$lib/github';
 	import ArticleCard from './ArticleCard.svelte';
+	import GitHubLogo from './GitHubLogo.svelte';
 </script>
 
 <div class="page">
 	<header class="masthead">
-		<h1 class="name">Margins</h1>
-		<p class="bio">Writing about software, systems, and ideas.</p>
+		<div class="masthead-text">
+			<h1 class="name">Margins</h1>
+			<p class="bio">Writing about software, systems, and ideas.</p>
+		</div>
+		<a
+			class="repo-link"
+			href={REPO_URL}
+			target="_blank"
+			rel="noopener noreferrer"
+			aria-label="Source on GitHub"
+		>
+			<GitHubLogo size={14} />
+			<span>GitHub</span>
+		</a>
 	</header>
 
 	<section class="gallery">
@@ -45,6 +59,32 @@
 
 	.masthead {
 		margin-bottom: 3rem;
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 1rem;
+	}
+
+	.masthead-text {
+		min-width: 0;
+	}
+
+	.repo-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.25rem 0.5rem;
+		font-size: 0.8125rem;
+		color: var(--text-tertiary);
+		text-decoration: none;
+		border-radius: 4px;
+		transition: color 0.15s ease, background-color 0.15s ease;
+		margin-top: 0.125rem;
+	}
+
+	.repo-link:hover {
+		color: var(--text-primary);
+		background-color: var(--surface, rgba(127, 127, 127, 0.08));
 	}
 
 	.name {
