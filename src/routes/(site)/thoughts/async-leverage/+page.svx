@@ -1,0 +1,80 @@
+---
+title: Async leverage
+date: 2026-05-19
+status: WIP
+username: harivansh-afk
+---
+
+<script lang="ts" context="module">
+	import IconMdiAccountNetworkOutline from '~icons/mdi/account-network-outline';
+	export { IconMdiAccountNetworkOutline as icon };
+</script>
+
+<script lang="ts">
+	import Figure from '$lib/components/Figure.svelte';
+	import AsyncLeverageChain from '$lib/components/diagrams/AsyncLeverageChain.svelte';
+	import AsyncLeverageRouting from '$lib/components/diagrams/AsyncLeverageRouting.svelte';
+</script>
+
+# Async leverage
+
+Two days ago the bot account in our monorepo went from quiet to the team's top PR shipper. 58 merged in 48 hours. 32 percent of the team's PR volume for the window. Every one was routed through a database of who on the team works on what.
+
+<Figure
+	src="/thoughts/async-leverage/contrib.png"
+	alt="GitHub contributors graph for the ix-playbook-agent[bot] account. 73 commits, 11,045 additions, 8,561 deletions, ranked #9 in the repo. The activity graph is flat through March and April 2026, then a single sharp spike appears at the very end of May 2026."
+	caption="The bot's contributor graph. Flat through March and April. Rank 9 all-time after 48 hours of live operation."
+/>
+
+<Figure
+	src="/thoughts/async-leverage/symphony.png"
+	alt="Symphony dashboard showing a table of 188 runs across the implement, babysit-dispatch, idiomatic, babysit, digest, and quality DAGs. Each row carries a status (succeeded or running), a Linear or cron trigger, the node count, and elapsed time since last update."
+	caption="188 runs in 48 hours across nine DAGs."
+/>
+
+## The chain
+
+Nine DAGs run continuously. Each is a yaml file declaring a trigger and a node graph; each node is either a codex session with a system prompt or a shell script. None of the DAGs reference each other. The graph that turns a Slack huddle into a merged PR emerges from labels, webhooks, and PR states.
+
+<AsyncLeverageChain />
+
+The chain in the diagram is the highest-traffic path. A teammate ends a `#focus` huddle. The `focus` DAG reads the Slack AI summary canvas and the full transcript, writes a dated focus page into the team playbook, and creates one Linear ticket per action item with the label `[sym] implement` already applied. The next Linear webhook fires `implement`, which clones the target repo into a fresh git worktree, opens a PR under the bot identity, and removes the label. CI runs. Auto-merge fires the moment CI reports green. If CI fails, the `babysit-dispatch` cron tick picks the stalled PR up ten minutes later, pushes a follow-up commit, and watches CI to terminal.
+
+Three DAGs ran in that paragraph. None of them know about each other. The chain emerges from the Linear label, the GitHub PR state, and a cron schedule.
+
+## The substrate
+
+The team playbook lives in the same git repo as the code, at `playbook/src/routes/`. SvelteKit site. One page per teammate at `people/<handle>/+page.svx`. Each page has a multi-paragraph strengths summary at the top and a dated signals log at the bottom; every signal cites a Slack permalink, a Linear ticket URL, or a PR URL.
+
+Pages are append-only. Corrections are new dated sections, not overwrites. The `digest` DAG fires every five hours, reads the Slack window since the last tick, and appends new signals to the relevant person and topic pages. The `focus` DAG appends per huddle. The substrate grows from real signal: messages people actually sent, tickets they actually resolved, PRs they actually reviewed.
+
+Every teammate's institutional contribution lives in a file an agent can grep. Who works on billing. Who owns the session plane. Who reviews infra changes. Who cares about which kind of cleanup. The information has always been there; the locations were Slack DMs and people's heads.
+
+## The routing
+
+<AsyncLeverageRouting />
+
+The `implement` DAG (and the cleanup DAGs `idiomatic` and `quality`) resolve a reviewer the same way: `git log --since '180 days ago'` against the changed path, top recent committers, cross-reference each handle in `playbook/src/routes/people/`, read the strengths page end-to-end. The rule from the skill body:
+
+> Once you have a candidate reviewer, READ their strengths page end-to-end. The strengths summary tells you what shape of PR that human calls a good catch, in their own framing. Re-phrase your beneficiary sentence so it would land in that frame. If your candidate does not touch any surface the reviewer's page describes, either look for another candidate or resolve a different reviewer who actually owns the surface.
+
+The PR body opens with a one-sentence beneficiary statement written in the language the reviewer's strengths page uses. The validation section is shaped around the kind of evidence that reviewer asks for at code review. The work itself is whatever the work was; the framing is the reviewer's.
+
+<Figure
+	src="/thoughts/async-leverage/bot-pr.png"
+	alt="A merged GitHub pull request titled 'quality: extract restore drill guest workload owner (ENG-1404) #2832'. Authored by ix-playbook-agent[bot], reviewed by hyfloac. The PR body opens with a one-sentence beneficiary statement, walks through what moved into the new owner module, and ends with a Validation section listing explicit ripgrep and git diff commands proving the caller migration is complete."
+	caption="A real bot PR. Reviewer resolved from git log plus the playbook. Body and validation written in the reviewer's frame."
+/>
+
+## Two days in
+
+- 58 PRs merged, 6 closed without merge, 2 still open. Acceptance rate 87 percent.
+- 32 percent of total team merged-PR volume for the window. First place, ahead of every human contributor.
+- Rank 9 on the repo's all-time contributors graph, reached in 48 hours. 73 commits, 11,045 lines added, 8,561 deleted (across merged PRs and babysit follow-up commits).
+- 31 cleanup PRs (`idiomatic`, net deletion), 12 structural decompositions (`quality`, callers updated in-diff), 5 billing bug fixes, 1 billing refactor at 1,230/-1,207 lines, 3 meeting digests, 1 focus page.
+- 54 distinct Linear tickets resolved.
+- Median time from PR open to merge: 1 minute. Half the bot's PRs are documentation-shaped (digest, focus, playbook edits) and clear CI in seconds. The 90th percentile is 18 minutes.
+
+## Close
+
+The leverage ratio is set by how much of the team's institutional knowledge is in the substrate the agent can read. Strengths pages, focus pages, topic pages, dated signal logs. Everything humans wrote into the playbook from October onward is now compounding against every code change an agent considers. The agent is the cheap part; the playbook is the part that took months.
