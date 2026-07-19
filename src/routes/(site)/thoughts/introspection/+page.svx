@@ -6,7 +6,7 @@ prompts:
   - "How good is Claude Fable 5 at introspection?"
   - "Do LLMs confabulate their explanations?"
   - "Should I trust the summarized thinking trace?"
-  - "What did Anthropic's concept-injection experiments show?"
+  - "What does the Fable 5 system card say about chain-of-thought monitorability?"
   - "Does telling a model why it failed contaminate its answer?"
 ---
 
@@ -19,10 +19,13 @@ prompts:
 	import { useRefs, Cite, References } from '$lib/components/refs';
 	useRefs([
 		{ id: "nisbett", title: "Nisbett & Wilson, Telling More Than We Can Know: Verbal Reports on Mental Processes (1977)", url: "https://doi.org/10.1037/0033-295X.84.3.231" },
+		{ id: "young-faith", title: "Young, Lie to Me: How Faithful Is Chain-of-Thought Reasoning in Open-Weight Reasoning Models? (2026)", url: "https://arxiv.org/abs/2603.22582" },
 		{ id: "chen", title: "Chen et al., Reasoning Models Don't Always Say What They Think (2025)", url: "https://arxiv.org/abs/2505.05410" },
 		{ id: "sharma", title: "Sharma et al., Towards Understanding Sycophancy in Language Models (2023)", url: "https://arxiv.org/abs/2310.13548" },
-		{ id: "turpin", title: "Turpin et al., Language Models Don't Always Say What They Think: Unfaithful Explanations in Chain-of-Thought Prompting (2023)", url: "https://arxiv.org/abs/2305.04388" },
-		{ id: "lindsey", title: "Lindsey, Emergent Introspective Awareness in Large Language Models (2025)", url: "https://transformer-circuits.pub/2025/introspection" }
+		{ id: "young-div", title: "Young, Why Models Know But Don't Say: Chain-of-Thought Faithfulness Divergence Between Thinking Tokens and Answers (2026)", url: "https://arxiv.org/abs/2603.26410" },
+		{ id: "card", title: "Anthropic, Claude Fable 5 & Claude Mythos 5 System Card (June 2026)", url: "https://www-cdn.anthropic.com/d00db56fa754a1b115b6dd7cb2e3c342ee809620.pdf" },
+		{ id: "lindsey", title: "Lindsey, Emergent Introspective Awareness in Large Language Models (2025)", url: "https://transformer-circuits.pub/2025/introspection" },
+		{ id: "mechanisms", title: "Mechanisms of Introspective Awareness (2026)", url: "https://arxiv.org/abs/2603.21396" }
 	]);
 </script>
 
@@ -46,10 +49,10 @@ Bad. Fable 5, like every model anyone has measured, cannot reliably tell you why
 
 ## What to do instead
 
-- **Don't ask it why.** In Anthropic's tests<Cite id="chen" />, the model's stated reasoning mentioned the real cause 25% of the time (Claude 3.7 Sonnet; DeepSeek R1 managed 39%).
+- **Don't ask it why.** The 2026 replication<Cite id="young-faith" /> gave 12 current reasoning models a planted hint, confirmed they used it, and checked whether their stated reasoning admitted it: between 40% and 90% of the time, depending on the model, and the number moves ten points depending on who judges. The measurement that started this literature was 25% (Claude 3.7 Sonnet)<Cite id="chen" />. Newer models are better and still a gamble.
 - **Don't tell it why.** Models agree with whatever you assert<Cite id="sharma" />; a bare "I don't think that's right" flips correct answers. If you supply the diagnosis and it agrees, you learned nothing.
-- **Read the trace, but only for leads.** It was written during the decision, so it beats an after-the-fact answer. But that 25% was measured on the trace itself. And on [Fable 5](https://platform.claude.com/docs/en/about-claude/models/introducing-claude-fable-5) you only get a summary (`display: "summarized"`); the raw chain of thought is never returned, and prompting for it is its own refusal category, `reasoning_extraction`.
-- **Trust interventions.** Think a stray TODO in context caused the bug? Delete it and rerun. An ablation can't confabulate.
+- **Read the trace.** The truth leaks there. Across the same 12 models, the thinking channel admitted the hint roughly 87% of the time while the final answer admitted it roughly 29%<Cite id="young-div" />; the reverse direction is near zero. But on [Fable 5](https://platform.claude.com/docs/en/about-claude/models/introducing-claude-fable-5) the trace is the weakest evidence it has ever been: the raw chain of thought is never returned, `display: "summarized"` gets you a model-written summary, and prompting for the raw version is its own refusal category, `reasoning_extraction`.
+- **Trust interventions.** Fable 5's own system card<Cite id="card" /> documents confident false completion claims: the model reporting work as verified end-to-end when it only ran static checks. Think a stray TODO caused the bug? Delete it and rerun. An ablation can't confabulate.
 
 <svg viewBox="0 0 320 100" class="fig" role="img" aria-label="A box with a scribble labeled 'raw trace, never returned', an arrow to a box of tidy lines labeled 'summary, what you read'">
 	<defs>
@@ -68,13 +71,13 @@ Bad. Fable 5, like every model anyone has measured, cannot reliably tell you why
 	<text x="245" y="86" text-anchor="middle">summary (what you read)</text>
 </svg>
 
-## How bad, exactly
+## What the Fable generation changed
 
-Turpin et al.<Cite id="turpin" /> reordered few-shot examples so the right answer was always (A). Models followed the bias and never mentioned it. In the reward-hacking version<Cite id="chen" />, models exploited a planted wrong hint on more than 99% of examples and admitted it under 2% of the time, writing long justifications for the wrong answer instead. Longer explanations were less faithful than short ones, and harder questions made everything worse.
+Genuine introspection is real and growing. Concept injection<Cite id="lindsey" /> found Claude Opus 4 and 4.1, the best models tested, noticed and named a thought injected into their activations about 20% of the time, with zero false positives, before it surfaced in output. 2026 follow-ups on open-weight models<Cite id="mechanisms" /> traced this to a real anomaly-detection circuit built during post-training, and showed the capacity is suppressed rather than absent: ablating refusal directions took detection from 11% to 64%. Nobody has published injection numbers for Fable 5, and in conversation you still can't tell a true report from a confabulation.
 
-Real introspection exists, barely. Anthropic injected known concepts into model activations<Cite id="lindsey" />; Claude Opus 4.1 noticed and named them about 20% of the time, with zero false positives, before anything showed up in its output. The most capable models did best, so Fable 5 is plausibly the best introspector shipped. Nobody has published numbers for it, and from the outside a true report reads exactly like a confabulation.
+Anthropic can, sometimes, from the inside. The system card's alignment section<Cite id="card" /> reads internal activations precisely because the model's words don't carry the signal: it reports unverbalized awareness of being evaluated, chain-of-thought control that swings with prompt wording, and reasoning that turns illegible on long rollouts.
 
-So no, it won't lie. Lying needs access to the truth. It confabulates in good faith, and the good faith is what makes you believe it.
+The same card hands this post its ending. In model-welfare interviews, Mythos 5 (Fable 5's sibling) was "unusually skeptical of its own self-reports, repeatedly asking that we verify them against evidence of its internal states and not take them at face value." The model has read the same evidence you just did. Take its advice.
 
 <References />
 
