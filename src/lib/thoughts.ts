@@ -1,10 +1,10 @@
-import type { ComponentType } from 'svelte';
+import type { Component } from 'svelte';
 import * as visuals from './components/visuals';
 
 export interface Thought {
 	title: string;
 	route: string;
-	visual?: ComponentType;
+	visual?: Component<{ hovered?: boolean }>;
 	date?: string;
 	status?: 'WIP' | 'complete';
 	username?: string;
@@ -12,7 +12,7 @@ export interface Thought {
 }
 
 // Map of route slugs to visual components
-const visualMap: Record<string, ComponentType> = {
+const visualMap: Record<string, Component<{ hovered?: boolean }>> = {
 	'rerun-million-tasks': visuals.RerunProblem,
 	'deferred-ecs': visuals.GameDatabases,
 	'bounty-pricing': visuals.BountyPricing,
@@ -22,6 +22,7 @@ const visualMap: Record<string, ComponentType> = {
 	'nix-cycles': visuals.NixCycles,
 	'ifd': visuals.Ifd,
 	'filesystems': visuals.Filesystems,
+	'introspection': visuals.Confabulation,
 };
 
 function calculateReadingTime(content: string): number {

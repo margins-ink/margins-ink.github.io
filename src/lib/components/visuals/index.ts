@@ -7,4 +7,5 @@ export { default as AiGdb } from './AiGdb.svelte';
 export { default as NixCycles } from './NixCycles.svelte';
 export { default as Ifd } from './Ifd.svelte';
 export { default as Filesystems } from './Filesystems.svelte';
+export { default as Confabulation } from './Confabulation.svelte';
 export { default as Default } from './Default.svelte';

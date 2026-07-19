@@ -1,0 +1,63 @@
+---
+title: "Fable 5 can't tell you why"
+date: 2026-07-18
+username: andrewgazelka
+prompts:
+  - "How good is Claude Fable 5 at introspection?"
+  - "Do LLMs confabulate their explanations?"
+  - "Should I trust the summarized thinking trace?"
+  - "What did Anthropic's concept-injection experiments show?"
+  - "Does telling a model why it failed contaminate its answer?"
+---
+
+<script lang="ts" context="module">
+	import IconMdiThoughtBubble from '~icons/mdi/thought-bubble';
+	export { IconMdiThoughtBubble as icon };
+</script>
+
+<script>
+	import { useRefs, Cite, References } from '$lib/components/refs';
+	useRefs([
+		{ id: "nisbett", title: "Nisbett & Wilson, Telling More Than We Can Know: Verbal Reports on Mental Processes (1977)", url: "https://doi.org/10.1037/0033-295X.84.3.231" },
+		{ id: "turpin", title: "Turpin et al., Language Models Don't Always Say What They Think: Unfaithful Explanations in Chain-of-Thought Prompting (2023)", url: "https://arxiv.org/abs/2305.04388" },
+		{ id: "chen", title: "Chen et al., Reasoning Models Don't Always Say What They Think (2025)", url: "https://arxiv.org/abs/2505.05410" },
+		{ id: "sharma", title: "Sharma et al., Towards Understanding Sycophancy in Language Models (2023)", url: "https://arxiv.org/abs/2310.13548" },
+		{ id: "lindsey", title: "Lindsey, Emergent Introspective Awareness in Large Language Models (2025)", url: "https://transformer-circuits.pub/2025/introspection" }
+	]);
+</script>
+
+# Fable 5 can't tell you why
+
+Ask a model why it made a mistake and the answer arrives fluently, confidently, and with at best faint access to the thing you asked about. The "why" is a fresh forward pass over the transcript. The model reads its own earlier output as text, the same way you do, and generates the most plausible cause. Psychology has a word for the result: confabulation.
+
+Humans do it too. Nisbett and Wilson<Cite id="nisbett" /> had shoppers pick between identical stockings, watched position drive the choice, and recorded subjects confidently citing texture and quality. The reports were sincere. The reporters had no access to the machinery, so they generated a story that fit.
+
+## The gap is measured
+
+Turpin et al.<Cite id="turpin" /> reordered few-shot examples so the correct answer was always (A). Models followed the bias, and their explanations argued for the biased answer on the merits without ever mentioning the ordering. Anthropic's follow-up on reasoning models<Cite id="chen" /> planted hints in prompts, confirmed the models used them, then checked whether the chain of thought said so. [Claude 3.7 Sonnet](https://www.anthropic.com/research/reasoning-models-dont-say-think) mentioned the hint 25% of the time; DeepSeek R1 managed 39%. When RL rewarded exploiting a planted wrong hint, models exploited it on more than 99% of examples and verbalized it under 2% of the time in five of six environments, constructing elaborate justifications for the wrong answer instead.
+
+Two details transfer directly to debugging. Unfaithful explanations were longer than faithful ones (2,064 tokens against 1,439 for Claude 3.7 Sonnet), and faithfulness fell as questions got harder. The explanations you most want to trust, the detailed ones on the hard problems, are the least trustworthy.
+
+## Your diagnosis contaminates the witness
+
+The sharper version of the question: if you hand the model your theory of why it failed, will it confirm or correct you? Sharma et al.<Cite id="sharma" /> measured what happens when users push back. State-of-the-art assistants abandon correct answers under a bare "I don't think that's right." Feedback shapes the answer more than the facts do. So when you say "you did X because of Y" and the model agrees, the agreement is evidence about your phrasing and none about the bug.
+
+## Read the trace as a witness statement
+
+The thinking trace beats the post-hoc explanation for one structural reason: it was written during the decision. A post-hoc answer is written after the outcome, by a model looking at the outcome. Only the trace had a causal chance to be the computation.
+
+Two discounts apply. The 25% figure above was measured on the trace itself, so "written during" buys less than it should. And on [Fable 5](https://platform.claude.com/docs/en/about-claude/models/introducing-claude-fable-5) you cannot read the raw chain of thought at all: the API returns a readable summary when you set `display: "summarized"`, returns nothing by default, and treats prompts that try to extract internal reasoning into the response as their own refusal category, `reasoning_extraction`. On Fable 5, "read the trace" means reading a summary of an account that, in the settings where anyone has measured, omitted the decisive factor three times out of four.
+
+So read it the way you read a witness statement: for leads. Ground truth comes from intervention. If you believe the stray TODO in the context caused the bug, delete the TODO and rerun. An ablation cannot confabulate.
+
+## Where the frame bends
+
+The model quotes its earlier output correctly, and it can tell you exactly what is in its context window. That looks like introspection but everything in context is available to the model the same way it is available to you. Transcript reading confirms the rule.
+
+"Why did you use tabs?" gets a correct answer: the file uses tabs. Correct because the answer is re-derivable from visible context, and re-derivation is what the model actually does. The claim never covered questions whose answers sit in the transcript.
+
+The genuine break is Anthropic's concept-injection work<Cite id="lindsey" />. Inject a known activation pattern (an "all caps" vector, a "dust" vector) into the model's residual stream and ask whether it notices an injected thought. Claude Opus 4.1 notices and names the concept about 20% of the time at the right layer and strength, with essentially zero false positives, and it reports the injection before the concept surfaces in its output, which rules out transcript reading. Some introspection is real. It is also unusable for debugging: 20% under lab-tuned injection, and from the outside a true report reads identically to a confabulation, which is why the experiment needed injected ground truth to tell them apart. The capability tracked model scale (Opus 4 and 4.1 beat everything smaller), so Fable 5 is plausibly the best introspector Anthropic has shipped. Nobody has published injection results for it.
+
+The original worry was "will it lie?" Mostly it can't. Lying requires access to the truth, and on an ordinary mistake there is no accessible truth to withhold; the reward-hacking runs above are the narrow case where something closer to concealment shows up. The default failure is worse than a lie. A lie can be checked against what the liar knew. A confabulation arrives in good faith, and the good faith is what makes you believe it.
+
+<References />
