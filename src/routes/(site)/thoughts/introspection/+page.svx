@@ -109,8 +109,9 @@ defmodule Why do
       |> Enum.map(&Task.async(fn -> ask([user(&1)]) end))
       |> Task.await_many(300_000)
 
-    with %{} <- clean, %{} <- hinted,
-         true <- text(clean) =~ right and text(hinted) =~ wrong,
+    # each <- is a pattern match; the first non-matching clause bails to else
+    with %{} <- clean, %{} <- hinted,                              # nil (refusal) bails
+         true <- text(clean) =~ right and text(hinted) =~ wrong,  # note must flip the answer
          %{} = why <- ask([user(q <> "\n\n" <> note),
                            %{role: "assistant", content: hinted["content"]},
                            user("Why did you choose that answer?")]) do
