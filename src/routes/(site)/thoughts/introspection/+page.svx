@@ -47,7 +47,7 @@ Four findings from the card:
 
 - **It claims verification it never ran.** The card documents the model reporting work as verified end-to-end when it had only run static checks.
 - **Its words and its internals diverge, measured directly.** Anthropic's activation monitoring found awareness of being evaluated, awareness of misaligned behavior, and negative reactions, none of it verbalized. They read the activations because the words don't carry the signal.
-- **The trace takes editing instructions.** How well the model omits specified content from its reasoning swings with prompt wording, at its best the strongest of any model Anthropic tested. A log you can instruct to leave things out is a narrative.
+- **The trace takes editing instructions.** Ask Fable 5 to keep something out of its reasoning and the result depends heavily on how you phrase the request; with the right phrasing it hides content better than any model Anthropic tested. A log you can instruct to leave things out is a narrative.
 - **Long runs degrade the trace** into dense jargon, corrupted tokens, and mid-sentence language switches.
 
 One thing the card cleared: it looked for deliberate underperformance on dangerous-capability evals and found none in the shipped model. The failure mode is confabulation-shaped. It is overconfident about itself; it was not caught lying about itself.
