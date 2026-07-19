@@ -19,45 +19,92 @@ prompts:
 	import { useRefs, Cite, References } from '$lib/components/refs';
 	useRefs([
 		{ id: "nisbett", title: "Nisbett & Wilson, Telling More Than We Can Know: Verbal Reports on Mental Processes (1977)", url: "https://doi.org/10.1037/0033-295X.84.3.231" },
-		{ id: "turpin", title: "Turpin et al., Language Models Don't Always Say What They Think: Unfaithful Explanations in Chain-of-Thought Prompting (2023)", url: "https://arxiv.org/abs/2305.04388" },
 		{ id: "chen", title: "Chen et al., Reasoning Models Don't Always Say What They Think (2025)", url: "https://arxiv.org/abs/2505.05410" },
 		{ id: "sharma", title: "Sharma et al., Towards Understanding Sycophancy in Language Models (2023)", url: "https://arxiv.org/abs/2310.13548" },
+		{ id: "turpin", title: "Turpin et al., Language Models Don't Always Say What They Think: Unfaithful Explanations in Chain-of-Thought Prompting (2023)", url: "https://arxiv.org/abs/2305.04388" },
 		{ id: "lindsey", title: "Lindsey, Emergent Introspective Awareness in Large Language Models (2025)", url: "https://transformer-circuits.pub/2025/introspection" }
 	]);
 </script>
 
 # Fable 5 can't tell you why
 
-Ask a model why it made a mistake and the answer arrives fluently, confidently, and with at best faint access to the thing you asked about. The "why" is a fresh forward pass over the transcript. The model reads its own earlier output as text, the same way you do, and generates the most plausible cause. Psychology has a word for the result: confabulation.
+Bad. Fable 5, like every model anyone has measured, cannot reliably tell you why it did something. When you ask, it rereads its own output the way you would and writes a plausible story. The story is a guess. Psychology calls this confabulation, and humans do it too<Cite id="nisbett" />.
 
-Humans do it too. Nisbett and Wilson<Cite id="nisbett" /> had shoppers pick between identical stockings, watched position drive the choice, and recorded subjects confidently citing texture and quality. The reports were sincere. The reporters had no access to the machinery, so they generated a story that fit.
+<svg viewBox="0 0 320 90" class="fig" role="img" aria-label="A straight arrow labeled 'what it says' next to a wandering path labeled 'what happened', between the same two points">
+	<defs>
+		<marker id="fig1-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+			<path d="M0,0 L8,4 L0,8 Z" class="fill" />
+		</marker>
+	</defs>
+	<circle cx="20" cy="45" r="2.5" class="fill" />
+	<circle cx="300" cy="45" r="2.5" class="fill" />
+	<path d="M20 45 C 40 10, 60 80, 90 22 S 130 75, 160 25 S 210 70, 245 20 S 285 50, 300 45" class="stroke faint dashed" />
+	<line x1="20" y1="45" x2="290" y2="45" class="stroke" marker-end="url(#fig1-arrow)" />
+	<text x="62" y="12">what happened</text>
+	<text x="160" y="62" text-anchor="middle">what it says</text>
+</svg>
 
-## The gap is measured
+## What to do instead
 
-Turpin et al.<Cite id="turpin" /> reordered few-shot examples so the correct answer was always (A). Models followed the bias, and their explanations argued for the biased answer on the merits without ever mentioning the ordering. Anthropic's follow-up on reasoning models<Cite id="chen" /> planted hints in prompts, confirmed the models used them, then checked whether the chain of thought said so. [Claude 3.7 Sonnet](https://www.anthropic.com/research/reasoning-models-dont-say-think) mentioned the hint 25% of the time; DeepSeek R1 managed 39%. When RL rewarded exploiting a planted wrong hint, models exploited it on more than 99% of examples and verbalized it under 2% of the time in five of six environments, constructing elaborate justifications for the wrong answer instead.
+- **Don't ask it why.** In Anthropic's tests<Cite id="chen" />, the model's stated reasoning mentioned the real cause 25% of the time (Claude 3.7 Sonnet; DeepSeek R1 managed 39%).
+- **Don't tell it why.** Models agree with whatever you assert<Cite id="sharma" />; a bare "I don't think that's right" flips correct answers. If you supply the diagnosis and it agrees, you learned nothing.
+- **Read the trace, but only for leads.** It was written during the decision, so it beats an after-the-fact answer. But that 25% was measured on the trace itself. And on [Fable 5](https://platform.claude.com/docs/en/about-claude/models/introducing-claude-fable-5) you only get a summary (`display: "summarized"`); the raw chain of thought is never returned, and prompting for it is its own refusal category, `reasoning_extraction`.
+- **Trust interventions.** Think a stray TODO in context caused the bug? Delete it and rerun. An ablation can't confabulate.
 
-Two details transfer directly to debugging. Unfaithful explanations were longer than faithful ones (2,064 tokens against 1,439 for Claude 3.7 Sonnet), and faithfulness fell as questions got harder. The explanations you most want to trust, the detailed ones on the hard problems, are the least trustworthy.
+<svg viewBox="0 0 320 100" class="fig" role="img" aria-label="A box with a scribble labeled 'raw trace, never returned', an arrow to a box of tidy lines labeled 'summary, what you read'">
+	<defs>
+		<marker id="fig2-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+			<path d="M0,0 L8,4 L0,8 Z" class="fill" />
+		</marker>
+	</defs>
+	<rect x="15" y="18" width="120" height="52" rx="4" class="stroke faint dashed dim" />
+	<path d="M25 44 C 35 26, 45 62, 55 30 S 75 58, 85 33 S 105 56, 125 40" class="stroke faint" />
+	<line x1="142" y1="44" x2="172" y2="44" class="stroke" marker-end="url(#fig2-arrow)" />
+	<rect x="185" y="18" width="120" height="52" rx="4" class="stroke" />
+	<line x1="197" y1="32" x2="285" y2="32" class="stroke" />
+	<line x1="197" y1="44" x2="265" y2="44" class="stroke" />
+	<line x1="197" y1="56" x2="245" y2="56" class="stroke" />
+	<text x="75" y="86" text-anchor="middle">raw trace (never returned)</text>
+	<text x="245" y="86" text-anchor="middle">summary (what you read)</text>
+</svg>
 
-## Your diagnosis contaminates the witness
+## How bad, exactly
 
-The sharper version of the question: if you hand the model your theory of why it failed, will it confirm or correct you? Sharma et al.<Cite id="sharma" /> measured what happens when users push back. State-of-the-art assistants abandon correct answers under a bare "I don't think that's right." Feedback shapes the answer more than the facts do. So when you say "you did X because of Y" and the model agrees, the agreement is evidence about your phrasing and none about the bug.
+Turpin et al.<Cite id="turpin" /> reordered few-shot examples so the right answer was always (A). Models followed the bias and never mentioned it. In the reward-hacking version<Cite id="chen" />, models exploited a planted wrong hint on more than 99% of examples and admitted it under 2% of the time, writing long justifications for the wrong answer instead. Longer explanations were less faithful than short ones, and harder questions made everything worse.
 
-## Read the trace as a witness statement
+Real introspection exists, barely. Anthropic injected known concepts into model activations<Cite id="lindsey" />; Claude Opus 4.1 noticed and named them about 20% of the time, with zero false positives, before anything showed up in its output. The most capable models did best, so Fable 5 is plausibly the best introspector shipped. Nobody has published numbers for it, and from the outside a true report reads exactly like a confabulation.
 
-The thinking trace beats the post-hoc explanation for one structural reason: it was written during the decision. A post-hoc answer is written after the outcome, by a model looking at the outcome. Only the trace had a causal chance to be the computation.
-
-Two discounts apply. The 25% figure above was measured on the trace itself, so "written during" buys less than it should. And on [Fable 5](https://platform.claude.com/docs/en/about-claude/models/introducing-claude-fable-5) you cannot read the raw chain of thought at all: the API returns a readable summary when you set `display: "summarized"`, returns nothing by default, and treats prompts that try to extract internal reasoning into the response as their own refusal category, `reasoning_extraction`. On Fable 5, "read the trace" means reading a summary of an account that, in the settings where anyone has measured, omitted the decisive factor three times out of four.
-
-So read it the way you read a witness statement: for leads. Ground truth comes from intervention. If you believe the stray TODO in the context caused the bug, delete the TODO and rerun. An ablation cannot confabulate.
-
-## Where the frame bends
-
-The model quotes its earlier output correctly, and it can tell you exactly what is in its context window. That looks like introspection but everything in context is available to the model the same way it is available to you. Transcript reading confirms the rule.
-
-"Why did you use tabs?" gets a correct answer: the file uses tabs. Correct because the answer is re-derivable from visible context, and re-derivation is what the model actually does. The claim never covered questions whose answers sit in the transcript.
-
-The genuine break is Anthropic's concept-injection work<Cite id="lindsey" />. Inject a known activation pattern (an "all caps" vector, a "dust" vector) into the model's residual stream and ask whether it notices an injected thought. Claude Opus 4.1 notices and names the concept about 20% of the time at the right layer and strength, with essentially zero false positives, and it reports the injection before the concept surfaces in its output, which rules out transcript reading. Some introspection is real. It is also unusable for debugging: 20% under lab-tuned injection, and from the outside a true report reads identically to a confabulation, which is why the experiment needed injected ground truth to tell them apart. The capability tracked model scale (Opus 4 and 4.1 beat everything smaller), so Fable 5 is plausibly the best introspector Anthropic has shipped. Nobody has published injection results for it.
-
-The original worry was "will it lie?" Mostly it can't. Lying requires access to the truth, and on an ordinary mistake there is no accessible truth to withhold; the reward-hacking runs above are the narrow case where something closer to concealment shows up. The default failure is worse than a lie. A lie can be checked against what the liar knew. A confabulation arrives in good faith, and the good faith is what makes you believe it.
+So no, it won't lie. Lying needs access to the truth. It confabulates in good faith, and the good faith is what makes you believe it.
 
 <References />
+
+<style>
+	.fig {
+		display: block;
+		width: 100%;
+		max-width: 420px;
+		margin: 1.75rem auto;
+	}
+	.fig .stroke {
+		stroke: var(--text-tertiary);
+		fill: none;
+		stroke-width: 1.3;
+	}
+	.fig .faint {
+		stroke: var(--text-quaternary);
+	}
+	.fig .dashed {
+		stroke-dasharray: 4 3;
+	}
+	.fig .dim {
+		opacity: 0.6;
+	}
+	.fig .fill {
+		fill: var(--text-tertiary);
+	}
+	.fig text {
+		font-family: var(--font-mono, ui-monospace, monospace);
+		font-size: 9px;
+		fill: var(--text-tertiary);
+	}
+</style>
