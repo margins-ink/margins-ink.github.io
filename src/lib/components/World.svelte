@@ -47,8 +47,12 @@
 							audio.event('paperTurn', 0.5);
 						} else if (e.kind === 'layerOpened') audio.event('open', 0.7);
 						else if (e.kind === 'layerClosed') audio.event('close', 0.6);
-						else if (e.kind === 'opened') audio.event('open', 0.7);
-						else if (e.kind === 'closed') audio.event('close', 0.6);
+						else if (e.kind === 'sound') {
+							// book.rs: arg = id << 8 | velocity 0..255; ids 0 grab, 1 whoosh (scroll), 2 paperTurn, 3 open, 4 close, 5 place
+							const kinds = ['grab', 'scroll', 'paperTurn', 'open', 'close', 'place'] as const;
+							const k = kinds[(e.arg >> 8) & 255];
+							if (k) audio.event(k, (e.arg & 255) / 255);
+						}
 					});
 					r?.onFollow(follow);
 					r?.onHash((h) => replaceState(page.url.pathname + h, page.state));

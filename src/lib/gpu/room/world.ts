@@ -28,18 +28,22 @@ export interface World {
 	exports: unknown;
 }
 
-export type ReaderEvent = { kind: 'opened' | 'closed' | 'scrollEnd' | 'page' | 'spread' | 'layerOpened' | 'layerClosed' | 'focus' | 'overview' | 'hover'; arg: number };
+export type ReaderEvent = { kind: 'opened' | 'closed' | 'scrollEnd' | 'page' | 'spread' | 'layerOpened' | 'layerClosed' | 'focus' | 'overview' | 'hover' | 'sound' | 'phase'; arg: number };
 
 /** Indices into `ReaderApi.state()`. */
 export const RS = {
 	t: 0, target: 1, scroll: 2, scrollMax: 3, article: 4, magObj: 5, lift: 6, camT: 7,
-	firstPage: 8, visible: 9, centrePage: 10, pageCount: 11, mag: 12
+	firstPage: 8, visible: 9, centrePage: 10, pageCount: 11, mag: 12,
+	/** book choreography (docs/BOOK.md): phase 0 shelf, 1 lifting, 2 carrying, 3 opening, 4 reading, 5 closing */
+	phase: 40, carry: 41, face: 42, hinge: 43, reveal: 44, dim: 45, cardOn: 46, pagesOn: 47, cardLight: 48, curl: 49, bank: 50
 } as const;
 
 export interface ReaderApi {
 	tick(dtMs: number): void;
 	open(index: number, pageCount: number, sheetW: number, sheetH: number, gap: number, snap: boolean): boolean;
 	close(snap: boolean): void;
+	/** A click on a book: it starts lifting at once, before the article has loaded. */
+	begin(index: number): void;
 	scrollBy(dyEm: number): void;
 	scrollTo(yEm: number): void;
 	/** Start a fling in em/s. */
@@ -47,7 +51,7 @@ export interface ReaderApi {
 	setViewport(viewHEm: number): void;
 	setReadingPose(cx: number, cy: number, cz: number, halfW: number, halfH: number): void;
 	poll(): ReaderEvent | null;
-	/** 40 floats, a live view onto wasm memory (valid until the next call into wasm that may grow it). */
+	/** 64 floats, a live view onto wasm memory (valid until the next call into wasm that may grow it). */
 	state(): Float32Array;
 	entityCount(): number;
 }
@@ -111,6 +115,7 @@ interface Exports {
 	world_tick(dtMs: number): void;
 	article_open(index: number, pageCount: number, sheetW: number, sheetH: number, gap: number, snap: number): number;
 	article_close(snap: number): void;
+	book_begin(index: number): void;
 	scroll_by(dy: number): void;
 	scroll_to(y: number): void;
 	scroll_fling(v: number): void;
@@ -121,13 +126,14 @@ interface Exports {
 	world_entity_count(): number;
 }
 
-const EVENTS: ReaderEvent['kind'][] = ['opened', 'closed', 'scrollEnd', 'page', 'spread', 'layerOpened', 'layerClosed', 'focus', 'overview', 'hover'];
+const EVENTS: ReaderEvent['kind'][] = ['opened', 'closed', 'scrollEnd', 'page', 'spread', 'layerOpened', 'layerClosed', 'focus', 'overview', 'hover', 'sound', 'phase'];
 
 function readerApi(x: Exports): ReaderApi {
 	return {
 		tick: (dt) => x.world_tick(dt),
 		open: (i, n, w, h, g, snap) => x.article_open(i, n, w, h, g, snap ? 1 : 0) === 0,
 		close: (snap) => x.article_close(snap ? 1 : 0),
+		begin: (i) => x.book_begin(i),
 		scrollBy: (d) => x.scroll_by(d),
 		scrollTo: (y) => x.scroll_to(y),
 		fling: (v) => x.scroll_fling(v),
@@ -138,7 +144,7 @@ function readerApi(x: Exports): ReaderApi {
 			return v === 0 ? null : { kind: EVENTS[(v >>> 24) - 1], arg: v & 0xffffff };
 		},
 		// re-derived on every call: a grown memory detaches old views
-		state: () => new Float32Array(x.memory.buffer, x.reader_state_ptr(), 40),
+		state: () => new Float32Array(x.memory.buffer, x.reader_state_ptr(), 64),
 		entityCount: () => x.world_entity_count()
 	};
 }

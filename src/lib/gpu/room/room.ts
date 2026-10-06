@@ -308,7 +308,7 @@ export async function createRoom(
 	let hashCb: (h: string) => void = () => {};
 	let slugIdx = -1;
 	let readPose = { cx: 0, cy: 0, cz: 1, hw: 0.3, hh: 0.4, camX: 0, viewHW: 0.6, spineX: 0, topY: 0, planeZ: 1, dist: 1.5, visHEm: 56 };
-	const readingOn = () => rs[RS.article] >= 0 || rs[RS.target] > 0 || rs[RS.t] > 0;
+	const readingOn = () => rs[RS.article] >= 0 || rs[RS.phase] > 0 || rs[RS.target] > 0 || rs[RS.t] > 0;
 	const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 	let linkRecs: LinkRec[] = [];
 	let figRecs: FigureRec[] = [];
@@ -381,6 +381,8 @@ export async function createRoom(
 	async function openArticle(slug: string, snap: boolean) {
 		slugIdx = items.findIndex((t) => t.slug === slug);
 		if (slugIdx < 0 || world!.links[slugIdx] < 0) return;
+		// the book leaves the shelf on the click; the article bytes arrive while it is in the air
+		if (!snap) world!.reader.begin(slugIdx);
 		const cls = Magazine.classFor(canvas.clientWidth / canvas.clientHeight);
 		const art = await mag.load(slug, cls).catch((e) => (console.error('magazine:', e), null));
 		if (!art || wantSlug !== slug) return;
@@ -477,7 +479,7 @@ export async function createRoom(
 				...cam.up, 0,
 				0.27, 0.37, 0.0905, 0,
 				levels.length, LEVEL_H, ROOM_D, ROOM_H,
-				(night ? 3.4 : 2.6) * (1 - 0.45 * rs[RS.t]), seed, w, h,
+				(night ? 3.4 : 2.6) * (1 - 0.45 * rs[RS.dim]), seed, w, h,
 				...vw, 0,
 				lmN, lmSpp, lmLayout.texels, lmGroupsX,
 				...sun, 0,
@@ -763,7 +765,9 @@ export async function createRoom(
 
 	/** Reading: the Flecs world advances Reading and the book, the animated magazine row is copied into the object buffer, one view pass per frame. */
 	function readTick(now: number) {
-		const dt = Math.min(100, now - rdLast);
+		// a frame after an idle gap must not jump the springs: treat a long gap as one 60 Hz frame
+		const gap = now - rdLast;
+		const dt = gap > 250 ? 16.7 : Math.min(50, gap);
 		rdLast = now;
 		input.tick(now);
 		world!.reader.tick(dt);
@@ -785,17 +789,17 @@ export async function createRoom(
 			if (ev.kind === 'spread' || ev.kind === 'layerOpened' || ev.kind === 'layerClosed') book.syncHash();
 			readCb({ kind: ev.kind, arg: ev.arg });
 		}
-		if (rs[RS.article] >= 0) {
+		if (rs[RS.phase] > 0) {
 			// the animated magazine row; once the sheets have replaced it, park it below the room so it cannot show through the gap between sheets
-			if (rs[RS.t] > 0.995) {
+			if (rs[RS.cardOn] < 0.5) {
 				magRow.set(rs.subarray(RS.mag, RS.mag + 28));
 				magRow[1] -= 50;
 				device!.queue.writeBuffer(objBuf, rs[RS.magObj] * 112, magRow);
 			} else device!.queue.writeBuffer(objBuf, rs[RS.magObj] * 112, rs, RS.mag, 28);
-			writeFigures();
+			if (rs[RS.article] >= 0) writeFigures();
 		}
 		const ms = book.state();
-		const sig = `${rs[RS.t].toFixed(4)} ${rs[RS.article]} ${ms[MagState.f].toFixed(4)} ${ms[MagState.cornerDrag].toFixed(3)} ${ms[MagState.bounceX].toFixed(3)} ${ms[MagState.tabPulse].toFixed(3)} ${chanSig} ${hover?.link?.target ?? ''}`;
+		const sig = `${rs[RS.t].toFixed(4)} ${rs[RS.dim].toFixed(4)} ${rs[RS.phase]} ${rs[RS.article]} ${ms[MagState.f].toFixed(4)} ${ms[MagState.cornerDrag].toFixed(3)} ${ms[MagState.bounceX].toFixed(3)} ${ms[MagState.tabPulse].toFixed(3)} ${chanSig} ${hover?.link?.target ?? ''}`;
 		rdIdle = sig === rdSig && !lmBusy ? rdIdle + 1 : 0;
 		rdSig = sig;
 	}

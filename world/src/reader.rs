@@ -1,5 +1,5 @@
 //! The reader: Reading/Scroll state, Page entities and the systems that animate them.
-//! Systems: ReadingTween (spring), ScrollIntegrate (fling, clamp), SheetCull (Visible tag),
+//! Systems: ScrollIntegrate (fling, clamp), SheetCull (Visible tag),
 //! PackObjs (state buffer for the renderer). See docs/WORLD.md "Reader".
 use crate::components::*;
 use crate::Output;
@@ -7,27 +7,16 @@ use flecs_ecs::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 
-pub const STATE_LEN: usize = 40;
-const OMEGA: f32 = 9.0;
-const EV_OPENED: u32 = 1;
+pub const STATE_LEN: usize = 64;
 const EV_CLOSED: u32 = 2;
 const EV_SCROLL_END: u32 = 3;
 const EV_PAGE: u32 = 4;
-
-/// Shelf pose of an article's magazine, taken from the packed objs row.
-#[derive(Clone, Copy)]
-struct Mag {
-    obj: u32,
-    row: [f32; 28],
-    lean: f32,
-}
 
 struct Rs {
     world: World,
     articles: Vec<u64>,
     pages: Vec<u64>,
     events: VecDeque<u32>,
-    opened_sent: bool,
     last_page: i32,
     last_scroll: f32,
     moving: bool,
@@ -47,69 +36,20 @@ thread_local! {
     static SHEET_STEP: Cell<f32> = const { Cell::new(56.6) };
     static VIS: Cell<(i32, i32)> = const { Cell::new((-1, 0)) };
     static POSE: Cell<[f32; 5]> = const { Cell::new([0.0, 0.0, 0.0, 0.31, 0.434]) };
-    static MAGS: RefCell<Vec<Option<Mag>>> = const { RefCell::new(Vec::new()) };
-}
-
-fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
-    let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-fn smootherstep(a: f32, b: f32, x: f32) -> f32 {
-    let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
-    t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
-}
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t
 }
 
 /// Keep the world alive and register the systems.
 pub fn store(world: World, articles: Vec<u64>, out: &Output) {
-    let mags: Vec<Option<Mag>> = out
-        .links
-        .iter()
-        .map(|&o| {
-            if o == u32::MAX {
-                return None;
-            }
-            let b = o as usize * 28;
-            let mut row = [0.0; 28];
-            row.copy_from_slice(&out.objs[b..b + 28]);
-            // rot row 2 of lean(a) is [0, sin a, cos a]
-            Some(Mag { obj: o, row, lean: row[17].atan2(row[18]) })
-        })
-        .collect();
     ACTIVE.with(|a| a.set(-1));
     STATE.with(|s| {
         let mut s = s.borrow_mut();
         *s = [0.0; STATE_LEN];
         s[4] = -1.0;
         s[5] = -1.0;
-        if let Some(Some(m)) = mags.first() {
-            s[12..40].copy_from_slice(&m.row);
-        }
     });
-    MAGS.with(|m| *m.borrow_mut() = mags);
 
     crate::magazine::setup(&world);
-    world.system_named::<&mut Reading>("ReadingTween").each(|r| {
-        let dt = DT.with(|d| d.get());
-        let x = r.t - r.target;
-        if x.abs() < 1e-3 && r.vel.abs() < 1e-2 {
-            r.t = r.target;
-            r.vel = 0.0;
-            return;
-        }
-        // exact critically damped spring step: no overshoot for any dt
-        let e = (-OMEGA * dt).exp();
-        let k = r.vel + OMEGA * x;
-        r.t = r.target + (x + k * dt) * e;
-        r.vel = (r.vel - OMEGA * k * dt) * e;
-        if (r.t - r.target).abs() < 1e-3 {
-            r.t = r.target;
-            r.vel = 0.0;
-        }
-    });
-
+    crate::book::setup(&world, &articles, out);
     world.system_named::<(&Article, &mut Scroll)>("ScrollIntegrate").each(|(a, s)| {
         let dt = DT.with(|d| d.get());
         s.vel *= 0.95f32.powf(dt * 60.0);
@@ -140,47 +80,22 @@ pub fn store(world: World, articles: Vec<u64>, out: &Output) {
         }
     });
 
-    world.system_named::<(&Article, &Reading, &Scroll)>("PackObjs").each(|(a, r, s)| {
+    // scroll numbers for the renderer; the book's own slots are packed by book.rs (BookPack)
+    world.system_named::<(&Article, &Scroll)>("PackScroll").each(|(a, s)| {
         if ACTIVE.with(|c| c.get()) != a.index as i32 {
             return;
         }
-        let Some(m) = MAGS.with(|m| m.borrow().get(a.index as usize).copied().flatten()) else {
-            return;
-        };
-        let pose = POSE.with(|p| p.get());
-        let t = r.t;
-        let lift = smoothstep(0.0, 0.28, t);
-        let fly = smootherstep(0.12, 1.0, t);
-        let row = &m.row;
-        let mut o = *row;
-        o[0] = lerp(row[0], pose[0], fly);
-        o[1] = lerp(row[1], pose[1], fly);
-        o[2] = lerp(row[2], pose[2], fly) + 0.06 * lift * (1.0 - fly);
-        o[4] = lerp(row[4], pose[3], fly);
-        o[5] = lerp(row[5], pose[4], fly);
-        o[6] = lerp(row[6], 0.006, fly);
-        let (sn, cs) = (m.lean * (1.0 - lift)).sin_cos();
-        o[8..12].copy_from_slice(&[1.0, 0.0, 0.0, 0.0]);
-        o[12..16].copy_from_slice(&[0.0, cs, -sn, 0.0]);
-        o[16..20].copy_from_slice(&[0.0, sn, cs, 0.0]);
         let (first, n) = VIS.with(|v| v.get());
         let step = SHEET_STEP.with(|c| c.get()).max(1e-3);
         let vh = VIEW_H.with(|v| v.get());
         let centre = (((s.y_em + vh * 0.5) / step).floor() as i32).max(0);
         STATE.with(|st| {
             let mut st = st.borrow_mut();
-            st[0] = r.t;
-            st[1] = r.target;
             st[2] = s.y_em;
             st[3] = s.max_em;
-            st[4] = a.index as f32;
-            st[5] = m.obj as f32;
-            st[6] = lift;
-            st[7] = smootherstep(0.15, 1.0, t);
             st[8] = first.max(0) as f32;
             st[9] = n as f32;
             st[10] = centre as f32;
-            st[12..40].copy_from_slice(&o);
         });
     });
 
@@ -190,7 +105,6 @@ pub fn store(world: World, articles: Vec<u64>, out: &Output) {
             articles,
             pages: Vec::new(),
             events: VecDeque::new(),
-            opened_sent: false,
             last_page: -1,
             last_scroll: 0.0,
             moving: false,
@@ -232,6 +146,10 @@ pub fn article_open(index: u32, page_count: u32, _sheet_w: f32, sheet_h: f32, ga
         if cur >= 0 && cur as u32 != index {
             finish_close(rs);
         }
+        let other = (0..rs.articles.len()).find(|&i| i as u32 != index && !crate::book::is_home(&rs.world, rs.articles[i]));
+        if let Some(i) = other {
+            crate::book::reset(&rs.world, rs.articles[i]);
+        }
         let world = rs.world.clone();
         let art = world.entity_from_id(rs.articles[index as usize]);
         if cur != index as i32 || rs.pages.is_empty() {
@@ -259,12 +177,17 @@ pub fn article_open(index: u32, page_count: u32, _sheet_w: f32, sheet_h: f32, ga
         rs.gap = gap;
         SHEET_STEP.with(|c| c.set(sheet_h + gap));
         ACTIVE.with(|a| a.set(index as i32));
-        let r0 = art.try_cloned::<&Reading>().unwrap_or_default();
-        art.set(Reading { t: if snap { 1.0 } else { r0.t }, vel: 0.0, target: 1.0 });
+        // the book: a click may already have started the lift (book::begin); a cold deep link snaps to the end state
+        if snap {
+            crate::book::snap_open(&world, rs.articles[index as usize]);
+            crate::book::spawn_parts(&world, rs.articles[index as usize]);
+        } else {
+            crate::book::want(&world, rs.articles[index as usize], true);
+            crate::book::spawn_parts(&world, rs.articles[index as usize]);
+        }
         let max = max_scroll(rs, VIEW_H.with(|v| v.get()));
         art.set(Scroll { y_em: 0.0, target_em: 0.0, vel: 0.0, max_em: max });
         SCROLL_Y.with(|c| c.set(0.0));
-        rs.opened_sent = false;
         rs.last_page = -1;
         rs.last_scroll = 0.0;
         rs.moving = false;
@@ -279,7 +202,7 @@ fn finish_close(rs: &mut Rs) {
         return;
     }
     let art = rs.world.entity_from_id(rs.articles[cur as usize]);
-    art.set(Reading { t: 0.0, vel: 0.0, target: 0.0 });
+    crate::book::reset(&rs.world, rs.articles[cur as usize]);
     art.set(Scroll::default());
     despawn_pages(rs);
     ACTIVE.with(|a| a.set(-1));
@@ -287,7 +210,7 @@ fn finish_close(rs: &mut Rs) {
     VIS.with(|v| v.set((-1, 0)));
     STATE.with(|s| {
         let mut s = s.borrow_mut();
-        for i in [0, 1, 2, 8, 9] {
+        for i in [0, 1, 2, 8, 9, 6, 7, 40, 41, 42, 43, 44, 45, 47] {
             s[i] = 0.0;
         }
         s[4] = -1.0;
@@ -300,15 +223,15 @@ pub fn article_close(snap: bool) {
     with(|rs| {
         let cur = active();
         if cur < 0 {
+            for &id in &rs.articles {
+                crate::book::want(&rs.world, id, false);
+            }
             return;
         }
         if snap {
             finish_close(rs);
         } else {
-            let art = rs.world.entity_from_id(rs.articles[cur as usize]);
-            if let Some(r) = art.try_cloned::<&Reading>() {
-                art.set(Reading { target: 0.0, ..r });
-            }
+            crate::book::want(&rs.world, rs.articles[cur as usize], false);
         }
     });
 }
@@ -348,6 +271,7 @@ pub fn set_viewport(h: f32) {
 
 pub fn set_reading_pose(cx: f32, cy: f32, cz: f32, hw: f32, hh: f32) {
     POSE.with(|p| p.set([cx, cy, cz, hw, hh]));
+    with(|rs| crate::book::set_pose(&rs.world, cx, cy, cz, hw, hh));
 }
 
 pub fn tick(dt_ms: f32) {
@@ -359,15 +283,14 @@ pub fn tick(dt_ms: f32) {
     with(|rs| {
         let cur = active();
         if cur < 0 {
+            // a click that was cancelled while its article was still loading: the lift reverses on its own, then the book is put away
+            for &id in &rs.articles {
+                crate::book::settle_idle(&rs.world, id);
+            }
             return;
         }
         let art = rs.world.entity_from_id(rs.articles[cur as usize]);
-        let r = art.try_cloned::<&Reading>().unwrap_or_default();
-        if r.target >= 1.0 && r.t >= 0.999 && !rs.opened_sent {
-            rs.opened_sent = true;
-            rs.events.push_back(EV_OPENED << 24 | cur as u32);
-        }
-        if r.target <= 0.0 && r.t <= 0.0 {
+        if crate::book::is_home(&rs.world, rs.articles[cur as usize]) {
             finish_close(rs);
             return;
         }
@@ -391,6 +314,9 @@ pub fn event_poll() -> u32 {
     if m != 0 {
         return m;
     }
+    if let Some(b) = with(|rs| crate::book::poll(&rs.world)).flatten() {
+        return b;
+    }
     with(|rs| rs.events.pop_front()).flatten().unwrap_or(0)
 }
 
@@ -400,4 +326,18 @@ pub fn state_ptr() -> *const f32 {
 
 pub fn entity_count() -> u32 {
     with(|rs| rs.world.count(flecs::Wildcard::ID).max(0) as u32).unwrap_or(0)
+}
+
+/// Run `f` on the renderer's state buffer (the book's systems write their slots through this).
+pub fn with_state<T>(f: impl FnOnce(&mut [f32; STATE_LEN]) -> T) -> T {
+    STATE.with(|s| f(&mut s.borrow_mut()))
+}
+
+/// A click: the book starts lifting at once, before the article bytes arrive.
+pub fn book_begin(index: u32) {
+    with(|rs| {
+        if let Some(&id) = rs.articles.get(index as usize) {
+            crate::book::begin(&rs.world, id);
+        }
+    });
 }
