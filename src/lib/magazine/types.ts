@@ -34,7 +34,7 @@ export interface CompiledFigure {
 
 // ---- templates -----------------------------------------------------------------------------------
 
-export type SlotType = 'head' | 'deck' | 'byline' | 'body' | 'figure' | 'pullquote' | 'numeral' | 'aside' | 'caption' | 'code' | 'folio' | 'rule' | 'field';
+export type SlotType = 'head' | 'deck' | 'body' | 'figure' | 'pullquote' | 'numeral' | 'aside' | 'caption' | 'code' | 'folio' | 'rule' | 'field';
 export type FontRole = 'body' | 'display' | 'pullquote' | 'numeral' | 'label' | 'code';
 export type Side = 'top' | 'right' | 'bottom' | 'left';
 
@@ -81,45 +81,55 @@ export const template = (name: string, def: TemplateDef): Template => {
 	return { name, ...def };
 };
 
-export const TEMPLATE_NAMES = [
-	'opener', 'essay', 'feature', 'lead-figure', 'wide-figure', 'pullquote-break',
-	'data-wall', 'code-spread', 'sidebar', 'split-compare', 'gallery', 'closer'
-] as const;
+export const TEMPLATE_NAMES = ['duo', 'solo', 'compare', 'numerals', 'text', 'text-code'] as const;
 export type TemplateName = (typeof TEMPLATE_NAMES)[number];
+/** Layer of a spread: 0 distilled, 1 full text (MAGAZINE.md 1.6, 4.5). */
+export const LAYER = { distilled: 0, full: 1 } as const;
+export type Layer = (typeof LAYER)[keyof typeof LAYER];
+export const DISTILLED_TEMPLATES = ['duo', 'solo', 'compare', 'numerals'] as const satisfies readonly TemplateName[];
+export const FULL_TEMPLATES = ['text', 'text-code'] as const satisfies readonly TemplateName[];
+/** Template id stored in `Spreads[].template`: index in TEMPLATE_NAMES, +TEMPLATE_NARROW_BASE for the `-n` narrow variant. */
+export const TEMPLATE_NARROW_BASE = 16;
+export const templateId = (name: TemplateName, narrow = false): number => TEMPLATE_NAMES.indexOf(name) + (narrow ? TEMPLATE_NARROW_BASE : 0);
+export const templateLayer = (name: TemplateName): Layer => ((FULL_TEMPLATES as readonly string[]).includes(name) ? LAYER.full : LAYER.distilled);
 
-// ---- voices, rhythm, sidecar ---------------------------------------------------------------------
+// ---- voice, sidecar, distill ---------------------------------------------------------------------
 
-export type RhythmPreset = 'andante' | 'staccato' | 'crescendo' | 'essay' | 'auto';
+/** Per-article art direction (scripts/magazine/voices.ts): accent hue plus the Instrument Sans display axes. */
+export interface Voice { hue: number; wdth: number; wght: number }
 
-export interface FrauncesAxes { wght: number; opsz: number; soft: number; wonk: 0 | 1; italic?: boolean }
-
-/** Per-article art direction (scripts/magazine/voices.ts). */
-export interface Voice {
-	slug: string;
-	hue: number; // OKLCH hue, degrees
-	display: FrauncesAxes;
-	scaleRatio: 1.25 | 1.333;
-	rhythm: RhythmPreset;
-	templates: TemplateName[]; // allowed set, first pick order is a hint to the planner
-	handNotes?: boolean; // Caveat, mcp-not-enough only
-}
-
-/** spread.json next to the .svx. */
+/** spread.json next to the .svx (MAGAZINE.md 1.5). */
 export interface SpreadSidecar {
-	voice: string;
-	rhythm: RhythmPreset;
 	accentHue: number;
-	plan?: { section: string; layout: TemplateName }[];
+	display: { wdth: number; wght: number };
 	hyphenExceptions?: string[];
 }
 
-/** Parsed directive from the .svx (remark-directive); `line` is for error messages. */
+export const DISTILL_TEMPLATES = DISTILLED_TEMPLATES;
+export type DistillTemplate = (typeof DISTILLED_TEMPLATES)[number];
+
+/** The `distill:` frontmatter block (MAGAZINE.md 1.7). Every string not listed in `synth` must be a verbatim substring of the post. */
+export interface Distill {
+	template: DistillTemplate;
+	headline: string;
+	definition?: string;
+	deck?: string;
+	/** 1 or 2 figure ids from figures.ts, in slot order */
+	figures: string[];
+	quote?: { text: string; from: string };
+	/** at most 3 */
+	captions: { fig: string; text: string }[];
+	/** paths of strings that are NOT verbatim from the post, e.g. ["headline"] */
+	synth: string[];
+	/** absent until Andrew approves; post_sha is sha256 of the post body */
+	review?: { by: string; at: string; post_sha: string };
+}
+export const DISTILL_LIMITS = { words: { min: 100, warn: 150, max: 250 }, captions: 3, figures: 2 } as const;
+
+/** Parsed directive from the .svx (remark-directive); `line` is for error messages. Only what the full text layer needs. */
 export type Directive =
-	| { kind: 'spread'; layout: TemplateName; line: number }
-	| { kind: 'fig'; id: string; place: 'auto' | 'wide' | 'column' | 'bleed'; line: number }
-	| { kind: 'pullquote'; cite?: string; text: string; line: number }
-	| { kind: 'numeral'; value: string; label: string; style: 'fill' | 'outline'; line: number }
-	| { kind: 'aside'; anchor: string; text: string; line: number };
+	| { kind: 'fig'; id: string; place: 'auto' | 'inline'; line: number }
+	| { kind: 'code-wide'; line: number };
 
 /** Frame function: per-baseline interval available for text, after exclusions (MAGAZINE.md 1.4). */
 export interface Frame {
