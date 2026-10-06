@@ -10,7 +10,10 @@ class RoomAudio extends AudioWorkletProcessor {
 		x.audio_set_master(0);
 		this.port.onmessage = ({ data: m }) => {
 			switch (m.t) {
-				case 'event': x.audio_event(m.kind, m.intensity, m.pan); break;
+				case 'event':
+					if (m.velocity === undefined) x.audio_event(m.kind, m.intensity, m.pan);
+					else x.audio_event_v(m.kind, m.intensity, m.pan, m.velocity);
+					break;
 				case 'elevator': x.audio_set_elevator(m.speed, m.floor); break;
 				case 'room': x.audio_set_room(m.w, m.d, m.h); break;
 				case 'master': x.audio_set_master(m.g); break;

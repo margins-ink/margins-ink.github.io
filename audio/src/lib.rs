@@ -10,6 +10,36 @@ const TAU: f32 = core::f32::consts::TAU;
 
 type Unit = Box<dyn AudioUnit>;
 
+/// Loudness ceiling of the soft limiter (linear, about -4.4 dBFS): output never exceeds it.
+const CEILING: f32 = 0.6;
+/// Level range of the one-shot velocity curve: velocity 0 is this many dB below velocity 1.
+const VEL_RANGE_DB: f32 = 36.0;
+/// Impact brightness: lowpass cutoff runs exponentially from LP_MIN (v = 0) to LP_MAX (v = 1).
+const LP_MIN: f32 = 500.0;
+const LP_MAX: f32 = 16000.0;
+/// Velocity used by the legacy `audio_event` (no velocity argument): -7 dB, a firm but not hard touch.
+const DEFAULT_VELOCITY: f32 = 0.8;
+/// Time constant of the elevator speed smoothing (seconds).
+const SPEED_TAU: f32 = 0.3;
+/// Parked hum level (linear, about -34 dB below full speed).
+const PARKED: f32 = 0.02;
+
+/// One-shot velocity (0..1) to linear gain: dB-linear, 0 dB at 1 and -VEL_RANGE_DB at 0.
+fn vel_gain(v: f32) -> f32 {
+    10f32.powf(-VEL_RANGE_DB * (1.0 - v) / 20.0)
+}
+/// Impact velocity to lowpass cutoff in Hz.
+fn vel_cutoff(v: f32) -> f32 {
+    LP_MIN * (LP_MAX / LP_MIN).powf(v)
+}
+/// Elevator smoothed speed (0..1) to hum level: roughly speed^1.5 over a faint parked hum.
+fn elev_level(s: f32) -> f32 {
+    PARKED + (1.0 - PARKED) * s * s.sqrt()
+}
+fn clamp01(x: f32, default: f32) -> f32 {
+    if x.is_finite() { x.clamp(0.0, 1.0) } else { default }
+}
+
 #[derive(Clone, Copy)]
 enum Kind {
     FloorPass,
@@ -19,6 +49,7 @@ enum Kind {
     PaperTurn,
     Open,
     Close,
+    Scroll,
 }
 
 fn kind_from(k: u32) -> Option<Kind> {
@@ -30,6 +61,7 @@ fn kind_from(k: u32) -> Option<Kind> {
         4 => Kind::PaperTurn,
         5 => Kind::Open,
         6 => Kind::Close,
+        7 => Kind::Scroll,
         _ => return None,
     })
 }
@@ -41,6 +73,10 @@ struct Voice {
     gain: f32,
     gl: f32,
     gr: f32,
+    /// one-pole lowpass coefficient (impact brightness) and its two states
+    lp: f32,
+    z1: f32,
+    z2: f32,
 }
 
 struct Part {
@@ -141,6 +177,11 @@ fn build(b: &mut Builder, kind: Kind, i: f32) -> Part {
             ],
             secs: 0.8,
         },
+        // Fast scroll or page flick: a short dry rustle (loudness and brightness come from velocity).
+        Kind::Scroll => Part {
+            parts: vec![b.noise(5200.0, 0.8, 0.5, 0.01, 16.0, 40.0, 0.8), b.noise(2400.0, 0.7, 0.3, 0.02, 14.0, 23.0, 0.6)],
+            secs: 0.3,
+        },
         Kind::Close => Part {
             parts: vec![
                 b.mode(130.0, 0.5, 32.0),
@@ -193,6 +234,12 @@ pub struct Synth {
     master_target: f32,
     last_speed: f32,
     last_floor: i32,
+    speed_target: f32,
+    speed_sm: f32,
+    speed_k: f32,
+    floor_off: f32,
+    /// Test-only planted bug: bypasses every velocity curve (flat gain, no brightness, no duration change).
+    flat: bool,
     left: Vec<f32>,
     right: Vec<f32>,
 }
@@ -223,13 +270,19 @@ impl Synth {
             master_target: 0.0,
             last_speed: 0.0,
             last_floor: 0,
+            speed_target: 0.0,
+            speed_sm: 0.0,
+            floor_off: 0.0,
+            speed_k: 1.0 - (-1.0 / (SPEED_TAU * sr as f32)).exp(),
+            flat: false,
             left: vec![0.0; MAX_FRAMES],
             right: vec![0.0; MAX_FRAMES],
         }
     }
 
-    fn event(&mut self, kind: Kind, intensity: f32, pan: f32) {
-        let i = if intensity.is_finite() { intensity.clamp(0.0, 1.0) } else { 0.5 };
+    fn event(&mut self, kind: Kind, intensity: f32, pan: f32, velocity: f32) {
+        let i = clamp01(intensity, 0.5);
+        let v = if self.flat { 1.0 } else { clamp01(velocity, DEFAULT_VELOCITY) };
         let part = build(&mut self.b, kind, i);
         let kind_gain = match kind {
             Kind::Ding => 0.55,
@@ -241,27 +294,32 @@ impl Synth {
         if self.voices.len() >= MAX_VOICES {
             self.voices.remove(0);
         }
+        // Soft hits are shorter as well as quieter and duller.
+        let dur = if self.flat { 1.0 } else { 0.5 + 0.5 * v };
+        let lp = if self.flat { 1.0 } else { 1.0 - (-TAU * vel_cutoff(v) / self.sr as f32).exp() };
         self.voices.push(Voice {
             parts: part.parts,
             age: 0,
-            len: (part.secs * self.sr as f32) as u32,
-            gain: kind_gain * (0.25 + 0.75 * i),
+            len: (part.secs * dur * self.sr as f32) as u32,
+            gain: kind_gain * (0.25 + 0.75 * i) * if self.flat { 1.0 } else { vel_gain(v) },
             gl: ang.cos(),
             gr: ang.sin(),
+            lp,
+            z1: 0.0,
+            z2: 0.0,
         });
     }
 
     /// `speed` is normalised 0..1 (|speed| / max speed). Auto-fires floorPass and the arrival ding.
     fn set_elevator(&mut self, speed: f32, floor: i32) {
         let s = if speed.is_finite() { speed.abs().clamp(0.0, 1.0) } else { 0.0 };
-        self.elev.pitch.set(30.0 + 34.0 * s + 0.4 * floor.rem_euclid(8) as f32);
-        self.elev.level.set(0.12 + 0.88 * s); // faint idle hum when parked
-        self.elev.rattle.set(s * s);
+        self.speed_target = s;
+        self.floor_off = 0.4 * floor.rem_euclid(8) as f32;
         if floor != self.last_floor && s > 0.05 {
-            self.event(Kind::FloorPass, 0.4 + 0.4 * s, 0.0);
+            self.event(Kind::FloorPass, 0.4 + 0.4 * s, 0.0, s);
         }
         if self.last_speed > 0.05 && s <= 0.02 {
-            self.event(Kind::Ding, 0.8, 0.0);
+            self.event(Kind::Ding, 0.8, 0.0, 0.8);
         }
         self.last_speed = s;
         self.last_floor = floor;
@@ -271,6 +329,17 @@ impl Synth {
         let n = Ord::min(n, MAX_FRAMES);
         let k = 0.0015_f32; // master smoothing, about 15 ms
         for j in 0..n {
+            // smoothed speed drives pitch, level and rattle: no step at start or stop
+            self.speed_sm += (self.speed_target - self.speed_sm) * self.speed_k;
+            let sm = self.speed_sm;
+            self.elev.pitch.set(30.0 + 34.0 * sm + self.floor_off);
+            if self.flat {
+                self.elev.level.set(1.0);
+                self.elev.rattle.set(1.0);
+            } else {
+                self.elev.level.set(elev_level(sm));
+                self.elev.rattle.set(sm * sm * sm.sqrt());
+            }
             let e = self.elev.unit.get_mono() * 0.22;
             let mut l = e * 0.7;
             let mut r = e * 0.7;
@@ -279,7 +348,11 @@ impl Synth {
                 for p in v.parts.iter_mut() {
                     s += p.get_mono();
                 }
-                s *= v.gain * 0.9;
+                v.z1 += (s - v.z1) * v.lp;
+                v.z2 += (v.z1 - v.z2) * v.lp;
+                let rem = v.len.saturating_sub(v.age) as f32;
+                let fade = (rem / (0.25 * v.len as f32).max(1.0)).min(1.0);
+                s = v.z2 * v.gain * 0.9 * fade;
                 l += s * v.gl;
                 r += s * v.gr;
                 v.age += 1;
@@ -288,8 +361,9 @@ impl Synth {
             let mut wet = [0.0_f32; 2];
             self.reverb.tick(&[l, r], &mut wet);
             let g = self.master * self.scale;
-            self.left[j] = ((l + wet[0] * self.wet) * g).tanh();
-            self.right[j] = ((r + wet[1] * self.wet) * g).tanh();
+            // soft limiter: smooth knee, hard ceiling at CEILING
+            self.left[j] = CEILING * ((l + wet[0] * self.wet) * g / CEILING).tanh();
+            self.right[j] = CEILING * ((r + wet[1] * self.wet) * g / CEILING).tanh();
         }
         self.voices.retain(|v| v.age < v.len);
     }
@@ -329,8 +403,13 @@ pub extern "C" fn audio_render(frames: u32) {
 }
 #[no_mangle]
 pub extern "C" fn audio_event(kind: u32, intensity: f32, pan: f32) {
+    audio_event_v(kind, intensity, pan, DEFAULT_VELOCITY);
+}
+/// One-shot with impact velocity 0..1 (scales gain by a dB curve, brightness and duration).
+#[no_mangle]
+pub extern "C" fn audio_event_v(kind: u32, intensity: f32, pan: f32, velocity: f32) {
     if let (Some(s), Some(k)) = (synth(), kind_from(kind)) {
-        s.event(k, intensity, pan);
+        s.event(k, intensity, pan, velocity);
     }
 }
 #[no_mangle]
@@ -358,5 +437,139 @@ pub extern "C" fn audio_set_master(g: f32) {
 pub extern "C" fn audio_set_scale(g: f32) {
     if let Some(s) = synth() {
         s.scale = g.clamp(0.0, 1.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    const SR: f64 = 48000.0;
+
+    fn synth_for_test(flat: bool) -> Synth {
+        let mut s = Synth::new(SR);
+        s.master_target = 0.5;
+        s.flat = flat;
+        s.render(0); // no-op, keeps API parity
+        s
+    }
+
+    fn render(s: &mut Synth, secs: f32) -> Vec<f32> {
+        let mut out = Vec::new();
+        let mut left = (secs * SR as f32) as usize;
+        while left > 0 {
+            let n = Ord::min(left, 128);
+            s.render(n);
+            out.extend_from_slice(&s.left[..n]);
+            left -= n;
+        }
+        out
+    }
+
+    fn rms(x: &[f32]) -> f32 {
+        (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt()
+    }
+    fn db(a: f32, b: f32) -> f32 {
+        20.0 * (a / b).log10()
+    }
+
+    fn wav(name: &str, x: &[f32]) {
+        let dir = "/Volumes/Projects/tmp/audio-velocity";
+        if std::fs::create_dir_all(dir).is_err() {
+            return;
+        }
+        let mut b = Vec::new();
+        let n = x.len() as u32;
+        b.extend(b"RIFF");
+        b.extend((36 + n * 4).to_le_bytes());
+        b.extend(b"WAVEfmt ");
+        b.extend(16u32.to_le_bytes());
+        b.extend(3u16.to_le_bytes());
+        b.extend(1u16.to_le_bytes());
+        b.extend((SR as u32).to_le_bytes());
+        b.extend((SR as u32 * 4).to_le_bytes());
+        b.extend(4u16.to_le_bytes());
+        b.extend(32u16.to_le_bytes());
+        b.extend(b"data");
+        b.extend((n * 4).to_le_bytes());
+        for v in x {
+            b.extend(v.to_le_bytes());
+        }
+        if let Ok(mut f) = std::fs::File::create(format!("{dir}/{name}.wav")) {
+            let _ = f.write_all(&b);
+        }
+    }
+
+    const SPEEDS: [f32; 3] = [0.15, 0.5, 1.0];
+
+    fn elevator_rms(flat: bool, speed: f32) -> f32 {
+        let mut s = synth_for_test(flat);
+        s.set_elevator(speed, 0);
+        let x = render(&mut s, 4.0);
+        wav(&format!("elevator_{}{}", (speed * 100.0) as u32, if flat { "_flat" } else { "" }), &x);
+        rms(&x[(3.0 * SR as f32) as usize..])
+    }
+
+    fn oneshot_rms(flat: bool, kind: Kind, v: f32) -> f32 {
+        let mut s = synth_for_test(flat);
+        s.event(kind, 0.7, 0.0, v);
+        let x = render(&mut s, 1.5);
+        wav(&format!("{}_{}{}", kind as u32, (v * 100.0) as u32, if flat { "_flat" } else { "" }), &x);
+        // subtract the parked elevator hum (same seeds, so identical without the event)
+        let base = render(&mut synth_for_test(flat), 1.5);
+        (rms(&x).powi(2) - rms(&base).powi(2)).max(1e-12).sqrt()
+    }
+
+    const KINDS: [Kind; 6] = [Kind::Grab, Kind::Place, Kind::PaperTurn, Kind::Open, Kind::Close, Kind::Scroll];
+
+    /// True when every series is monotone in velocity and slow is at least 12 dB below fast.
+    fn velocity_aware(flat: bool) -> bool {
+        let mut series: Vec<[f32; 3]> = Vec::new();
+        series.push(SPEEDS.map(|v| elevator_rms(flat, v)));
+        for k in KINDS {
+            series.push(SPEEDS.map(|v| oneshot_rms(flat, k, v)));
+        }
+        series.iter().enumerate().all(|(i, r)| {
+            eprintln!("series {i}: rms {:.5} {:.5} {:.5}, slow vs fast {:.1} dB", r[0], r[1], r[2], db(r[0], r[2]));
+            r[0] < r[1] && r[1] < r[2] && db(r[0], r[2]) <= -12.0
+        })
+    }
+
+    #[test]
+    fn velocity_scales_every_sound() {
+        assert!(velocity_aware(false));
+    }
+
+    /// Planted-bug control: with the velocity curves bypassed the same check must fail.
+    #[test]
+    fn flat_gain_is_caught() {
+        assert!(!velocity_aware(true));
+    }
+
+    #[test]
+    fn limiter_holds_ceiling() {
+        let mut s = synth_for_test(false);
+        s.master_target = 1.0;
+        for _ in 0..4 {
+            for k in [0, 1, 2, 3, 4, 5, 6, 7] {
+                s.event(kind_from(k).unwrap(), 1.0, 0.0, 1.0);
+            }
+        }
+        s.set_elevator(1.0, 1);
+        let x = render(&mut s, 2.0);
+        let peak = x.iter().fold(0f32, |a, v| a.max(v.abs()));
+        eprintln!("stress peak {peak:.3}");
+        assert!(peak <= CEILING);
+    }
+
+    #[test]
+    fn elevator_start_has_no_step() {
+        let mut s = synth_for_test(false);
+        render(&mut s, 0.5);
+        s.set_elevator(1.0, 0);
+        let x = render(&mut s, 0.1);
+        // first 20 ms after a full-speed command stays near parked level
+        assert!(rms(&x[..960]) < 0.02, "rms {}", rms(&x[..960]));
     }
 }

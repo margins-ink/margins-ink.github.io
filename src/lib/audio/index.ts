@@ -1,9 +1,9 @@
 import wasmUrl from './audio.wasm?url';
 import workletUrl from './worklet.js?url';
 
-export type AudioEventKind = 'floorPass' | 'ding' | 'grab' | 'place' | 'paperTurn' | 'open' | 'close';
+export type AudioEventKind = 'floorPass' | 'ding' | 'grab' | 'place' | 'paperTurn' | 'open' | 'close' | 'scroll';
 const KIND_ID: Record<AudioEventKind, number> = {
-	floorPass: 0, ding: 1, grab: 2, place: 3, paperTurn: 4, open: 5, close: 6
+	floorPass: 0, ding: 1, grab: 2, place: 3, paperTurn: 4, open: 5, close: 6, scroll: 7
 };
 
 export interface RoomAudio {
@@ -11,8 +11,12 @@ export interface RoomAudio {
 	resume(): Promise<void>;
 	/** speed normalised 0..1 (|v| / max v). Fires floorPass on floor change and the arrival ding on stop. */
 	setElevator(speed: number, floor: number): void;
-	/** intensity 0..1 (for 'place' also the book's weight: heavier is lower), pan -1..1. */
-	event(kind: AudioEventKind, intensity?: number, pan?: number): void;
+	/**
+	 * intensity 0..1 (for 'place' also the book's weight: heavier is lower), pan -1..1.
+	 * velocity 0..1 is the impact or scroll speed: scales gain (dB curve, 36 dB range), brightness and duration.
+	 * Omitted means a firm default (0.8, -7 dB).
+	 */
+	event(kind: AudioEventKind, intensity?: number, pan?: number, velocity?: number): void;
 	/** Room size in world metres; sets reverb time and size. */
 	setReverbRoom(w: number, d: number, h: number): void;
 	setMuted(muted: boolean): void;
@@ -74,8 +78,8 @@ export function createAudio(): RoomAudio {
 			elevator = { speed, floor: Math.round(floor) };
 			if (ready) post({ t: 'elevator', ...elevator });
 		},
-		event(kind, intensity = 0.6, pan = 0) {
-			if (ready && started && !muted) post({ t: 'event', kind: KIND_ID[kind], intensity, pan });
+		event(kind, intensity = 0.6, pan = 0, velocity) {
+			if (ready && started && !muted) post({ t: 'event', kind: KIND_ID[kind], intensity, pan, velocity });
 		},
 		setReverbRoom(w, d, h) {
 			room = [w, d, h];

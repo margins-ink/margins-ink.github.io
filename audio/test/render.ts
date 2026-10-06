@@ -69,6 +69,17 @@ const cases: { name: string; run: (s: S) => Buf }[] = [];
 KINDS.forEach((k, id) =>
 	cases.push({ name: k, run: (s) => { s.x.audio_event(id, 0.8, k === "grab" ? -0.6 : 0); return s.render(2.6); } }),
 );
+// velocity: slow/medium/fast one-shots through the real wasm; RMS must rise monotonically, slow >= 12 dB below fast
+const velRms: Record<string, number[]> = {};
+for (const k of ["grab", "place", "paperTurn", "open", "close", "scroll"] as const) {
+	const id = [...KINDS, "scroll"].indexOf(k);
+	for (const v of [0.15, 0.5, 1.0]) {
+		cases.push({ name: `vel_${k}_${v}`, run: (s) => { s.x.audio_event_v(id, 0.7, 0, v); return s.render(1.5); } });
+	}
+}
+for (const v of [0.15, 0.5, 1.0]) {
+	cases.push({ name: `vel_elevator_${v}`, run: (s) => { s.x.audio_set_elevator(v, 0); return s.render(4); } });
+}
 cases.push({ name: "place_small", run: (s) => { s.x.audio_event(3, 0.1, 0); return s.render(1.2); } });
 cases.push({ name: "place_heavy", run: (s) => { s.x.audio_event(3, 1.0, 0); return s.render(1.2); } });
 cases.push({ name: "elevator_idle", run: (s) => { s.x.audio_set_elevator(0, 0); return s.render(1.5); } });
@@ -93,6 +104,7 @@ cases.push({
 });
 
 let fail = 0;
+let idleRms = 0;
 const h = (b: Buf) => createHash("sha256").update(b[0]).update(b[1]).digest("hex").slice(0, 8);
 console.log("name              peak    rms     sha8      deterministic");
 for (const c of cases) {
@@ -100,10 +112,20 @@ for (const c of cases) {
 	const b = c.run(await synth());
 	const { peak, rms } = stats(a[0], a[1]);
 	const det = h(a) === h(b);
-	const ok = det && peak < 0.99 && rms > 1e-4 && Number.isFinite(peak);
+	if (c.name === "elevator_idle") idleRms = rms;
+	if (c.name.startsWith("vel_")) { const [, k, v] = c.name.split("_"); (velRms[k] ??= []).push(rms); }
+	const ok = det && peak < 0.61 && (rms > 1e-4 || c.name.startsWith("vel_")) && Number.isFinite(peak);
 	if (!ok) fail++;
 	writeFileSync(join(outDir, `${c.name}.wav`), wav(a[0], a[1]));
 	console.log(`${c.name.padEnd(17)} ${peak.toFixed(3)}   ${rms.toFixed(4)}  ${h(a)}  ${det ? "yes" : "NO"}${ok ? "" : "  FAIL"}`);
+}
+// the parked elevator hum (elevator_idle, same 1.5 s) is a noise floor under every one-shot: subtract its power
+for (const [k, r0] of Object.entries(velRms)) {
+	const r = k === "elevator" ? r0 : r0.map((x) => Math.sqrt(Math.max(x * x - idleRms * idleRms, 1e-12)));
+	const db = 20 * Math.log10(r[0] / r[2]);
+	const ok = r[0] < r[1] && r[1] < r[2] && db <= -12;
+	if (!ok) fail++;
+	console.log(`velocity ${k.padEnd(10)} rms ${r.map((x) => x.toExponential(2)).join(" < ")}  slow vs fast ${db.toFixed(1)} dB  ${ok ? "ok" : "FAIL"}`);
 }
 {
 	const s = await synth();

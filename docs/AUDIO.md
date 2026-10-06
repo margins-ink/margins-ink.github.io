@@ -24,7 +24,27 @@ src/lib/audio/worklet.js  AudioWorkletProcessor: owns the wasm instance, renders
 
 Room reverb: fundsp `reverb_stereo`, RT60 from Sabine (`0.161 V / (0.3 S)`, clamped 0.3 to 2.5 s) and size from the cube root of the volume; wet mix 0.22. `setReverbRoom(w,d,h)` rebuilds it (the old tail is dropped).
 
-Gain staging: voices sum into a master with `tanh` soft limiting, so output cannot clip. Default master 0.6; a single event peaks about -20 dBFS, the full stress mix (all kinds at once x4 plus the elevator at full speed) 0.64 peak. `prefers-reduced-motion: reduce` halves everything (live, via the media-query listener). Master is 0 until the first `resume()` (a user gesture, per the autoplay policy); events before that are dropped, and `setMuted(true)` ramps to 0 over about 15 ms and also drops events.
+Gain staging: voices sum into a master with a soft limiter, `0.6 * tanh(x / 0.6)`: smooth knee, hard loudness ceiling 0.6 (-4.4 dBFS), so output cannot clip. Default master 0.6 on the host side. Measured stress mix (all 8 kinds x4 at velocity 1 plus the elevator at full speed, master 1.0): peak 0.595. `prefers-reduced-motion: reduce` halves everything (live, via the media-query listener). Master is 0 until the first `resume()` (a user gesture, per the autoplay policy); events before that are dropped, and `setMuted(true)` ramps to 0 over about 15 ms and also drops events.
+
+## Velocity
+
+Everything is velocity-aware so slow motion is near silent. Constants live at the top of `audio/src/lib.rs`.
+
+Elevator: `setElevator(speed, floor)` is unchanged. The target speed is smoothed per sample (one pole, 0.3 s) and the smoothed value drives everything, so there is no step at start or stop (first 20 ms after a full-speed command stays under 0.02 RMS).
+- hum level = `0.02 + 0.98 * s^1.5` (parked hum -34 dB below full speed)
+- hum pitch = `30 + 34 * s` Hz (plus 0.4 Hz per floor mod 8)
+- rattle (rumble and ticks) = `s^2.5`
+- floorPass fired with velocity `s`
+
+One-shots: `event(kind, intensity, pan, velocity)`, velocity 0..1 (impact speed or scroll speed). Omitted gives 0.8 (-7 dB), so existing calls keep working.
+- gain = `10^(-36 (1 - v) / 20)`: dB-linear, 0 dB at 1, -36 dB at 0 (multiplies the intensity gain)
+- brightness: two one-pole lowpasses, cutoff `500 * (16000/500)^v` Hz (500 Hz at 0, 16 kHz at 1)
+- duration: `secs * (0.5 + 0.5 v)` with a 25 % fade-out, so soft hits are shorter
+- `scroll` (kind 7) is a short dry rustle for scroll or page-flick speed; `paperTurn` takes the same argument.
+
+Wasm: new export `audio_event_v(kind, intensity, pan, velocity)`; `audio_event` calls it with 0.8. The worklet uses `audio_event_v` only when the message carries `velocity`.
+
+Measured (cargo test and `bun run test:audio`, master 0.5, RMS of the 1.5 s render with the parked hum power subtracted, velocity 0.15 / 0.5 / 1.0, slow vs fast): elevator (steady state, speed 0.15/0.5/1.0) 2.6e-3 / 1.3e-2 / 4.4e-2, -24.7 dB; grab -41.7 dB; place -30.7; paperTurn -53.3; open -34.2; close -31.2; scroll -52.0. Required: strictly rising and slow at least 12 dB below fast.
 
 ## Contract
 
@@ -32,13 +52,13 @@ Gain staging: voices sum into a master with `tanh` soft limiting, so output cann
 createAudio(): {
   resume(): Promise<void>                     // call from pointerdown/keydown; creates the context lazily
   setElevator(speed: number, floor: number)   // speed normalised 0..1; call every frame, cheap
-  event(kind, intensity = 0.6, pan = 0)       // 'floorPass'|'ding'|'grab'|'place'|'paperTurn'|'open'|'close'; intensity 0..1, pan -1..1
+  event(kind, intensity = 0.6, pan = 0, velocity?)  // 'floorPass'|'ding'|'grab'|'place'|'paperTurn'|'open'|'close'|'scroll'; intensity 0..1, pan -1..1, velocity 0..1 (default 0.8)
   setReverbRoom(w, d, h)                      // metres
   setMuted(b: boolean)
 }
 ```
 
-Raw wasm exports: `audio_init(sr)`, `audio_render(frames <= 4096)`, `audio_left_ptr/right_ptr`, `audio_event(kind,i,pan)`, `audio_set_elevator(speed,floor)`, `audio_set_room(w,d,h)`, `audio_set_master(g)`, `audio_set_scale(g)`. Kind ids follow the order above (0 floorPass ... 6 close).
+Raw wasm exports: `audio_init(sr)`, `audio_render(frames <= 4096)`, `audio_left_ptr/right_ptr`, `audio_event(kind,i,pan)`, `audio_event_v(kind,i,pan,velocity)`, `audio_set_elevator(speed,floor)`, `audio_set_room(w,d,h)`, `audio_set_master(g)`, `audio_set_scale(g)`. Kind ids follow the order above (0 floorPass ... 6 close, 7 scroll).
 
 ## Hooks for the root (about 6 lines)
 
@@ -59,4 +79,4 @@ fundsp 0.23.0 is `MIT OR Apache-2.0` (read from `LICENSE-MIT` and `LICENSE-APACH
 
 ## Verification
 
-`bun run test:audio` renders each sound through the real wasm twice in fresh instances and requires identical SHA-256 of the output (deterministic), peak below 0.99 (no clipping), RMS above 1e-4 (non-silent), and silence when master is 0. WAVs (stereo float32, 48 kHz) land in `/Volumes/Projects/tmp/audio/`. Not tested here: browser playback (AudioWorklet host), which needs a real page.
+`cargo test --release` in `audio/` (native, no wasm) renders slow/medium/fast (0.15/0.5/1.0) of the elevator and every one-shot to WAVs in `/Volumes/Projects/tmp/audio-velocity/`, asserts strictly rising RMS and slow at least 12 dB below fast, that the limiter holds the 0.6 ceiling, and that the elevator has no start step. Planted-bug control: `Synth.flat` bypasses every velocity curve; the same check must fail with it (it does: elevator -0.0 dB slow vs fast). `bun run test:audio` renders each sound through the real wasm twice in fresh instances and requires identical SHA-256 of the output (deterministic), peak below 0.61 (the limiter ceiling), the same velocity monotonicity check through the real wasm, RMS above 1e-4 (non-silent), and silence when master is 0. WAVs (stereo float32, 48 kHz) land in `/Volumes/Projects/tmp/audio/`. Not tested here: browser playback (AudioWorklet host), which needs a real page.
