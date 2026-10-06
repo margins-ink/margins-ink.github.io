@@ -24,6 +24,8 @@ vec_component!(Wainscot { r, g, b } [0.2, 0.2, 0.2]);
 vec_component!(Material { roughness, metallic } [0.8, 0.0]);
 // Tilt about the x axis (radians): the magazines leaning on the shelf.
 vec_component!(Lean { angle } [0.0]);
+// Free rotation (radians), applied as Ry * Rx * Rz: plant blades and other props.
+vec_component!(Euler { x, y, z } [0.0, 0.0, 0.0]);
 // Lying flat, turned by `theta + per_floor * floor_index` about the vertical axis.
 vec_component!(Flat { theta, per_floor } [0.0, 0.0]);
 
@@ -61,6 +63,10 @@ pub struct Article {
     pub index: u32,
 }
 
+/// Tag: rests on its parent surface. The exporter sets the height so the object sits on the parent's top face
+/// (its own Center.y is ignored; x and z stay local to the parent). Props placed this way cannot sink or float.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct Rests;
 /// Tag: the Tex of this object is the floor's title sign rect, supplied at build time.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct TexSign;
@@ -98,11 +104,13 @@ pub fn register(world: &World) {
     world.component_named::<Material>("Material");
     world.component_named::<Lean>("Lean");
     world.component_named::<Flat>("Flat");
+    world.component_named::<Euler>("Euler");
     world.component_named::<Kind>("Kind");
     world.component_named::<Dims>("Dims");
     world.component_named::<Floor>("Floor");
     world.component_named::<Article>("Article");
     world.component_named::<TexSign>("TexSign");
+    world.component_named::<Rests>("Rests");
     world.component_named::<TexMap>("TexMap");
     world.component_named::<Uses>("Uses");
     world.component_named::<Displayed>("Displayed");

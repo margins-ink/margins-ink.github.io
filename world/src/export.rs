@@ -13,6 +13,18 @@ fn lean(a: f64) -> M3 {
     [[1.0, 0.0, 0.0], [0.0, c as f32, -s as f32], [0.0, s as f32, c as f32]]
 }
 
+/// Local axes (rows) of the rotation Ry(y) * Rx(x) * Rz(z).
+fn euler(x: f64, y: f64, z: f64) -> M3 {
+    let (sx, cx) = x.sin_cos();
+    let (sy, cy) = y.sin_cos();
+    let (sz, cz) = z.sin_cos();
+    // columns of R = Ry * Rx * Rz
+    let c0 = [cy * cz + sy * sx * sz, cx * sz, -sy * cz + cy * sx * sz];
+    let c1 = [-cy * sz + sy * sx * cz, cx * cz, sy * sz + cy * sx * cz];
+    let c2 = [sy * cx, -sx, cy * cx];
+    [c0.map(|v| v as f32), c1.map(|v| v as f32), c2.map(|v| v as f32)]
+}
+
 fn flat(t: f64) -> M3 {
     let (s, c) = t.sin_cos();
     [[c as f32, 0.0, -s as f32], [-s as f32, 0.0, -c as f32], [0.0, 1.0, 0.0]]
@@ -28,18 +40,40 @@ fn collect(e: EntityView, out: &mut Vec<u64>) {
     });
 }
 
-/// Centre in floor space: the entity's own Center plus those of its Center-bearing ancestors.
-fn floor_pos(e: EntityView) -> [f32; 3] {
-    let mut p = e.try_cloned::<&Center>().map_or([0.0; 3], |c| [c.x, c.y, c.z]);
-    let mut up = e.parent();
-    while let Some(a) = up {
-        if let Some(c) = a.try_cloned::<&Center>() {
-            p[0] += c.x;
-            p[1] += c.y;
-            p[2] += c.z;
-        }
-        up = a.parent();
+/// Rotation (rows are the local axes in world space) of an object on floor `k`.
+fn rotation(e: EntityView, k: usize) -> M3 {
+    if let Some(l) = e.try_cloned::<&Lean>() {
+        lean(l.angle as f64)
+    } else if let Some(r) = e.try_cloned::<&Euler>() {
+        euler(r.x as f64, r.y as f64, r.z as f64)
+    } else if let Some(f) = e.try_cloned::<&Flat>() {
+        flat(f.theta as f64 + f.per_floor as f64 * k as f64)
+    } else {
+        I3
     }
+}
+
+/// Half height of the object's rotated box: how far it reaches above and below its centre.
+fn extent_y(e: EntityView, k: usize) -> f32 {
+    let h = e.try_cloned::<&Half>().map_or([0.0; 3], |h| [h.x, h.y, h.z]);
+    let m = rotation(e, k);
+    (0..3).map(|i| m[i][1].abs() * h[i]).sum()
+}
+
+/// Centre in floor space: the entity's own Center plus those of its Center-bearing ancestors. An entity tagged
+/// `Rests` takes its height from the top face of its parent instead of its own Center.y, so it always sits on it.
+fn floor_pos(e: EntityView, k: usize) -> [f32; 3] {
+    let own = e.try_cloned::<&Center>().map_or([0.0; 3], |c| [c.x, c.y, c.z]);
+    let Some(parent) = e.parent() else { return own };
+    let mut p = floor_pos(parent, k);
+    let dy = if e.has(Rests::id()) && parent.try_cloned::<&Half>().is_some() {
+        extent_y(parent, k) + extent_y(e, k)
+    } else {
+        own[1]
+    };
+    p[0] += own[0];
+    p[1] += dy;
+    p[2] += own[2];
     p
 }
 
@@ -73,15 +107,9 @@ pub fn pack<'a>(
         for e in &objs {
             let kind = e.try_cloned::<&Kind>().unwrap().id;
             let half = e.try_cloned::<&Half>().ok_or("object without Half")?;
-            let mut c = floor_pos(*e);
+            let mut c = floor_pos(*e, k);
             c[1] += dy;
-            let rot = if let Some(l) = e.try_cloned::<&Lean>() {
-                lean(l.angle as f64)
-            } else if let Some(f) = e.try_cloned::<&Flat>() {
-                flat(f.theta as f64 + f.per_floor as f64 * k as f64)
-            } else {
-                I3
-            };
+            let rot = rotation(*e, k);
             let alb = e.try_cloned::<&Albedo>().unwrap_or_default();
             let tex = if e.has(TexSign::id()) {
                 signs.get(k).copied().ok_or("no sign rect for floor")?

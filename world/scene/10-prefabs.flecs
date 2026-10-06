@@ -35,20 +35,109 @@ prefab Window : Solid {
     Half: {0.27, 0.37, 0.01} }
 }
 
-// Terracotta pot with three foliage spheres.
+// Terracotta pot with a rim, soil and a rosette of tilted blades (Euler rotation).
 prefab Plant : Solid {
   Albedo: {0.6, 0.3, 0.2}
   Material: {0.75, 0}
-  Half: {0.07, 0.07, 0.07}
-  leaf_a : Leaf { Center: {0, 0.2, 0}
-    Half: {0.1, 0, 0}
-    Albedo: {0.15, 0.4, 0.18} }
-  leaf_b : Leaf { Center: {-0.07, 0.3, 0}
-    Half: {0.08, 0, 0}
-    Albedo: {0.15, 0.4, 0.18} }
-  leaf_c : Leaf { Center: {0.08, 0.27, -0.02}
-    Half: {0.08, 0, 0}
-    Albedo: {0.15, 0.4, 0.18} }
+  Half: {0.065, 0.065, 0.065}
+  rim : Solid { Center: {0, 0.058, 0}
+    Half: {0.077, 0.014, 0.077}
+    Albedo: {0.66, 0.34, 0.23}
+    Material: {0.7, 0} }
+  soil : Solid { Center: {0, 0.078, 0}
+    Half: {0.062, 0.006, 0.062}
+    Albedo: {0.07, 0.045, 0.03}
+    Material: {0.95, 0} }
+  blade_0 : Solid { Center: {0.001, 0.299, -0.064}
+    Half: {0.028, 0.233, 0.003}
+    Euler: {-0.277, -0.010, 0}
+    Material: {0.35, 0}
+    Albedo: {0.079, 0.266, 0.099} }
+  blade_1 : Solid { Center: {-0.026, 0.201, -0.068}
+    Half: {0.032, 0.146, 0.003}
+    Euler: {-0.524, 0.367, 0}
+    Material: {0.35, 0}
+    Albedo: {0.084, 0.284, 0.105} }
+  blade_2 : Solid { Center: {-0.019, 0.230, -0.026}
+    Half: {0.030, 0.158, 0.003}
+    Euler: {-0.205, 0.613, 0}
+    Material: {0.35, 0}
+    Albedo: {0.090, 0.303, 0.112} }
+  blade_3 : Solid { Center: {-0.108, 0.193, -0.077}
+    Half: {0.029, 0.178, 0.003}
+    Euler: {-0.843, 0.951, 0}
+    Material: {0.35, 0}
+    Albedo: {0.085, 0.287, 0.106} }
+  blade_4 : Solid { Center: {-0.024, 0.271, -0.006}
+    Half: {0.024, 0.198, 0.003}
+    Euler: {-0.124, 1.325, 0}
+    Material: {0.35, 0}
+    Albedo: {0.066, 0.222, 0.082} }
+  blade_5 : Solid { Center: {-0.063, 0.203, 0.008}
+    Half: {0.032, 0.142, 0.003}
+    Euler: {-0.462, 1.691, 0}
+    Material: {0.35, 0}
+    Albedo: {0.078, 0.264, 0.098} }
+  blade_6 : Solid { Center: {-0.050, 0.261, 0.029}
+    Half: {0.027, 0.195, 0.003}
+    Euler: {-0.299, 2.098, 0}
+    Material: {0.35, 0}
+    Albedo: {0.085, 0.288, 0.106} }
+  blade_7 : Solid { Center: {-0.091, 0.194, 0.099}
+    Half: {0.030, 0.180, 0.003}
+    Euler: {-0.849, 2.397, 0}
+    Material: {0.35, 0}
+    Albedo: {0.091, 0.307, 0.114} }
+  blade_8 : Solid { Center: {-0.012, 0.248, 0.030}
+    Half: {0.031, 0.176, 0.003}
+    Euler: {-0.184, 2.754, 0}
+    Material: {0.35, 0}
+    Albedo: {0.066, 0.224, 0.083} }
+  blade_9 : Solid { Center: {-0.002, 0.172, 0.097}
+    Half: {0.032, 0.137, 0.003}
+    Euler: {-0.789, 3.121, 0}
+    Material: {0.35, 0}
+    Albedo: {0.095, 0.319, 0.118} }
+  blade_10 : Solid { Center: {0.010, 0.303, 0.040}
+    Half: {0.034, 0.232, 0.003}
+    Euler: {-0.179, 3.386, 0}
+    Material: {0.35, 0}
+    Albedo: {0.079, 0.267, 0.099} }
+  blade_11 : Solid { Center: {0.044, 0.212, 0.055}
+    Half: {0.025, 0.154, 0.003}
+    Euler: {-0.479, 3.818, 0}
+    Material: {0.35, 0}
+    Albedo: {0.089, 0.300, 0.111} }
+  blade_12 : Solid { Center: {0.041, 0.306, 0.029}
+    Half: {0.023, 0.237, 0.003}
+    Euler: {-0.213, 4.102, 0}
+    Material: {0.35, 0}
+    Albedo: {0.088, 0.298, 0.110} }
+  blade_13 : Solid { Center: {0.052, 0.176, 0.012}
+    Half: {0.024, 0.114, 0.003}
+    Euler: {-0.490, 4.485, 0}
+    Material: {0.35, 0}
+    Albedo: {0.090, 0.302, 0.112} }
+  blade_14 : Solid { Center: {0.040, 0.237, -0.008}
+    Half: {0.024, 0.167, 0.003}
+    Euler: {-0.245, 4.899, 0}
+    Material: {0.35, 0}
+    Albedo: {0.087, 0.295, 0.109} }
+  blade_15 : Solid { Center: {0.057, 0.198, -0.035}
+    Half: {0.025, 0.139, 0.003}
+    Euler: {-0.497, 5.266, 0}
+    Material: {0.35, 0}
+    Albedo: {0.071, 0.239, 0.089} }
+  blade_16 : Solid { Center: {0.034, 0.242, -0.050}
+    Half: {0.025, 0.177, 0.003}
+    Euler: {-0.345, 5.684, 0}
+    Material: {0.35, 0}
+    Albedo: {0.092, 0.312, 0.115} }
+  blade_17 : Solid { Center: {0.040, 0.184, -0.103}
+    Half: {0.034, 0.155, 0.003}
+    Euler: {-0.792, 5.912, 0}
+    Material: {0.35, 0}
+    Albedo: {0.067, 0.227, 0.084} }
 }
 
 // Desk lamp: dark base with a warm bulb above it. The bulb is the level's lamp.

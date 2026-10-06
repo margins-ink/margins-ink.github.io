@@ -4,6 +4,15 @@ Status: design, 2026-10-06. Replaces the "one plain column per sheet" layout of 
 
 Constraint set (Andrew): each article is laid out like a graphic magazine spread, not a web column; drawn by WebGPU (no HTML, no flex); real diagrams (vector, GPU-drawn, animated where it teaches); pull quotes, drop caps, multi-column grids, marginalia, big numerals, full-bleed figures; rhythm varies per article. No WebGPU fallback.
 
+## Direction update (2026-10-06, Andrew): overrides every conflicting passage below
+
+1. **One sans family, no serif mix.** Inter (variable, body and UI) plus one tight display sans, Instrument Sans (section 3.1). Newsreader, Fraunces, Instrument Serif, Big Shoulders and Caveat are removed. SF Pro cannot be embedded.
+2. **Brevity: most text does not matter in the AGI era.** Each piece opens as a **distilled spread** (one 80x56 em spread, about 150 to 250 words counting diagram labels: thesis headline, one or two animated diagrams that carry the argument, a pull quote, at most 3 short captions). The full post is kept as a collapsed **full text layer**, still GPU-drawn, reached by a deliberate gesture (section 4.5). The hidden DOM copy is unchanged and always holds the whole post; the author's text is never deleted or rewritten, only a distilled view is added on top (section 1.7).
+3. **Fewer, bolder templates** built around diagram plus headline (section 1.3: 6 templates, not 12).
+4. **IFD ("IFD is fine") is the first end-to-end article**; its concrete distilled spread is section 2.6. Wave 1 lanes match (section 8).
+
+Consequences already applied below: the book of spreads in section 4.1 now means distilled spread first, full text on request; drop caps, small caps, marginalia leaders and the planner's rhythm presets are out of v1 (they were sized for a long magazine feature); the rest of the engine (K-P, track solver, figures, shader, preview loop) stays because the full text layer and the figures still need it.
+
 ## 0. What exists and what changes
 
 Exists (read in the tree): `scripts/reader/{parse,layout,fonts,geom,math,images,build,validate,dump}.ts` build one binary per article and width class (`src/lib/reader/format.ts`, magic `RDR1`); layout is a min-raggedness DP per paragraph, one column, sheet 40x56 em (measure 30), `LINE_H = 1.6`, grid cells 6 x 1.6 em listing items (glyph | rect | image); `src/lib/gpu/room/reader.wgsl.ts` evaluates glyphs, rects and images in `albedo_of` for sheets stacked vertically and scrolled; `reader.ts` uploads and hit-tests.
@@ -41,45 +50,45 @@ Units are em of the body size, y down, same as today. One spread = 80 x 56 em.
 A template is a pure data object in `scripts/magazine/templates/*.ts`, selected per spread. The areas are drawn as a character map over the 12 x N grid so a human can see the page:
 
 ```ts
-// scripts/magazine/templates/feature.ts
-export const feature = template('feature', {
+// scripts/magazine/templates/duo.ts   (distilled layer)
+export const duo = template('duo', {
   cols: 12,                                  // 6 + 6, spine between col 6 and 7
-  rows: ['3b', 'fr', 'fr', 'fr', 'fr', '4b'],// 3 baselines top margin ... 4 baselines folio
+  rows: ['3b', '9b', 'fr', '3b', '4b'],      // top margin, headline band, diagrams, captions, folio
   areas: `
     . . . . . . | . . . . . .
-    H H H H H H | F F F F F F
-    B B . B B . | F F F F F F
-    B B . B B . | F F F F F F
-    B B . B B . | C C C C C C
-    . . . . . . | . . . . . .`,              // | marks the spine, letters are slots
+    H H H H H H | D D D D D D                // H headline, D definition + deck (display sans over Inter)
+    A A A A A A | B B B B B B                // A diagram 1, B diagram 2 (may bleed across the spine and down)
+    a a a a a a | b b b b b b                // captions
+    . . . . . . | . . . . . Q`,              // Q pull quote on a tinted field, | marks the spine
   slots: {
-    H: { type: 'head',    font: 'display', size: 4.2 },
-    B: { type: 'body',    thread: 1, align: 'justify', hyphenate: true, dropcap: { lines: 3 } },  // B frames are threaded left to right, top to bottom
-    F: { type: 'figure',  bleed: ['right', 'top'] },
-    C: { type: 'caption', font: 'label', size: 0.72 }
+    H: { type: 'head',     font: 'display', size: 7.5, lines: [1, 3] },
+    D: { type: 'deck',     font: 'body', size: 1.4 },
+    A: { type: 'figure',   bleed: ['left'] },
+    B: { type: 'figure',   bleed: ['right'] },
+    a: { type: 'caption',  font: 'label', size: 0.78 },
+    b: { type: 'caption',  font: 'label', size: 0.78 },
+    Q: { type: 'pullquote', font: 'display', size: 2.4 }
   },
-  fit: { leading: [-0.02, 0.03], tracking: [-0.004, 0.006], maxStretch: 2.0 }
+  budget: { words: [150, 250] }              // enforced on the whole distilled spread
 })
 ```
 
-Slot types: `head` (title or section title, display face, can be set on 1-3 lines with per-line optical sizing), `deck` (standfirst), `byline`, `body` (threaded frames), `figure`, `pullquote`, `numeral`, `aside` (marginalia), `caption`, `code`, `folio`, `rule`, `field` (colour block). A frame may have a `shape` for run-around (rect, or a polygon from a figure's declared `wrap` contour).
+The full-text templates use the same shape with `body` slots (threaded frames, Knuth-Plass, `align: 'justify'` or `'ragged'`, hyphenation) in place of the distilled slots.
 
-The library, v1 (12 named templates; more are data, not code):
+Slot types: `head` (headline, display sans, 1 to 3 lines, `wdth` and `wght` set per article), `deck` (standfirst or definition), `body` (threaded frames, full layer only), `figure`, `pullquote`, `numeral`, `caption`, `code`, `folio`, `rule`, `field` (colour block). `aside` stays as a type for later but no v1 template uses it. A frame may have a `shape` for run-around (rect, or a polygon from a figure's declared `wrap` contour).
 
-| Name | Spread | Use |
-|---|---|---|
-| `opener` | Left: full-bleed accent field with giant title in Fraunces and a numeral or issue mark; right: standfirst, byline, first body column with drop cap | spread 1 of every article |
-| `essay` | 6-col single measure per sheet, wide marginal column for asides | text-heavy runs |
-| `feature` | 3-col body (2 per sheet) with a figure crossing the right sheet | default |
-| `lead-figure` | Full-bleed figure over the left sheet and the spine, 2-col text on the right | the figure is the argument |
-| `wide-figure` | Figure across both sheets with a 4-baseline caption strip, text above and below in 3 cols | timelines, dataflows |
-| `pullquote-break` | 2 text cols, a huge pull quote in Instrument Serif italic cutting through, text wraps its contour | rhythm break |
-| `data-wall` | Grid of big numerals (3 to 6) with labels, body in a side column | benchmark and "numbers" sections |
-| `code-spread` | Code block on a 8-col measure with marginal annotations tied by hairline leaders | code-heavy sections |
-| `sidebar` | Boxed `aside` on a tinted field, body wraps | StickyNote content |
-| `split-compare` | Left and right sheets are two versions of one diagram or code listing, text strip below | A versus B articles (ifd, mcp) |
-| `gallery` | 2 to 4 images on the grid with captions | photo articles (hyperion) |
-| `closer` | Light page: conclusion text, "More pieces" row of mini covers, colophon line | last spread |
+The library, v1 after the 2026-10-06 direction (6 templates; the 12-template library of the first draft is deleted, more templates are data, not code). Four **distilled** templates, each a headline plus diagram composition on the 12-column spread, and two **full-text** templates:
+
+| Name | Layer | Spread | Use |
+|---|---|---|---|
+| `duo` | distilled | Headline and definition top-left (display sans, 6 columns wide); diagram 1 on the left sheet, diagram 2 on the right sheet and across the spine, pull quote bottom-right on a tinted field, a caption under each diagram | default; two-diagram arguments (ifd) |
+| `solo` | distilled | One full-bleed diagram over both sheets and the spine, headline overprinted top-left on the field, quote and up to 3 captions in a bottom strip | one big diagram carries it (hyperion, optimal-parkour) |
+| `compare` | distilled | Left and right sheets are two versions of one diagram or listing, headline as a strip across the top, quote in the spine gutter strip | A versus B pieces (mcp-not-enough) |
+| `numerals` | distilled | 3 to 5 giant numerals in the display sans with labels, one small diagram, headline and quote | benchmark and numbers pieces (snuon) |
+| `text` | full | 3 columns per sheet (2 on the narrow class), figures inline across 3 to 6 columns with a caption, running head and folio | the whole post, default |
+| `text-code` | full | 8-column measure for code on a `panel` field with the prose in a narrow column beside it | code-heavy sections |
+
+Gone from v1: `opener`, `essay`, `feature`, `lead-figure`, `wide-figure`, `pullquote-break`, `sidebar`, `gallery`, `closer` (their jobs are done by `duo` and `solo` for the front and by `text` for the rest). Narrow class: one 28x56 em sheet; each template has an `-n` variant (same slot names).
 
 ### 1.4 Fitting text into frames (the engine)
 
@@ -87,44 +96,33 @@ For each spread the engine runs:
 1. **Track solve**: resolve rows and columns (fixed first, `fr` shares the rest, `fit` takes content height) into rectangles per area.
 2. **Exclusions**: drop caps, pull quotes with `wrap`, figures with `wrap` contours, and marginalia produce per-line intervals `(x0, x1)` removed from a frame, sampled at each baseline. A frame is therefore a function `lineIndex -> [x0, x1]`.
 3. **Knuth-Plass** (own implementation, Knuth and Plass 1981, "Breaking Paragraphs into Lines"): boxes = shaped words, glue (space = 0.25 em, stretch 0.12 em, shrink 0.08 em for justified; ragged uses zero stretch plus a finishing glue of infinite stretch), penalties (discretionary hyphen 50, forced breaks at `---`), flagged penalties (two hyphens in a row 3000 demerits), fitness classes (very loose, loose, normal, tight; a 3000-demerit jump between incompatible classes), `tolerance = 2` first pass, `3` second pass, `looseness` available per paragraph. The line width is supplied per line by the frame function, so a drop cap or a wrapped quote needs no special case. Active nodes are pruned per the paper (adjustment ratio below -1 or demerit > best + threshold), so a 300-line article section is milliseconds.
-4. **Microtypography**: optical margin alignment (hang quotes and hyphens up to 70% of their width, period and comma 40%), `liga`, `kern` always, `smcp` for the lead-in line after a drop cap (Newsreader: check the feature exists in the stored font; if not, use Newsreader caps at 0.82 scale with +0.06 em tracking), tabular figures for numerals in data-wall, fixed non-breaking glue before units and after `Fig.`.
+4. **Microtypography** (full text layer): optical margin alignment (hang quotes and hyphens up to 70% of their width, period and comma 40%), `liga`, `kern` always, tabular figures (`tnum`, check the feature exists in the stored Inter and Instrument Sans instances; unverified) for numerals, fixed non-breaking glue before units. No small caps.
 5. **Copyfit**: if the threaded frames overflow or underflow, within the template's `fit` ranges try, in order: tighter or looser tracking (+/- 0.5%), leading (+/- 2% in half-baseline steps only when the template says `leading` is free, never for body, so the baseline grid survives), `looseness` -1 or +1 on the last paragraph, then a pull quote or numeral insertion for underflow (`fill:` candidates declared by the author). If still wrong, the planner (1.5) picks another template or moves the break to the next spread.
-6. **Marginalia**: each `aside` (and each `Cite`, now a margin note instead of an end list) has an anchor baseline; asides are placed in the margin column top to bottom with a minimum gap of 1 baseline, pushed down greedily, then relaxed upward in one back pass (a 1-D spring relaxation, about 40 lines); displaced notes get a 0.5 px hairline leader (a stroke path) to their anchor.
-7. **Drop caps**: cap height = `lines * LINE_H - (LINE_H - capHeight)`, so the cap occupies exactly 3 baselines (default) with its top aligned to the first line's cap height; glyph from the display face at that size; an exclusion of `capWidth + 0.4 em` for `lines` lines; ligature with the next letter disabled. `dropcap: 'inline'` and `'raised'` variants available per article.
+6. **Marginalia** (deferred, not in v1): the spring relaxation (about 40 lines) is kept as a design note; `Cite` references stay an end list in the full text layer, as in the post today.
+7. **Drop caps** (deferred, not in v1): Inter body text starts flush; the display sans headline carries the opening.
 
-### 1.5 Choosing templates per section: declared, then planned
+### 1.5 Choosing templates: the distilled spread is declared, the full text is planned
 
-Authors declare in the .svx and the sidecar; the planner only fills what is not declared.
+The distilled spread is always declared (one `distill` block, section 1.7). Only the full text layer is planned.
 
-In the .svx (remark-directive, fail closed on unknown names, file:line in the error):
+In the .svx (remark-directive, fail closed on unknown names, file:line in the error), only what the full text layer needs:
 ```
-::spread{layout="opener"}                     // forces a spread break with a template
-::fig{id="eval-timeline" place="wide"}        // places figures.ts entry "eval-timeline"
-:::pullquote{cite="IFD is fine"}
-The wall moves; the idea does not.
-:::
-::numeral{value="100,000" label="players, one world" style="outline"}
-:::aside{anchor="para-3"}
-Marginal note text, may contain `code` and links.
+::fig{id="eval-timeline" place="inline"}      // places figures.ts entry "eval-timeline" in the full text
+:::code-wide
+...
 :::
 ```
-Plain .svx with no directives still lays out (all auto), so no article breaks.
+Plain .svx with no directives still lays out (all auto), so no article breaks. `::spread`, `::pullquote`, `::numeral` and `:::aside` directives of the first draft are removed: the distilled block is the one place that picks quote, numerals and templates.
 
-Sidecar `spread.json` (next to the .svx):
-```json
-{ "voice": "ifd", "rhythm": "andante", "accentHue": 255,
-  "plan": [ { "section": "What \"blocking\" actually means in CppNix", "layout": "lead-figure" },
-            { "section": "The frame is the evaluator", "layout": "closer" } ],
-  "hyphenExceptions": ["Nix-OS"] }
-```
+Sidecar `spread.json` (optional, next to the .svx): `{ "accentHue": 265, "display": { "wdth": 80, "wght": 600 }, "hyphenExceptions": [] }`.
 
-Planner (Viterbi with a beam of 8 over spread boundaries): state = (block index, offset in block); each step picks a template from the allowed set for the section and lays the next stretch of blocks into it. Cost = sum of K-P demerits + copyfit penalty + widow/orphan/heading-at-bottom penalties + rhythm penalty + figure distance penalty (a figure must sit within 1 spread of its first reference). Rhythm penalty: `rhythm` is a preset giving a target density curve (ink coverage per spread) and a template-transition matrix; for example `andante` = quiet, quiet, dense, break, dense, quiet, close; `staccato` = alternate `data-wall`, `pullquote-break`, `feature`; `crescendo` = growing figure share. Repetition of the same template twice running costs 400; a seed (slug hash) breaks ties so two articles with the same preset do not match. Beam search over at most 8 spreads is well under 100 ms (est.).
+Full-text planner: a greedy fill of `text` and `text-code` spreads in reading order with the K-P and copyfit costs of 1.4, widow, orphan and heading-at-bottom penalties, and the figure distance penalty (a figure within 1 spread of its first reference). No beam search, rhythm presets or seed: with two full-text templates the search space is trivial (est. under 30 ms per article). The rhythm presets (`andante`, `staccato`, `crescendo`) of the first draft are deleted.
 
 ### 1.6 Binary `RDR2` (delta against `RDR1`)
 
 Little endian, u32 aligned, one storage buffer, as before. Kept: header, fonts table (shared `fonts.bin`), glyph instances, rect, image, line, link, anchor, text tables. Changed or added:
 ```
-Spreads[]    {x_em (spread origin on the table), w_em, h_em, template id, firstItem, itemCount,
+Spreads[]    {layer (0 distilled, 1 full text), x_em (spread origin on the table), w_em, h_em, template id, firstItem, itemCount,
               gridCols, gridRows, firstCell, tone RGB565, materialMask, accentIdx}
 Grid         cell 6 x 1.6 em over 80 x 56 em: 13 x 35 cells per spread; cell lists dilated by 0.25 em,
              and for animated items by the swept bound over the whole timeline
@@ -142,6 +140,32 @@ Palette[]    32 entries x (light, dark) = 8 reserved ink/rule/etc. as before, th
              accent-ink, 3 diagram neutrals, panel, field, ... per article (section 3.2)
 ```
 Channel values are uploaded each frame as one `array<f32, 256>` in a small uniform (1 KB) only while a spread with figures is visible. Estimated article size: text as before (about 150 KB brotli for a 1400-word post) plus 10 to 40 KB per figure; fonts budget in 3.1.
+
+### 1.7 The distilled layer: what it is and how it is authored
+
+**Principle.** The post is the source of truth and is never edited by this system. The distilled spread is a view: headline, one or two figures, one quote, at most 3 captions, plus a one-sentence definition when the topic needs it. Everything in it is either a verbatim substring of the post or flagged as synthesised and reviewed. The full post is the second layer (4.5); the hidden DOM carries the whole post exactly as today, so SEO, find-in-page and a11y are unchanged. Distilled strings add no text that is not in the post (figure `alt` and `describe` already live in the hidden DOM per 2.3).
+
+**The `distill` block** lives in the post's .svx frontmatter (the copy sits next to the text it quotes and is reviewed in the same diff; figures stay in `figures.ts`):
+```yaml
+distill:
+  template: duo                       # duo | solo | compare | numerals
+  headline: "IFD is fine"
+  definition: "Import From Derivation: during evaluation, ..."   # optional, one sentence
+  deck: "The case against import-from-derivation is a case against CppNix's evaluator, not against the idea."
+  figures: [eval-timeline, eval-graph]            # 1 or 2 ids from figures.ts, in slot order
+  quote: { text: "The IFD ban was a polite way ...", from: "The frame is the evaluator" }   # from = section heading
+  captions: [ { fig: eval-timeline, text: "..." }, { fig: eval-graph, text: "..." }, { fig: eval-graph, text: "..." } ]   # at most 3
+  synth: []                           # paths of strings that are NOT verbatim from the post, e.g. ["headline"]
+  review: { by: andrewgazelka, at: 2026-10-07, post_sha: "<sha256 of the post body>" }
+```
+
+**Authoring flow.**
+1. A Sonnet agent reads the post and the figure list and writes the block (`pnpm distill <slug>`, a script that calls the agent and prints a diff, never writes `review`). Brief: pick the thesis from the post's own words, choose the 1 or 2 figures that carry the argument (writing a new figure into `figures.ts` is a separate task), pick the one quote (an author sentence or an attributed source quote from the post), write captions from post sentences, reuse sentences verbatim, no new claims, no numbers that are not in the post.
+2. Andrew reviews the diff; approval is writing `review: { by, at, post_sha }`. The build refuses a distilled spread whose `review.post_sha` does not match the current post body (a post edit forces a re-review; the stale spread is not shipped), and an unreviewed block renders only on the preview page, never in the production build.
+3. Build-time lint (fail closed): every string not listed in `synth` must occur in the post body after Markdown stripping and whitespace normalisation (this is the "exact copy drawn only from the post" check); word count of headline, definition, deck, quote, captions and figure labels: error below 100 or above 250, warning below 150; at most 3 captions and 2 figures; every figure passes the 2.3 lints at its `poster` frame; `figure` ids exist.
+4. Controls (verification law): a planted caption that is not in the post must fail the substring check; a block with a wrong `post_sha` must fail; a 4th caption must fail.
+
+**What the distilled layer is not.** It is not a summary generated at read time and it is not a replacement for the post: no LLM runs in the browser, the strings are static, in git, and reviewed. A piece without a `distill` block opens straight on its full text layer (first `text` spread) so nothing is blocked on distillation.
 
 ## 2. Diagram system
 
@@ -197,11 +221,11 @@ export default {
 ```
 Compilation steps (in `scripts/magazine/fig/`): validate against the schema (unknown keys fail), run `dagre` when `layout: { engine: 'dagre', rankdir, ranksep, nodesep }` is present (edges become cubic splines, converted to quadratics at 1/4096 em like glyphs), convert shapes and paths to the item kinds, shape text with harfbuzz into glyph instances, sample tracks into keyframe tables, compute swept bounds and cell lists, run the lint (all text inside its figure, no label-over-label overlap at `poster`, contrast: graphics 3:1, text 4.5:1 against the panel in light and dark, at most 24 items per cell).
 
-### 2.5 Six concrete diagram specs (existing articles)
+### 2.5 Concrete diagram specs (existing articles; ifd first, the others queue behind it)
 
 Colour names are palette slots (section 3.2). All sizes in em of the figure's own box; each figure ships with a `describe` string.
 
-1. **`ifd/eval-timeline`: "the evaluator waits" (wide-figure, loop 14 s, poster 11 s).** Two horizontal lanes. Lane 1 (CppNix): `eval` block, then a hatched `build (evaluator blocked)` block of equal height, then `eval`, hatched `build`, `eval`. Lane 2 (Snix): `eval` continues without gaps; builds are drawn as thin bars on a third lane underneath, running concurrently, each bar attached by an arrow from the eval step that requested it (a draw-on stroke). A vertical playhead sweeps left to right; blocks fill as the playhead passes (track on block width); when lane 2 ends at x = 0.55 of lane 1, a flag `done 45% earlier` pops (scale channel) with a numeral odometer counting to 45. Label "the wall moves" over lane 1's blocked areas in muted. Shapes: 13 rrects, 6 arrows, 1 playhead, 1 numeral. Declares: no dagre.
+1. **`ifd/eval-timeline` and `ifd/eval-graph`: the two distilled diagrams of the first article.** Full specs in 2.6 (they replace the single timeline of the first draft; the invented "45% earlier" numeral is removed because the post states no such number).
 2. **`hyperion/server-dataflow`: "one world, 100,000 players" (lead-figure, loop 10 s, poster 6 s).** Left: a dense field of 300 tiny player dots (a seeded scatter, one `dots` item) on the sheet. Middle: 8 proxy boxes (fan-in); right: one `Game server (Flecs ECS)` block with 4 worker lanes inside it. Edges: dashed arrows from dot clusters to the proxies (phase channel = flow), thick arrows proxy to server. Packets: 40 dots moving along those paths, staggered, colour-coded by direction (inbound accent, outbound ink). A pulse ring expands from the server each tick (50 ms scaled to 1 s so it is visible), with the label `tick`. The big numeral `100,000` sits as an outline numeral behind the figure at 14 em in neutral. Components: 1 dots scatter, 8+1 rrects, 16 arrows, 2 dot-flows, 1 ring, 1 numeral.
 3. **`notes-on-errors/context-onion`: "what a signature promises" (feature, once, poster 8 s).** Left: a call stack of 4 frames (`main`, `run`, `load_config`, `read_file`) as stacked rrects. An error value starts at `read_file` as a small shape (`io::Error`) and travels up: at each frame boundary a ring (a stroked circle, radius grows) is added around it with text `.context("...")`, producing nested rings (the onion) that stay; at `main` the full onion unfolds to the right into a labelled list (a stroke-connected callout column: "failed to parse config, at config.toml, caused by: No such file"). Right: a small DAG (dagre, rankdir LR) of conversions `io::Error -> AppError -> Box<dyn Error> -> anyhow::Error` whose edges light up (colour mix channel) in step with the frames. Components: 4 rrects, 5 rings, 4 text callouts, 4 dagre nodes and 3 edges.
 4. **`mcp-not-enough/typed-pipe`: "output schema versus no output schema" (split-compare, loop 12 s, poster 9 s).** Left sheet: MCP: `agent -> tool call -> opaque text blob -> agent parses it again`. The blob is drawn as a grey noisy block (hatch shape); a "token meter" bar under it grows with each hop. Right sheet: shell: `gh api | from json | where state == open | select number title | to nuon`; the data is drawn as a small table (4 rows x 3 columns of rects) flowing along the pipe; at `where` rows fade out (opacity channel) and at `select` a column slides off; the right meter ends at one third of the left. Both sides share one axis for the meter so the comparison is literal. Components: 2 pipelines of 4 boxes, 2 tables (24 rects each), 2 meters, 20 arrows.
@@ -210,26 +234,80 @@ Colour names are palette slots (section 3.2). All sizes in em of the figure's ow
 
 Spare candidates (add when the article gets a spread): `gpt4-hals-and-rest-libs/layer-stack` (thick HAL stack versus thin 1:1 wrapper, layers collapse), `rust-named-parameters/builder-states` (typestate DAG with required fields turning on), `snuon/token-bars` (token count bars for JSON, NUON, SNUON with an odometer).
 
+Mapping for items 2 to 6 under the new template set: `lead-figure` and `wide-figure` become `solo`, `split-compare` becomes `compare`, `feature` becomes `duo` (second diagram optional), and big numerals are set in Instrument Sans. Each of those articles also needs its own `distill` block (1.7) before it ships; they do not block ifd.
+
+### 2.6 The first article: "IFD is fine", distilled spread (end to end)
+
+Source: `src/routes/(site)/thoughts/ifd/+page.svx` as of 2026-10-06 (title "IFD is fine", dated 2026-05-13). Template `duo`, accent hue 265, display `wdth 80 wght 600`. Every string below is a verbatim substring of the post (the lint in 1.7 checks it, after Markdown and `<Cite>` stripping); `synth` is empty. The diagram label words are all post words (`eval`, `build`, `CppNix`, `Snix`, `thunk`, `request`, `yields`, `resumes`, `stops`, `waits`).
+
+```
+ ┌───────────────────────────── left sheet ─────────────────────────────┬──────────────────────────── right sheet ────────────────────────────┐
+ │                                                                        │ Import From Derivation: during evaluation, the Nix language asks for │
+ │ IFD is fine            (display sans, 7.5 em, 1 line)                  │ a path whose bytes depend on a derivation's output.                  │
+ │                                                                        │ The case against import-from-derivation is a case against CppNix's   │
+ │                                                                        │ evaluator, not against the idea.                                     │
+ │ [ A: eval-timeline ]                                                   │ [ B: eval-graph ]                                                    │
+ │ CppNix  ▮eval▮░build░▮eval▮░build░▮eval▮                               │      (eval)──(eval)──(eval)                                          │
+ │ Snix    ▮eval▮▮eval▮▮eval▮▮eval▮▮eval▮▮eval▮                           │        │       │ ╲                                                   │
+ │         ░build░  ░build░ (concurrent bars)                             │      [build] [build] (eval)  (nodes appear as eval finds them)       │
+ │ cap A: When a thunk demands ... resumes.                               │ cap B1: Eval and build are nodes ... yields.   cap B2: ... returns.  │
+ │                                                                        │ ┌ quote field ──────────────────────────────────────────────────────┐ │
+ │                                                                        │ └ "The IFD ban was a polite way ..." ────────────────────────────────┘ │
+ └────────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────┘
+```
+
+**Exact copy (the whole distilled text layer).**
+
+| Slot | Text (verbatim from the post) | Words |
+|---|---|---|
+| headline | `IFD is fine` (the post title) | 3 |
+| definition | `Import From Derivation: during evaluation, the Nix language asks for a path whose bytes depend on a derivation's output.` (first sentence of the post, citation mark dropped) | 19 |
+| deck | `The case against import-from-derivation is a case against CppNix's evaluator, not against the idea.` (the post `dek` frontmatter) | 14 |
+| caption A | `When a thunk demands the contents of ${drv}/foo, the evaluator stops, calls out to the daemon, waits for the build, resumes.` ("What blocking actually means in CppNix"; the code span is shown in the mono face) | 21 |
+| caption B1 | `Eval and build are nodes in one graph. The graph grows as eval discovers more of it. A thunk that needs a build emits a request and yields.` ("Snix moves the wall") | 28 |
+| caption B2 | `A thunk nobody forces is a derivation nobody builds.` ("Edge cases"; reads as the payoff of the growing graph: only what is demanded is built) | 10 |
+| quote | `The IFD ban was a polite way to say "the reference evaluator cannot handle this yet." The phrasing outlived the constraint.` attribution label `IFD is fine` (last section, "The frame is the evaluator") | 21 |
+| diagram labels | `CppNix`, `Snix`, `eval` (x2 kinds shown once each in the legend), `build`, `stops`, `waits`, `resumes`, `thunk`, `request`, `yields` (legend and node labels counted once each) | about 18 |
+
+Total about 134 words counting labels (hand count: 3 + 19 + 14 + 21 + 28 + 10 + 21 + about 18; the lint in 1.7 recounts). That sits under the 150 target on purpose rather than padding with a longer caption: the lint treats 100 to 250 as pass, warns below 150, and Andrew decides at review whether to swap caption B2 for the 34-word sentence it came from ("A flake that produces a hundred derivations ... continues as each one returns.", also verbatim) to land near 160. Update 1.7 step 3 accordingly.
+
+**Diagram A, `eval-timeline` ("the evaluator waits", on the left sheet, `loop` 12 s, `poster` 9 s, size 36 x 20 em).**
+- Two lanes. Lane `CppNix`: `eval`, a hatched `build` block where the evaluator is idle (hatched = nothing evaluates), `eval`, hatched `build`, `eval`. Lane `Snix`: `eval` blocks run back to back with no gap; each build the evaluator asked for is a thin bar on a third strip below the lane, running concurrently, tied to the `eval` block that requested it by a draw-on arrow (stroke trim).
+- Playhead sweeps left to right (linear 12 s); blocks fill as it passes (width tracks). On lane `CppNix` the playhead pauses visibly at each hatched block (the track holds, the hatch crawls via dash phase) and the labels `stops`, `waits`, `resumes` appear at the start, middle and end of the first hatched block (opacity tracks). Lane `Snix` finishes before lane `CppNix` ends because it never stops: the figure shows this as geometry only (the Snix lane ends earlier on the shared axis); no percentage and no "done X% earlier" text, since the post gives no number.
+- Components: 8 rrects on lane CppNix (with hatch), 7 on lane Snix, 4 build bars, 4 arrows, 1 playhead, 5 labels. Palette: `cpp` muted ink, `snix` accent, `build` neutral2. `poster`: playhead at the end, all blocks filled, labels shown.
+- Reading it with no motion (reduced motion, poster): hatched gaps on one lane and none on the other say the thesis.
+
+**Diagram B, `eval-graph` ("one graph that grows", on the right sheet, `loop` 14 s, `poster` 11 s, size 36 x 20 em).**
+- Nodes: `eval` thunks as circles, `build` nodes as squares, edges as quadratic strokes. dagre (`rankdir` LR) lays out the final graph (about 9 eval nodes and 6 build nodes); the first frame shows 2 nodes, and the rest appear in discovery order (opacity and trim tracks), so the graph visibly grows.
+- At t = 3 s one `thunk` node dims and a dot travels along its edge to a `build` node (label `request`, then `yields` while it is dimmed); the other eval nodes keep appearing while the `build` square fills (progress track). At t = 8 s the square completes, a dot travels back and the thunk lights up in accent (colour-mix track, label `resumes`). Several build squares run at once from t = 9 s (the "fires every build it discovered in parallel" beat), each returning and resuming its thunk.
+- Components: 9 circles, 6 squares, 15 edges (dagre, converted to quadratics), 12 travelling dots (2 `dots` items), 4 labels. `poster`: full graph, all nodes lit.
+
+**Pull quote**: the `Q` field is a tinted `field` colour block (3.2) with the quote in the display sans at 2.4 em and the attribution `IFD is fine` as a caption-size label.
+
+**Acceptance for this article** (all in section 6, then run once at the Wave 2 merge): distilled lint passes with controls; both figures pass A3 at 3 times; screenshot of the spread in light and dark at 1440x900 and 390x844 to `docs/upstream/magazine/shots/`; A4 gesture test reaches the full text layer and comes back; hidden DOM text equals the post (A6).
+
 ## 3. Typography and art direction
 
-### 3.1 Type system and licences
+### 3.1 Type system and licences (rewritten 2026-10-06: one sans family, no serif)
 
-All fonts are SIL OFL 1.1 (full text read for each from `google/fonts` on 2026-10-06; Inter and Fira Code and Newsreader texts are already in `docs/upstream/reader/fonts/`). We ship outlines compiled into curve data inside binaries, not font files; OFL text and copyright lines go into the colophon and `docs/upstream/magazine/fonts/` (the reserved-font-name clauses concern distributing modified font files under that name; flagged here, not a legal opinion; low risk).
+All faces are SIL OFL 1.1; the full licence text of each was read (Inter, Fira Code and Noto Emoji already sit in `docs/upstream/reader/fonts/`; Instrument Sans and Geist read from `google/fonts` rev `7085eb89a950e85db5b166b7a58d414544b4140c` on 2026-10-06). We ship outlines compiled into curve data inside binaries, not font files; OFL text and copyright lines go into the colophon and `docs/upstream/magazine/fonts/`. None of the copyright lines below declares a Reserved Font Name (read: the Inter and Instrument Sans files define the term in the preamble only), so subsetting and converting to outline tables is permitted; the Font Software is not sold by itself (not a legal opinion; low risk).
 
-| Role | Face (variable axes used) | Notes |
-|---|---|---|
-| Body | Newsreader (opsz 18, wght 400, italic 400, wght 600) | already in the pipeline; high-contrast text serif; the text colour |
-| Display (titles, section heads, drop caps) | **Fraunces** (opsz 9 to 144, wght 100 to 900, SOFT 0 to 100, WONK 0/1) | the "voice" knob per article: `wght 800 SOFT 100` friendly, `wght 300 SOFT 0 opsz 144` precise |
-| Pull quotes | **Instrument Serif** italic (400) | tall condensed italics for large quotes |
-| Big numerals | **Big Shoulders Display** (wght 100 to 900) | condensed, tall, good at 12 to 20 em; outline variant via stroke |
-| Labels, folios, captions, diagram text, marginalia | Inter (opsz 14, wght 500, caps with +0.08 em tracking) | already in the pipeline; Space Grotesk (OFL, read) is the alternate if Inter feels too neutral next to Fraunces |
-| Code | Fira Code (400, 500) | already in the pipeline |
-| Hand note (one article only, optional) | Caveat (OFL, read) | handwritten margin scribbles in the `mcp-not-enough` spread; off by default |
+| Role | Face (variable axes used) | Licence read | Notes |
+|---|---|---|---|
+| Body and UI (text, labels, folios, captions, diagram text) | **Inter** variable, axes `opsz` 14 to 32 and `wght` 100 to 900 (METADATA.pb read). Body: opsz 14, wght 400; labels: opsz 14, wght 500, caps at +0.06 em; italic from the italic file if the full layer needs it | OFL 1.1, "Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)", no RFN | Already in the pipeline (`Inter.ttf`, sha256 29160a80...). |
+| Display (headlines, big numerals, quote text) | **Instrument Sans** variable, axes `wdth` 75 to 100 and `wght` 400 to 700 (METADATA.pb read) | OFL 1.1, "Copyright 2022 The Instrument Sans Project Authors (https://github.com/Instrument/instrument-sans)", no RFN | The one tight display sans: `wdth` 75 to 85 gives a condensed, tight headline from the same file, the per-article voice knob is `wdth` and `wght` (3.2). |
+| Code | Fira Code (400, 500) | OFL 1.1 (in tree) | Unchanged. |
+| Fallback glyphs | Noto Emoji | OFL 1.1 (in tree) | Unchanged. |
 
-Not used: DM Serif Display (its OFL header from the fetched mirror names Adobe's Source, so it needs a fresh reading before use), Bricolage Grotesque (read, OFL, kept as spare).
-Budget: only used glyph ids are emitted, per instance. Fraunces display at 3 instances (about 200 glyphs total), Instrument 1, Big Shoulders 1 (digits plus a few letters): est. +150 to +250 KB brotli on `fonts.bin`; limit 900 KB total (acceptance A7). Variable instancing uses `hb.Variation` at build exactly as READER.md stage 1 does.
+Candidates considered for the display slot (licence read for each): **Inter Display** (the `opsz` 32 end of the same Inter variable file, so zero extra bytes and perfect harmony with the body; the fallback if Instrument Sans looks wrong next to Inter, a one-line change since it is only an instance setting); **Geist** (OFL 1.1, "Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)"; wght 100 to 900 only, no width axis; spare). Pick: Instrument Sans, because the width axis gives the tight headline the brief asks for without a second serif or a heavy weight. Axis ranges of Geist were not read (unverified beyond the licence header).
 
-Scale: per article a modular ratio (1.250 for essayistic, 1.333 for punchy) from 1 em body: caption 0.72, label 0.78, body 1, deck 1.4, section head 2.4 to 3.2, title 4.2 to 9 (display), numeral 12 to 20, pull quote 2.2 to 3.5. Leading 1.6 body; display leading 0.92 to 1.05 set in half-baseline steps.
+Removed from the earlier draft: Newsreader, Fraunces, Instrument Serif, Big Shoulders Display, Caveat, Space Grotesk, Bricolage Grotesque and DM Serif Display (not used).
+
+**SF Pro cannot be embedded.** Apple's font licence allows the Apple Font "solely for creating mock-ups of user interfaces to be used in software products running on Apple's iOS, OS X or tvOS", and states "You may not embed the Apple Font in any software programs or other products" (Sections 2A and 2B, as quoted from https://developer.apple.com/fonts/ on 2026-10-06; reported through a page summariser, so the exact licence PDF text must be read and stored in `docs/upstream/magazine/fonts/SF-NOT-USED.md` by the `type` lane before this is repeated elsewhere). The site is a WebGPU canvas drawing outline tables, so a system font stack (`-apple-system`) is also not possible: the shader needs outline curves, which the browser does not expose for system fonts. Inter is the legal substitute (a neutral UI sans under OFL).
+
+Budget: only used glyph ids are emitted, per instance. Inter 2 instances (body 400, label 500; about 250 glyphs each), Instrument Sans 1 to 2 instances (about 120 glyphs), Fira Code 1: est. at or below the current `fonts.bin`, and the four removed serif and display families shrink it (est. -150 to -300 KB brotli; limit 900 KB, acceptance A7; to be measured). Variable instancing uses `hb.Variation` at build exactly as READER.md stage 1 does. Check at the `type` lane: `tnum`, `liga`, `kern` exist in the stored files (unverified).
+
+Scale: one ratio, 1.333 (the pieces are punchy), from 1 em body: caption 0.78, body 1, deck 1.4, quote 2.4, headline 5 to 9 (display), numeral 12 to 20. Leading 1.6 body; display leading 0.92 to 1.05 in half-baseline steps.
 
 ### 3.2 Colour, accent per article, light and dark
 
@@ -238,30 +316,30 @@ Every article defines one hue; the palette is generated in OKLCH at build, light
 - Accent: light `oklch(0.52 0.19 h)`, dark `oklch(0.76 0.15 h)`; accent-2 = hue + 40 degrees at C 0.12; accent-tint = accent at 12% over paper; accent-ink = text on an accent field (paper in light, deep ink in dark). Diagram neutrals: three greys at L 0.55/0.70/0.85 (light) and mirrored (dark). `field` = the full-bleed colour block: light accent at L 0.52, dark accent at L 0.30 (so a dark-mode opener is a deep tinted slab, not an inverted photo).
 - Gamut: C is capped per hue to stay inside sRGB; a build check converts every palette entry and fails on clipping.
 
-| Article | Hue h | Voice and mood |
+| Article | Hue h | Display voice (Instrument Sans) and mood |
 |---|---|---|
-| ifd | 265 | Fraunces wght 300, opsz 144, SOFT 0; cool, precise; `andante` |
-| hyperion | 148 | Fraunces wght 850, SOFT 100; loud, game-like; `crescendo`, big numerals |
-| notes-on-errors | 28 | Fraunces wght 600, WONK 1; editorial; `essay` + `code-spread` heavy |
-| mcp-not-enough | 78 | Fraunces wght 700, Caveat notes; `split-compare` heavy |
-| nushell-tui | 195 | Fraunces wght 500, mono emphasis; `staccato` |
-| optimal-parkour | 330 | Fraunces wght 400 italic accents; `lead-figure`, wide figures |
-| snuon | 350 | short piece: 3 spreads, `data-wall` |
-| rust-named-parameters | 55 | `code-spread`, `feature` |
-| gpt4-hals-and-rest-libs | 295 | `feature`, one `split-compare` |
-| commit, initial-thought (hidden) | 205, 120 | auto planner, default voice |
+| ifd (first) | 265 | `wdth 80 wght 600`; cool, precise; template `duo` |
+| hyperion | 148 | `wdth 75 wght 700`; loud; `solo`, big numerals |
+| notes-on-errors | 28 | `wdth 90 wght 600`; `duo` |
+| mcp-not-enough | 78 | `wdth 85 wght 700`; `compare` |
+| nushell-tui | 195 | `wdth 85 wght 500`; `duo` |
+| optimal-parkour | 330 | `wdth 80 wght 500`; `solo` |
+| snuon | 350 | `wdth 75 wght 700`; `numerals` |
+| rust-named-parameters | 55 | `wdth 90 wght 600`; `duo` |
+| gpt4-hals-and-rest-libs | 295 | `wdth 85 wght 600`; `compare` |
+| commit, initial-thought (hidden) | 205, 120 | no distilled block: open on the full text layer |
 
-Rhythm is the combination of voice, accent, preset, template set and seed: two articles never share more than two of the five.
+Rhythm now comes from accent hue, `wdth`/`wght` and template choice; two articles never share hue and template and voice together. Only ifd is specified end to end here; the other rows are placeholders until each gets a `distill` block.
 
 ### 3.3 Details that make it a magazine
 
-Running heads and folios in Inter caps at 0.72 em on a 0.5 px rule; section numbers as raised numerals; initial drop cap on the first paragraph of each section only when the template allows; small-caps lead-in; hanging bullets; pull quotes carry a short accent rule and the attribution as a label; code blocks sit on a `panel` field with a left accent bar, line numbers in the margin, annotations as marginalia with leaders; a **kicker** (category, date) above every title; the spread number (`03 / 06`) in the outer folio, which is also the hit target for the overview.
+Few and bold: a giant tight headline, a tinted quote field, hairline rules at 0.5 px, folios and running heads in Inter caps at 0.72 em, captions as labels tied to their diagram, code blocks on a `panel` field with a left accent bar. The distilled spread is poster-like, the full text layer is plain and quiet (no drop caps, small caps, marginalia or section numerals in v1).
 
 ## 4. Reading interaction in 3D
 
 ### 4.1 Turn versus scroll: decision
 
-The article is a **book of spreads**; the page-turn is the unit, and wheel and swipe scrub it. Not a scrolled stack.
+The article is a **book of spreads** with two layers (4.5): spread 0 is the distilled spread, spreads 1 to N are the full text. The page-turn is the unit inside the full layer, and wheel and swipe scrub it. Not a scrolled stack. On the distilled spread wheel and swipe do not turn to the full text (4.5).
 - State: `Spread.f` (float, 0 = first spread). Releasing snaps to the nearest integer with a critically damped spring (omega 11 rad/s). The hit rule: a flick (velocity above 1.2 spreads/s) goes one spread in the flick direction; otherwise nearest wins.
 - Input mapping: horizontal trackpad swipe or drag from the outer margin scrubs `f` directly (page curls with the pointer); vertical wheel accumulates `f += deltaY / 900 px` with the same magnet and the same flick rule, so a mouse wheel notch ticks one spread per 3 notches; arrows, space, shift-space, PgUp/PgDn, Home/End; click on the outer 12% of a sheet turns; `O` or clicking the folio opens the **overview** (lay-flat: all spreads of the article in a contact grid with posters of figures and the planner's template names, hover enlarges, click flies to it).
 - No inner scroll within a spread: the planner guarantees fit. This is the cost of the format and the reason overflow is a build error.
@@ -285,10 +363,18 @@ The sheets are real geometry in the tracer, lit by the analytic reading light of
 - Light and dark follow the OS colour scheme via the existing uniform; dark mode lowers the lamp to 0.6 and keeps paper luminance in the same 0.07 to 0.12 display-linear range for dark paper, ink 0.82 to 0.9; images get the 0.9 multiply from READER.md; accent fields are the `field` colour of 3.2.
 - Backdrop dims and the room darkens as in READER.md (`readingBlend`).
 
+### 4.5 The full text layer: collapsed, still GPU-drawn, deliberate gesture
+
+- Default state on opening `/thoughts/<slug>`: the distilled spread alone, `layer = 0`. Under it, at the outer bottom corner of the right sheet, a **Full text tab** is drawn as shapes: a curled page corner with the label `Full text` and the word count (computed at build, not typed). Nothing of the full text is visible or laid out on screen.
+- Opening gestures (any one, all deliberate): drag the corner past 25% of the sheet width (the page peels, release below the threshold snaps shut); click or tap the tab; press `T` or Enter; a deep link `#full` or `#full/s3`. Wheel, trackpad scroll and swipe on the distilled spread never open it: they give a short rubber-band bounce and pulse the tab once, so a stray scroll cannot bury the distilled view.
+- Inside the full layer: the usual turning (4.1), `text` and `text-code` spreads, figures inline. Closing: `T`, Escape, Home, or the tab on spread 1; all return to spread 0 with the same page-turn animation reversed. `Spread.f` addresses both layers (0 is distilled, 1 is the first full text spread).
+- Data: one `RDR2` binary per article and width class with `layer` on each `Spreads[]` entry; layer-1 items are uploaded to the GPU buffer on first open (est.: no cost to the distilled first paint; measure in A4, keep the A7 size budget over the whole file). The hidden DOM always holds the full post (its text, headings, links and figure `alt`/`describe`), so find-in-page, crawlers and screen readers never need the gesture; focusing a link or finding text inside the DOM opens the full layer at the matching spread.
+- The author's text is never deleted: the full layer renders every block of the post, and the `validate` text-equality check (A1) runs on the full layer as before.
+
 ## 5. Flecs ownership (what the Scene keeps)
 
 Flecs owns every piece of runtime state; JS holds strings, GPU resources and pure evaluation.
-Components (additions to READER.md section 5): `Spread { f, target, vel }`, `Turn { progress, dir, grabbed }`, `Figure { id, t, rate, mode, focus }` as children of the Spread entity, `Overview { t }`, `Materials`. Systems: `SpreadSpring` (the magnet), `TurnProgress`, `FigureClock` (advances `t` only for figures on the current or turning spread, honours `loop/once/scrub/static` and reduced motion), `SpreadCull` (which two sheets enter `objs`), `PackObjs` (existing). Exports added to the wasm interface: `spread_goto(n)`, `spread_by(df)`, `spread_grab(dir)`, `spread_release(vel)`, `figure_focus(id)`, `figure_seek(id, t)`, `overview_set(b)`, `figure_clock_ptr()`. The tracks themselves (keyframe tables) are data in the binary; `src/lib/magazine/chan.ts` is a pure `evalChannels(table, t, out)`; it reads `Figure.t` from the wasm pointer. Reduced motion forces `mode = static` with `t = poster`.
+Components (additions to READER.md section 5): `Spread { f, target, vel, layer }`, `Corner { drag, open }` (the peel gesture), `Turn { progress, dir, grabbed }`, `Figure { id, t, rate, mode, focus }` as children of the Spread entity, `Overview { t }`, `Materials`. Systems: `SpreadSpring` (the magnet), `TurnProgress`, `FigureClock` (advances `t` only for figures on the current or turning spread, honours `loop/once/scrub/static` and reduced motion), `SpreadCull` (which two sheets enter `objs`), `PackObjs` (existing). Exports added to the wasm interface: `spread_goto(n)`, `spread_by(df)`, `spread_grab(dir)`, `spread_release(vel)`, `figure_focus(id)`, `figure_seek(id, t)`, `overview_set(b)`, `figure_clock_ptr()`. The tracks themselves (keyframe tables) are data in the binary; `src/lib/magazine/chan.ts` is a pure `evalChannels(table, t, out)`; it reads `Figure.t` from the wasm pointer. Reduced motion forces `mode = static` with `t = poster`.
 
 ## 6. Tests and acceptance
 
