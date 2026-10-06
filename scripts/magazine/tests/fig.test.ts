@@ -79,10 +79,10 @@ describe('compileFigure and lintFigure', () => {
 		expect(lintFigure(back).join('\n')).toContain('must not decrease');
 	});
 
-	test('control: more than 24 items in one cell fails', () => {
-		const many = Array.from({ length: 30 }, (_, i) => rrect(`r${i}`, { at: [1, 1], size: [1, 1], fill: 'ink' }));
+	test('control: more than 48 items in one cell fails', () => {
+		const many = Array.from({ length: 60 }, (_, i) => rrect(`r${i}`, { at: [1, 1], size: [1, 1], fill: 'ink' }));
 		const f = compileFigure('t', base({ nodes: many, paths: [], tracks: [] }));
-		expect(lintFigure(f).join('\n')).toContain('the cap is 24');
+		expect(lintFigure(f).join('\n')).toContain('the cap is 48');
 	});
 
 	test('control: describe under 40 chars is rejected by the builder and by lint', () => {

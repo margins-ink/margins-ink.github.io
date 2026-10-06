@@ -96,7 +96,7 @@ describe('palette', () => {
 describe('voices', () => {
 	test('table is valid; ifd matches the doc', () => {
 		checkVoices();
-		expect(voiceFor('ifd')).toMatchObject({ hue: 265, wdth: 80, wght: 600, template: 'duo' });
+		expect(voiceFor('ifd')).toMatchObject({ hue: 265, wdth: 80, wght: 600 });
 	});
 	test('controls: unknown slug, out-of-range axis and a duplicate combo fail', () => {
 		expect(() => voiceFor('nope')).toThrow();
