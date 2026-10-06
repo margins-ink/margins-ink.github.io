@@ -2,9 +2,12 @@
 title: "The Dawn of 100,000-Player Minecraft PvP"
 dek: "A Minecraft server in Rust aiming at 100,000 players in a single world."
 date: 2024-07-11
+archived: true
 username: andrewgazelka
 ---
 
+
+> This post covers a lot of ground that I still like, but I do not like how it is written. It also skips edge cases that matter. If you want a parallel game loop instead of one tick thread, the design changes, and the post does not say how. It also does not say when you would shard the world instead of keeping a single one.
 
 ## Redefining the Limits of Multiplayer Gaming
 
