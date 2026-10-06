@@ -21,7 +21,9 @@ export interface Box { x0: number; y0: number; x1: number; y1: number }
 export const inBox = (b: Box, x: number, y: number) => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1;
 
 export interface LinkRec extends Box { kind: number; target: string; spread: number }
-export interface FigureRec extends Box { id: number; spread: number }
+/** mode: FigureMode (0 loop 1 once 2 scrub 3 static); duration in seconds. A figure scrubs unless it is static. */
+export interface FigureRec extends Box { id: number; spread: number; mode: number; duration: number }
+export const scrubbable = (f: FigureRec) => f.mode !== 3 && f.duration > 0;
 export interface LineRec { yTop: number; yBot: number; x0: number; x1: number; firstGlyph: number; glyphCount: number; charOffset: number; frame: number }
 
 export function linkAt(links: readonly LinkRec[], spread: number, x: number, y: number): LinkRec | null {

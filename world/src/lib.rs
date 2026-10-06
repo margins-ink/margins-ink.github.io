@@ -194,3 +194,18 @@ pub extern "C" fn overview_set(on: u32) { magazine::overview_set(on); }
 pub extern "C" fn figure_clock_ptr() -> *const f32 { magazine::clock_ptr() }
 #[no_mangle]
 pub extern "C" fn magazine_state_ptr() -> *const f32 { magazine::state_ptr() }
+#[no_mangle]
+pub extern "C" fn figure_clock_len() -> u32 { magazine::clock_len() }
+/// The figure under the pointer (`-1` none): drives the hover highlight and the ew-resize cursor.
+#[no_mangle]
+pub extern "C" fn figure_hover(id: i32) { magazine::figure_hover(id); }
+/// Scrub a figure: the pointer takes it, moves it by timeline seconds, releases it with momentum (s per s).
+#[no_mangle]
+pub extern "C" fn figure_scrub_begin(id: u32) { magazine::figure_scrub_begin(id); }
+#[no_mangle]
+pub extern "C" fn figure_scrub_by(id: u32, dt: f32) { magazine::figure_scrub_by(id, dt); }
+#[no_mangle]
+pub extern "C" fn figure_scrub_end(id: u32, vel: f32) { magazine::figure_scrub_end(id, vel); }
+/// The open book finished its fly-in (1) or left the screen (0): figures hold the poster, then play.
+#[no_mangle]
+pub extern "C" fn book_settled(on: u32) { magazine::book_settled(on); }

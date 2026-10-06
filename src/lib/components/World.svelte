@@ -187,7 +187,8 @@
 				if (reading && e.pointerType === 'mouse') {
 					const [nx, ny] = ndc(e);
 					room.pointerMove(rec(e));
-					el.style.cursor = room.hoverAt(nx, ny)?.link ? 'pointer' : '';
+					const h = room.hoverAt(nx, ny);
+					el.style.cursor = h?.link ? 'pointer' : h?.scrub ? 'ew-resize' : '';
 				}
 				return;
 			}

@@ -18,7 +18,7 @@
  * Scene uniform fields (vec4f each, 24 floats from rd0; host fills them with writeRd in magazine.ts):
  *   rd0 = (k reading blend, magazine obj index or -1, em in metres, turn progress 0..1)
  *   rd1 = (spine world x, world y of the sheet top edge, spine plane z, turn dir -1 | 0 | +1)
- *   rd2 = (spread index shown, unused, hovered spread + 1 (0 none), dark 0|1)
+ *   rd2 = (spread index shown, hover kind 0 link | 1 figure, hovered spread + 1 (0 none), dark 0|1)
  *   rd3 = hover rect in spread em (x0 y0 x1 y1)
  *   rd4 = (corner peel 0..1 or -1 for no corner, unused, unused, unused)
  *   rd5 = (bow radians, gutter shadow strength, paper gain, unused)
@@ -79,6 +79,7 @@ const PAL_PAPER = 17u;
 var<private> mg_dark: f32 = 0.0;
 var<private> mg_hov_spread: u32 = 0u;
 var<private> mg_hov_rect: vec4f = vec4f(0.0);
+var<private> mg_hov_kind: f32 = 0.0; // 0 link, 1 figure (scrubbable, drawn as a frame)
 var<private> mg_gain: f32 = 1.0;
 var<private> mg_peel: f32 = -1.0;
 
@@ -722,7 +723,7 @@ fn spread_albedo(si: u32, p: vec2f, fw: f32) -> MgOut {
   let istart = reader[MH_ITEMS] + reader[cell];
   let icount = reader[cell + 1u] & 0xffffu;
   let hov = mg_hov_spread == si + 1u && p.x >= mg_hov_rect.x && p.x <= mg_hov_rect.z && p.y >= mg_hov_rect.y && p.y <= mg_hov_rect.w;
-  let hovline = mg_hov_spread == si + 1u && p.x >= mg_hov_rect.x && p.x <= mg_hov_rect.z && p.y >= mg_hov_rect.w - 0.2 && p.y <= mg_hov_rect.w - 0.1;
+  let hovline = mg_hov_kind < 0.5 && mg_hov_spread == si + 1u && p.x >= mg_hov_rect.x && p.x <= mg_hov_rect.z && p.y >= mg_hov_rect.w - 0.2 && p.y <= mg_hov_rect.w - 0.1;
   let coatOn = f32((mask >> 1u) & 1u);
   var coat = 0.0;
   for (var i = 0u; i < icount; i++) {
@@ -745,6 +746,11 @@ fn spread_albedo(si: u32, p: vec2f, fw: f32) -> MgOut {
     }
   }
   if (hovline) { col = mix(col, mg_pal(1u).rgb, 0.9); }
+  if (hov && mg_hov_kind > 0.5) {
+    // a hovered figure: a link-coloured frame 0.2 em wide and a faint wash
+    let d = min(min(p.x - mg_hov_rect.x, mg_hov_rect.z - p.x), min(p.y - mg_hov_rect.y, mg_hov_rect.w - p.y));
+    col = mix(col, mg_pal(1u).rgb, 0.65 * (1.0 - smoothstep(0.12, 0.22, d)) + 0.05);
+  }
   return MgOut(col, coat);
 }
 `;
@@ -877,6 +883,7 @@ fn page_shade(ph: PHit, wp: vec3f, level: u32) -> PShade {
   mg_dark = sc.rd2.w;
   mg_hov_spread = u32(max(sc.rd2.z, 0.0));
   mg_hov_rect = sc.rd3;
+  mg_hov_kind = sc.rd2.y;
   mg_gain = select(1.0, sc.rd5.z, sc.rd5.z > 0.0);
   mg_peel = -1.0;
   if (sc.rd4.x >= 0.0 && ph.face == 0u && abs(sc.rd1.w) < 0.5 && ph.p.x >= spx) { mg_peel = sc.rd4.x; }

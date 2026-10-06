@@ -141,13 +141,50 @@ describe('clicks and scrubs in the full layer', () => {
 		expect(calls[calls.length - 1]).toMatch(/^release\(/);
 	});
 	test('double-click on a figure focuses it', () => {
-		const fig = { x0: 5, y0: 10, x1: 30, y1: 30, id: 7, spread: 0 };
+		const fig = { x0: 5, y0: 10, x1: 30, y1: 30, id: 7, spread: 0, mode: 0, duration: 12 };
 		const { calls, inp } = harness({ figures: [fig] });
 		inp.pointerDown(P(10, 15, 0, 0, { x: 100, y: 150 }));
 		inp.pointerUp(P(10, 15, 20, 0, { x: 100, y: 150 }));
 		inp.pointerDown(P(10, 15, 100, 0, { x: 100, y: 150 }));
 		inp.pointerUp(P(10, 15, 120, 0, { x: 100, y: 150 }));
 		expect(calls).toEqual(['focusFigure(7)']);
+	});
+});
+
+describe('figure scrubbing', () => {
+	const fig = { x0: 5, y0: 10, x1: 30, y1: 30, id: 7, spread: 0, mode: 0, duration: 10 };
+	test('a horizontal drag inside a figure scrubs: begin once, by = dx / width * duration, end with velocity', () => {
+		const { calls, inp } = harness({ figures: [fig] });
+		expect(inp.pointerDown(P(10, 15, 0))).toBe('handled');
+		inp.pointerMove(P(15, 15, 30));
+		inp.pointerMove(P(20, 15, 60));
+		inp.pointerUp(P(20, 15, 70));
+		expect(calls[0]).toBe('figureScrubBegin(7)');
+		const by = calls.filter((c) => c.startsWith('figureScrubBy')).map((c) => Number(/,(.*)\)/.exec(c)![1]));
+		expect(by.length).toBe(2);
+		expect(by[0]).toBeCloseTo((5 / 25) * 10, 6);
+		expect(calls[calls.length - 1]).toMatch(/^figureScrubEnd\(7,/);
+		expect(Number(/,(.*)\)/.exec(calls[calls.length - 1])![1])).toBeGreaterThan(0);
+	});
+	test('control: a drag outside any figure never scrubs, and a static figure does not either', () => {
+		const a = harness({ figures: [fig] });
+		a.inp.pointerDown(P(60, 15, 0));
+		a.inp.pointerMove(P(70, 15, 30));
+		a.inp.pointerUp(P(70, 15, 40));
+		expect(a.calls.some((c) => c.startsWith('figureScrub'))).toBe(false);
+		const b = harness({ figures: [{ ...fig, mode: 3 }] });
+		expect(b.inp.pointerDown(P(10, 15, 0))).toBe('ignore');
+		expect(b.calls.length).toBe(0);
+	});
+	test('a click on a figure does not start a scrub; hover reports the figure and clears off it', () => {
+		const { calls, inp } = harness({ figures: [fig] });
+		inp.pointerDown(P(10, 15, 0));
+		inp.pointerUp(P(10, 15, 10));
+		expect(calls.some((c) => c.startsWith('figureScrub'))).toBe(false);
+		const h = harness({ figures: [fig] });
+		h.inp.pointerMove({ ...P(10, 15, 0), id: 9 });
+		h.inp.pointerMove({ ...P(60, 15, 20), id: 9 });
+		expect(h.calls).toEqual(['figureHover(7)', 'figureHover(null)']);
 	});
 });
 

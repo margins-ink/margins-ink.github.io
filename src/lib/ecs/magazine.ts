@@ -53,7 +53,8 @@ export const MagState = {
 	turnProgress: 6, turnDir: 7, turnGrabbed: 8,
 	overview: 9, focus: 10, // focus: figure id, -1 none
 	bounceX: 11, tabPulse: 12,
-	spreads: 13 // N
+	spreads: 13, // N
+	hover: 15 // figure id under the pointer, -1 none
 } as const;
 
 export interface MagazineExports {
@@ -71,6 +72,12 @@ export interface MagazineExports {
 	pulse_tab(): void;
 	figure_focus(id: number): void;
 	figure_seek(id: number, t: number): void;
+	figure_hover(id: number): void;
+	figure_scrub_begin(id: number): void;
+	figure_scrub_by(id: number, dt: number): void;
+	figure_scrub_end(id: number, vel: number): void;
+	book_settled(on: number): void;
+	figure_clock_len(): number;
 	figure_define(id: number, spread: number, mode: number, duration: number, poster: number): void;
 	set_reduced_motion(on: number): void;
 	overview_set(on: number): void;
@@ -113,7 +120,7 @@ export function createMagazine(x: MagazineExports, host: MagazineHost): Magazine
 		const s = state();
 		return { layer: s[MagState.layer] >= 1 ? 1 : 0, spread: Math.round(s[MagState.f]) };
 	};
-	const fig = () => new Float32Array(x.memory.buffer, x.figure_clock_ptr(), 64);
+	const fig = () => new Float32Array(x.memory.buffer, x.figure_clock_ptr(), x.figure_clock_len());
 
 	const sink: BookSink = {
 		goto: (n) => x.spread_goto(n),
@@ -128,6 +135,10 @@ export function createMagazine(x: MagazineExports, host: MagazineHost): Magazine
 		pulseTab: () => x.pulse_tab(),
 		focusFigure: (id) => x.figure_focus(id ?? -1),
 		seekFigure: (id, t) => x.figure_seek(id, t),
+		figureHover: (id) => x.figure_hover(id ?? -1),
+		figureScrubBegin: (id) => x.figure_scrub_begin(id),
+		figureScrubBy: (id, dt) => x.figure_scrub_by(id, dt),
+		figureScrubEnd: (id, vel) => x.figure_scrub_end(id, vel),
 		overview: (on) => x.overview_set(on ? 1 : 0),
 		follow: (l) => host.follow(l),
 		resetZoom: () => host.resetZoom(),

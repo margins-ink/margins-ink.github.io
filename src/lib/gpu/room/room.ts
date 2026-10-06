@@ -7,7 +7,7 @@ import { loadWorld, RS, type Floor } from './world';
 import { BOW, EM, GUTTER, Magazine, linkAt, pickSpread, writeRd, type Article, type LinkHit, type MagazineUniforms } from './magazine';
 import { createMagazine, MagState, type MagazineExports } from '$lib/ecs/magazine';
 import { MagazineInput, WHEEL_IDLE_MS, type KeyIn, type Outcome, type PointerIn, type WheelIn } from '$lib/magazine/input';
-import { overviewAt, overviewLayout, type LinkRec } from '$lib/magazine/hit';
+import { overviewAt, overviewLayout, scrubbable, type FigureRec, type LinkRec } from '$lib/magazine/hit';
 import { evalPacked, figureTime } from '$lib/magazine/chan';
 import { FigureMode } from '$lib/magazine/format';
 
@@ -43,7 +43,7 @@ export interface Room {
 	pointerUp(p: BookPointer, cancel?: boolean): Outcome;
 	keyIn(k: Omit<KeyIn, 't'>): Outcome;
 	/** Link under a screen point (ndc, y up) for the pointer cursor; null when off the book. */
-	hoverAt(nx: number, ny: number): { spread: number; link: LinkHit | null } | null;
+	hoverAt(nx: number, ny: number): { spread: number; link: LinkHit | null; scrub?: boolean } | null;
 	/** True when the point is on the open book. */
 	onBook(nx: number, ny: number): boolean;
 	/** Deep link: `#full`, `#full/s3`, `#s3`. */
@@ -311,7 +311,7 @@ export async function createRoom(
 	const readingOn = () => rs[RS.article] >= 0 || rs[RS.target] > 0 || rs[RS.t] > 0;
 	const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 	let linkRecs: LinkRec[] = [];
-	let figRecs: { id: number; spread: number; x0: number; y0: number; x1: number; y1: number }[] = [];
+	let figRecs: FigureRec[] = [];
 	const chanBuf = new Float32Array(256);
 	let chanSig = '';
 
@@ -393,7 +393,7 @@ export async function createRoom(
 		art.figures.forEach((f) => exportsOf.figure_define(f.id, f.spread, f.mode, f.duration, f.poster));
 		exportsOf.set_reduced_motion(reduced.matches ? 1 : 0);
 		linkRecs = art.links.map((l) => ({ x0: l.rect[0], y0: l.rect[1], x1: l.rect[2], y1: l.rect[3], kind: l.kind, target: l.target, spread: l.spread }));
-		figRecs = art.figures.map((f) => ({ id: f.id, spread: f.spread, x0: f.bounds[0], y0: f.bounds[1], x1: f.bounds[2], y1: f.bounds[3] }));
+		figRecs = art.figures.map((f) => ({ id: f.id, spread: f.spread, mode: f.mode, duration: f.duration, x0: f.bounds[0], y0: f.bounds[1], x1: f.bounds[2], y1: f.bounds[3] }));
 		chanSig = '';
 		world!.reader.open(slugIdx, 1, art.sheetW, art.spreadH, 0, snap);
 		if (art.opensFull) book.sink.openFull(1);
@@ -407,6 +407,9 @@ export async function createRoom(
 		const open = a !== null && rs[RS.article] >= 0;
 		const ms = book.state();
 		const hv = hover && open ? hover : null;
+		// the figure under the pointer is Flecs state: the (Hover, figure) relation, exported as state[15]
+		const hid = open ? book.state()[MagState.hover] : -1;
+		const hf = hid >= 0 ? figRecs.find((f) => f.id === (hid | 0)) : undefined;
 		const layer0 = ms[MagState.layer] < 0.5;
 		const peel = layer0 ? Math.min(1, Math.max(0, ms[MagState.cornerDrag]) + 0.05 * ms[MagState.tabPulse]) : -1;
 		return {
@@ -418,8 +421,9 @@ export async function createRoom(
 			topY: readPose.topY,
 			z: readPose.planeZ,
 			index: open ? ms[14] : 0,
-			hoverSpread: hv?.link ? hv.spread : -1,
-			hoverRect: hv?.link?.rect,
+			hoverSpread: hv?.link ? hv.spread : hf ? hf.spread : -1,
+			hoverRect: hv?.link?.rect ?? (hf ? [hf.x0, hf.y0, hf.x1, hf.y1] : undefined),
+			hoverKind: hv?.link ? 0 : hf ? 1 : 0,
 			dark: night,
 			peel,
 			bow: BOW,
@@ -432,7 +436,7 @@ export async function createRoom(
 	function writeFigures() {
 		const a = mag.article;
 		if (!a || !a.figures.length) return;
-		const clocks = new Float32Array(exportsOf.memory.buffer, exportsOf.figure_clock_ptr(), 64);
+		const clocks = new Float32Array(exportsOf.memory.buffer, exportsOf.figure_clock_ptr(), exportsOf.figure_clock_len());
 		let sig = '';
 		for (const f of a.figures) {
 			const mode = (['loop', 'once', 'scrub', 'static'] as const)[f.mode] ?? 'static';
@@ -775,6 +779,9 @@ export async function createRoom(
 				frame = 0;
 				moving = false;
 			}
+			// figures hold their poster until the fly-in is done (first paint is a finished frame), then play
+			if (ev.kind === 'opened') exportsOf.book_settled(1);
+			if (ev.kind === 'closed') exportsOf.book_settled(0);
 			if (ev.kind === 'spread' || ev.kind === 'layerOpened' || ev.kind === 'layerClosed') book.syncHash();
 			readCb({ kind: ev.kind, arg: ev.arg });
 		}
@@ -1017,7 +1024,10 @@ export async function createRoom(
 				hover = sp ? { spread: sp.spread, link } : null;
 				touch();
 			}
-			return hover;
+			// a scrubbable figure under the pointer (the cursor becomes ew-resize)
+			const f = sp && !link ? figRecs.find((r) => r.spread === sp.spread && sp.x >= r.x0 && sp.x <= r.x1 && sp.y >= r.y0 && sp.y <= r.y1) : undefined;
+			const scrub = !!f && scrubbable(f);
+			return hover ? { ...hover, scrub } : sp && scrub ? { spread: sp.spread, link: null, scrub } : null;
 		},
 		onBook: (nx, ny) => spreadPointAt(nx, ny) !== null,
 		applyHash: (h) => book.applyHash(h),

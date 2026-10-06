@@ -28,7 +28,7 @@ export interface World {
 	exports: unknown;
 }
 
-export type ReaderEvent = { kind: 'opened' | 'closed' | 'scrollEnd' | 'page' | 'spread' | 'layerOpened' | 'layerClosed' | 'focus' | 'overview'; arg: number };
+export type ReaderEvent = { kind: 'opened' | 'closed' | 'scrollEnd' | 'page' | 'spread' | 'layerOpened' | 'layerClosed' | 'focus' | 'overview' | 'hover'; arg: number };
 
 /** Indices into `ReaderApi.state()`. */
 export const RS = {
@@ -121,7 +121,7 @@ interface Exports {
 	world_entity_count(): number;
 }
 
-const EVENTS: ReaderEvent['kind'][] = ['opened', 'closed', 'scrollEnd', 'page', 'spread', 'layerOpened', 'layerClosed', 'focus', 'overview'];
+const EVENTS: ReaderEvent['kind'][] = ['opened', 'closed', 'scrollEnd', 'page', 'spread', 'layerOpened', 'layerClosed', 'focus', 'overview', 'hover'];
 
 function readerApi(x: Exports): ReaderApi {
 	return {

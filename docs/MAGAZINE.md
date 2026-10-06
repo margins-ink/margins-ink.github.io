@@ -376,6 +376,24 @@ The sheets are real geometry in the tracer, lit by the analytic reading light of
 Flecs owns every piece of runtime state; JS holds strings, GPU resources and pure evaluation.
 Components (additions to READER.md section 5): `Spread { f, target, vel, layer }`, `Corner { drag, open }` (the peel gesture), `Turn { progress, dir, grabbed }`, `Figure { id, t, rate, mode, focus }` as children of the Spread entity, `Overview { t }`, `Materials`. Systems: `SpreadSpring` (the magnet), `TurnProgress`, `FigureClock` (advances `t` only for figures on the current or turning spread, honours `loop/once/scrub/static` and reduced motion), `SpreadCull` (which two sheets enter `objs`), `PackObjs` (existing). Exports added to the wasm interface: `spread_goto(n)`, `spread_by(df)`, `spread_grab(dir)`, `spread_release(vel)`, `figure_focus(id)`, `figure_seek(id, t)`, `overview_set(b)`, `figure_clock_ptr()`. The tracks themselves (keyframe tables) are data in the binary; `src/lib/magazine/chan.ts` is a pure `evalChannels(table, t, out)`; it reads `Figure.t` from the wasm pointer. Reduced motion forces `mode = static` with `t = poster`.
 
+### 5.1 Implemented vocabulary (world/src/magazine.rs, `MagazineModule`, flecs_ecs 0.2.2)
+
+Supersedes the sketch above. One `world.import::<MagazineModule>()`; no thread_local state.
+- Singletons (read with `.term_at(i).set_src(T::id())`, written with `world.set`): `Spread`, `Turn`, `Corner`, `Overview`, `Bounce`, `Book`, `Events` (the outgoing queue), `Export` (clocks), `Prefabs`.
+- Tags: `Active` (on screen), `Scrubbed`, `Opened`, `OverviewOn`, `Peeled`, `Closing`, `Grabbed`, `Reduced`, `Settled` (book at rest on screen: figures start only then).
+- Exclusive relations (`add_trait::<flecs::Exclusive>()`, one target at a time): `Focus`, `Hover`, `Scrubbing`, `CurrentLeaf`. Moving a pair replaces the old one; an OnAdd/OnRemove observer on `(Rel, *)` turns the change into a JS event, so there is no index compare and no event flags.
+- One entity per figure, from a prefab per mode: `Figure { id, duration, poster, mode }` plus `FigureTime { t, vel, auto }` (`auto` is the idle countdown to autoplay). `Scrubbed` is derived from `(Scrubbing, fig)` by an observer.
+- Phases (custom, `depends_on` chain): Spring, Settle, Cull, Pack. Systems: SpreadSpring, CornerSpring, OverviewSpring, BounceDecay, TurnProgress, LayerLand, LeafCull, BookCursor, FigureCull, FigureAdvance, ClockExport, PackMag. Delta time comes from `it.delta_time()`.
+- Figure scrubbing: pointer capture drag maps pointer x to timeline seconds across the figure width (`figure_scrub_begin/by/end`, hover via `figure_hover`); release keeps momentum (decay `MOMENTUM_K` 4.5 per s); `auto` counts down `IDLE_S` 2 s from release alongside momentum, then autoplay resumes; loop figures wrap, once and scrub figures clamp and a wall zeroes momentum; `Reduced` disables momentum and autoplay. `scripts/magazine/world-smoke.ts` holds the PASS/FAIL controls.
+
+Traps:
+- `Id<T>` values of different types do not share an array type: store `Entity` (`world.component_id::<T>()`).
+- `Query::with` does not exist on the typed query: use `w.query::<()>().with(id).build()`.
+- A closure passed to `each_entity` must end in a block with a semicolon or it infers a return type.
+- Native `cargo check` fails on the vendored C-unwind patch: check the `wasm32-wasip1` target.
+- A momentum that keeps counting while clamped at a wall delays the idle countdown: zero `vel` on contact, and run the idle countdown beside momentum, not after it.
+- A pointer-down delta must not be discarded when the scrub starts (reset of `lastX` lost the first move).
+
 ## 6. Tests and acceptance
 
 Each check names its control (verification law: a check without a failing control proves nothing).

@@ -70,7 +70,6 @@ describe('figure DSL', () => {
 		expect(f.nodes.length).toBe(2);
 		expect(() => figure({ ...f, describe: 'short' })).toThrow();
 		expect(() => track('x', [[1, 0], [0, 1]])).toThrow();
-		expect(() => compileFigure('x', f)).toThrow('not implemented');
 	});
 });
 

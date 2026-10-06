@@ -354,7 +354,6 @@ pub fn tick(dt_ms: f32) {
     let dt = (dt_ms / 1000.0).clamp(0.0, 0.1);
     let Some(world) = with(|rs| rs.world.clone()) else { return };
     DT.with(|d| d.set(dt));
-    crate::magazine::set_dt(dt);
     VIS.with(|v| v.set((-1, 0)));
     world.progress_time(dt);
     with(|rs| {

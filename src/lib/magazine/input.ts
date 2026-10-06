@@ -3,7 +3,7 @@
 // (the Flecs wrapper in src/lib/ecs/magazine.ts). All state that outlives a gesture lives in Flecs
 // (`Spread`, `Corner`, `Turn`); this class only holds the gesture in progress.
 import {
-	edgeAt, figureAt, folioAt, geom, linkAt, marginSide, peelFrac, tabAt, PEEL_OPEN,
+	edgeAt, figureAt, folioAt, geom, linkAt, marginSide, peelFrac, scrubbable, tabAt, PEEL_OPEN,
 	type FigureRec, type Geom, type LinkRec
 } from './hit';
 
@@ -50,6 +50,10 @@ export interface BookSink {
 	pulseTab(): void;
 	focusFigure(id: number | null): void;
 	seekFigure(id: number, t: number): void;
+	figureHover(id: number | null): void; // (Hover, figure): highlight and ew-resize cursor
+	figureScrubBegin(id: number): void; // (Scrubbing, figure): autoplay and momentum stop
+	figureScrubBy(id: number, dt: number): void; // timeline seconds
+	figureScrubEnd(id: number, vel: number): void; // timeline s per s: momentum, then autoplay after ~2 s idle
 	overview(on: boolean): void;
 	follow(link: LinkRec): void; // external url, anchor, ref or article
 	resetZoom(): void;
@@ -124,6 +128,7 @@ type Gesture =
 	| { k: 'none' }
 	| { k: 'peel'; startX: number; frac: number }
 	| { k: 'scrub'; side: -1 | 1; x0: number; y0: number; f0: number; df: number; samples: { t: number; f: number }[] }
+	| { k: 'figure'; id: number; w: number; dur: number; lastX: number; t: number; started: boolean; samples: { t: number; f: number }[] }
 	| { k: 'tap' };
 
 /** One controller per canvas. */
@@ -134,6 +139,7 @@ export class MagazineInput {
 	private wheel: { f: number; lastT: number; samples: { t: number; f: number }[] } | null = null;
 	private lastClick = { t: -1e9, x: 0, y: 0 };
 	private hovered: number | null = null;
+	private hoverFig: number | null = null;
 
 	constructor(private sink: BookSink, private view: () => BookView) {}
 
@@ -201,6 +207,12 @@ export class MagazineInput {
 			this.g = { k: 'peel', startX: sp.x, frac: 0 };
 			return 'handled';
 		}
+		// a horizontal drag inside a scrubbable figure scrubs its animation (pointer capture, momentum on release)
+		const fig = v.focus === null ? figureAt(v.figures, sp.spread, sp.x, sp.y) : null;
+		if (fig && scrubbable(fig) && !linkAt(v.links, sp.spread, sp.x, sp.y)) {
+			this.g = { k: 'figure', id: fig.id, w: fig.x1 - fig.x0, dur: fig.duration, lastX: sp.x, t: v.figureTime(fig.id), started: false, samples: [{ t: p.t, f: 0 }] };
+			return 'handled';
+		}
 		if (v.layer === 1) {
 			const side = v.narrow ? 1 : marginSide(g, sp.x);
 			if (side !== 0 && !linkAt(v.links, sp.spread, sp.x, sp.y)) {
@@ -216,12 +228,30 @@ export class MagazineInput {
 		const sp = p.spreadPoint;
 		if (!d || d.id !== p.id) {
 			this.hovered = sp ? (linkAt(v.links, sp.spread, sp.x, sp.y)?.kind ?? null) : null;
+			const hf = sp && !v.overview && v.focus === null && v.zoom <= ZOOM_PAN ? figureAt(v.figures, sp.spread, sp.x, sp.y) : null;
+			const id = hf && scrubbable(hf) ? hf.id : null;
+			if (id !== this.hoverFig) this.sink.figureHover((this.hoverFig = id));
 			return 'ignore';
 		}
 		d.moved += Math.abs(p.x - d.x) + Math.abs(p.y - d.y);
 		d.x = p.x;
 		d.y = p.y;
 		const g = geom(v.narrow);
+		if (this.g.k === 'figure') {
+			const s = this.g;
+			if (!sp || (!s.started && d.moved <= CLICK_PX)) return 'handled';
+			if (!s.started) {
+				s.started = true;
+				this.sink.figureScrubBegin(s.id);
+			}
+			// dragging across the figure's width scrubs the whole timeline
+			const dt = ((sp.x - s.lastX) / Math.max(1e-3, s.w)) * s.dur;
+			s.lastX = sp.x;
+			s.t += dt;
+			s.samples.push({ t: p.t, f: s.t });
+			this.sink.figureScrubBy(s.id, dt);
+			return 'handled';
+		}
 		if (this.g.k === 'peel' && sp) {
 			this.g.frac = peelFrac(g, this.g.startX, sp.x);
 			this.sink.cornerDrag(this.g.frac);
@@ -251,6 +281,10 @@ export class MagazineInput {
 		if (!d || d.id !== p.id) return 'ignore';
 		const sp = p.spreadPoint;
 		const click = !cancel && d.moved <= CLICK_PX;
+		if (g.k === 'figure' && g.started) {
+			this.sink.figureScrubEnd(g.id, cancel ? 0 : velocity(g.samples));
+			return 'handled';
+		}
 		if (g.k === 'peel') {
 			if (click && sp && tabAt(geom(v.narrow), sp.x, sp.y)) {
 				this.sink.cornerRelease(false);
