@@ -71,7 +71,7 @@ Motor hum stays the existing `setElevator(speed, floor)`, fed from state[2] and 
 
 `Car`, `Doors`, `Gate` (exclusive relations); `Parked Travelling Latching Open Closed Opening Closing` (targets); `Hold` (tag); `Rig`
 (role per moving part: 1 gate bar, 2 gate rail/post, 3 hall door leaf, 4 needle, 5 dial lamp, 6 button, 7 fishplate, 8 counterweight,
-9 cable, 10 door seam light, 11 ceiling lamp glow); `Glow` (emission rgb, exported in the row's tex).
+9 cable, 11 ceiling lamp glow (role 10, a door seam light, was deleted: it drew a bright thin vertical line through the door gap)); `Glow` (emission rgb, exported in the row's tex).
 
 ## Export format
 
@@ -117,5 +117,5 @@ Measure frame time against the pre-elevator baseline (benchmark rules) before ad
 ## Open risks
 
 Compile risk: flecs_ecs calls (observers with pair `.with`, `try_cloned`, `add_trait`) were inferred from magazine.rs, not built.
-The Rig role parameters a, b and prefab names (`CabGateBar`, `CabLeaf`, `CabSeam`, `CabDialLamp`, `CabButton`) must match 11-elevator.flecs.
+The Rig role parameters a, b and prefab names (`CabGateBar`, `CabLeaf`, `CabDialLamp`, `CabButton`) must match 11-elevator.flecs.
 `elevator_tick` and `world_tick` ordering: Rust systems run in `world_tick`, so call `elevator_tick` first.

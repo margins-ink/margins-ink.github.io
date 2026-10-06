@@ -226,7 +226,6 @@ pub fn spawn<'a>(world: &'a World, n: usize) -> EntityView<'a> {
         }
     }
     let leaf = world.lookup("CabLeaf");
-    let seam = world.lookup("CabSeam");
     let lamp = world.lookup("CabDialLamp");
     let button = world.lookup("CabButton");
     for k in 0..n {
@@ -237,7 +236,6 @@ pub fn spawn<'a>(world: &'a World, n: usize) -> EntityView<'a> {
                 .child_of(cab)
                 .set(Rig { role: 3, a: k as f32, b: side, row: 0 });
         }
-        world.entity().is_a(seam).child_of(cab).set(Rig { role: 10, a: k as f32, b: 0.0, row: 0 });
         // dial lamp on the arc, top floor left
         let ang = needle_target(k as f32, n);
         world.entity().is_a(lamp).child_of(cab).set(Rig { role: 5, a: k as f32, b: 0.0, row: 0 }).set(Center {
@@ -716,19 +714,6 @@ fn pack_rig(rig: &Rig) {
                         set_c(row, 0.55 + 0.14 * a + tuck, -50.0, 4.12);
                     }
                 }
-            }
-            // light leaking through the seam of the closed hall doors as their floor passes
-            10 => {
-                let d = pos_m - a * lh;
-                let near = (1.0 - d.abs() / 0.5).clamp(0.0, 1.0);
-                let v = 6.0 * near * near * (1.0 - doors_e);
-                if v > 0.0 {
-                    set_c(row, 0.0, 1.0 + d, 3.895);
-                }
-                else {
-                    set_c(row, 0.0, -50.0, 3.895);
-                }
-                set_glow(row, [v, 0.78 * v, 0.45 * v]);
             }
             // ceiling lamp flickers a little while the car runs
             11 => {

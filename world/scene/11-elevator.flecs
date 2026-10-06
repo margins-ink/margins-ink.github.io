@@ -4,7 +4,7 @@
 // hall doors z 3.84, cab front wall z 4.20..4.32, gate z 4.40). Parts tagged with `Rig` are repositioned every tick
 // by the Flecs systems (world/src/elevator.rs); their Center here is only the initial value.
 // Rig: {role, a, b, row}. Roles: 1 gate bar, 2 gate rail/post, 3 hall door leaf, 4 needle, 5 dial lamp, 6 call button,
-// 7 rail fishplate, 8 counterweight, 9 cable, 10 door seam light, 11 cab lamp. `row` is filled by the exporter.
+// 7 rail fishplate, 8 counterweight, 9 cable, 11 cab lamp. `row` is filled by the exporter.
 
 prefab CabBrass : Solid { Albedo: {0.78, 0.55, 0.22}
   Material: {0.26, 0.95} }
@@ -171,11 +171,6 @@ prefab CabDialLamp : CabSphere { Half: {0.02, 0.02, 0.02}
 prefab CabButton : CabSphere { Half: {0.028, 0.028, 0.028}
   Glow: {0, 0, 0}
   Rig: {6, 0, 0, 0} }
-prefab CabSeam : Solid { Albedo: {1, 0.9, 0.7}
-  Half: {0.012, 0.95, 0.006}
-  Glow: {0, 0, 0}
-  Center: {0, -50, 3.895}
-  Rig: {10, 0, 0, 0} }
 
 // shaft furniture seen through the gate: guide rails with scrolling fishplates, the counterweight and its cables
 prefab CabPlate : CabBrass { Half: {0.055, 0.075, 0.025}
