@@ -10,7 +10,14 @@ import { BAND_EPS, CONTOUR_END, roundF16, toF16, type FontInfo, type GlyphTable 
 import { inkArea, mapContours, PathBuilder, type Contour } from './geom';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-export const FONT_DIR = path.join(ROOT, 'docs/upstream/reader/fonts');
+export const FONT_DIR = path.join(ROOT, 'docs/upstream/reader/fonts'); // Fira Code, Noto Emoji (and the retired Newsreader files)
+export const MAG_FONT_DIR = path.join(ROOT, 'docs/upstream/magazine/fonts'); // Inter, Instrument Sans (MAGAZINE.md 3.1)
+
+/** Absolute path of a font file: the magazine dir first, then the reader dir. */
+export function fontPath(file: string): string {
+	const m = path.join(MAG_FONT_DIR, file);
+	return fs.existsSync(m) ? m : path.join(FONT_DIR, file);
+}
 
 export interface FontSpec {
 	name: string;
@@ -21,17 +28,28 @@ export interface FontSpec {
 	defaultInstance: boolean;
 }
 
-// Newsreader opsz 18 is the axis default (and what CSS opsz:auto gives at the 16-18 px reading size).
+// One sans family (MAGAZINE.md direction 2026-10-06): Inter for body and UI, Instrument Sans for display.
+// Inter opsz 14 is the axis default (and what CSS opsz:auto gives at reading size). Inter has no `liga`
+// feature (its ligature-like substitutions are `calt`); Instrument Sans has `liga` and no `calt`; both have
+// `kern` and `tnum` (read from GSUB/GPOS on 2026-10-06). Features a face lacks are ignored by harfbuzz.
+const INTER = ['kern', 'calt'];
 export const FONT_SPECS: FontSpec[] = [
-	{ name: 'Newsreader 400', file: 'Newsreader.ttf', variations: { wght: 400, opsz: 18 }, features: ['kern', 'liga', 'calt'], defaultInstance: true },
-	{ name: 'Newsreader Italic 400', file: 'Newsreader-Italic.ttf', variations: { wght: 400, opsz: 18 }, features: ['kern', 'liga', 'calt'], defaultInstance: true },
-	{ name: 'Newsreader 600', file: 'Newsreader.ttf', variations: { wght: 600, opsz: 18 }, features: ['kern', 'liga', 'calt'], defaultInstance: false },
-	{ name: 'Inter 500', file: 'Inter.ttf', variations: { wght: 500, opsz: 14 }, features: ['kern', 'liga', 'calt'], defaultInstance: false },
+	{ name: 'Inter 400', file: 'Inter.ttf', variations: { wght: 400, opsz: 14 }, features: INTER, defaultInstance: true },
+	{ name: 'Inter Italic 400', file: 'Inter-Italic.ttf', variations: { wght: 400, opsz: 14 }, features: INTER, defaultInstance: true },
+	{ name: 'Inter 600', file: 'Inter.ttf', variations: { wght: 600, opsz: 14 }, features: INTER, defaultInstance: false },
+	{ name: 'Inter 500', file: 'Inter.ttf', variations: { wght: 500, opsz: 14 }, features: INTER, defaultInstance: false },
 	{ name: 'Fira Code 400', file: 'FiraCode.ttf', variations: { wght: 400 }, features: ['kern', 'liga', 'calt'], defaultInstance: false },
 	{ name: 'Fira Code 500', file: 'FiraCode.ttf', variations: { wght: 500 }, features: ['kern', 'liga', 'calt'], defaultInstance: false },
-	{ name: 'Noto Emoji 400', file: 'NotoEmoji.ttf', variations: { wght: 400 }, features: ['kern'], defaultInstance: false }
+	{ name: 'Noto Emoji 400', file: 'NotoEmoji.ttf', variations: { wght: 400 }, features: ['kern'], defaultInstance: false },
+	{ name: 'Instrument Sans wdth 80 wght 600', file: 'InstrumentSans.ttf', variations: { wdth: 80, wght: 600 }, features: ['kern', 'liga'], defaultInstance: false }
 ];
-export const F = { body: 0, italic: 1, bold: 2, sans: 3, code: 4, codeBold: 5, emoji: 6 } as const;
+// Indices into FONT_SPECS. `sans` is the label face (Inter 500); `display` is the default display instance;
+// per-article display instances are appended by FontSet.display().
+export const F = { body: 0, italic: 1, bold: 2, sans: 3, code: 4, codeBold: 5, emoji: 6, display: 7 } as const;
+/** Template font roles (src/lib/magazine/types.ts FontRole) to font index; display roles use FontSet.display(). */
+export const ROLE_FONT = { body: F.body, label: F.sans, code: F.code, display: F.display, pullquote: F.display, numeral: F.display } as const;
+/** Instrument Sans axis limits (METADATA.pb read 2026-10-06). */
+export const DISPLAY_AXES = { wdth: [75, 100], wght: [400, 700] } as const;
 /** Fonts tried, in order, for a character the run's own font lacks. */
 const FALLBACKS = [F.code, F.emoji];
 
@@ -54,7 +72,7 @@ export class LoadedFont {
 	private pb: PathBuilder | null = null;
 
 	constructor(public spec: FontSpec) {
-		const bytes = fs.readFileSync(path.join(FONT_DIR, spec.file));
+		const bytes = fs.readFileSync(fontPath(spec.file));
 		this.face = new hb.Face(new hb.Blob(bytes));
 		this.font = new hb.Font(this.face);
 		this.upem = this.face.upem;
@@ -110,6 +128,41 @@ export class LoadedFont {
 
 export class FontSet {
 	fonts: LoadedFont[] = FONT_SPECS.map((s) => new LoadedFont(s));
+	private displays = new Map<string, number>();
+
+	/**
+	 * Font index of the Instrument Sans instance for an article voice (wdth, wght); created on first use and
+	 * appended to `fonts`, so every glyph drawn with it lands in the union table under its own FontInfo.
+	 * Out-of-range axes throw (fail closed).
+	 */
+	display(wdth: number, wght: number): number {
+		const [w0, w1] = DISPLAY_AXES.wdth, [g0, g1] = DISPLAY_AXES.wght;
+		if (!(wdth >= w0 && wdth <= w1 && wght >= g0 && wght <= g1)) throw new Error(`display instance wdth ${wdth} wght ${wght} outside Instrument Sans axes`);
+		const key = `${wdth}/${wght}`;
+		let i = this.displays.get(key);
+		if (i === undefined) {
+			const base = FONT_SPECS[F.display];
+			if (base.variations.wdth === wdth && base.variations.wght === wght) i = F.display;
+			else {
+				i = this.fonts.length;
+				this.fonts.push(new LoadedFont({ ...base, name: `Instrument Sans wdth ${wdth} wght ${wght}`, variations: { wdth, wght } }));
+			}
+			this.displays.set(key, i);
+		}
+		return i;
+	}
+
+	/** Code points of `text` that neither font `fi` nor the fallbacks cover (empty = fully covered). Used by the magazine build to fail on a missing glyph. */
+	missing(fi: number, text: string): number[] {
+		const out: number[] = [];
+		for (const ch of text) {
+			const cp = ch.codePointAt(0)!;
+			if (cp <= 0x20 || cp === 0xa0) continue;
+			const g = this.fonts[fi].shape(ch)[0];
+			if ((!g || g.gid === 0) && !this.fallback(cp)) out.push(cp);
+		}
+		return out;
+	}
 	private fb = new Map<number, { font: number; gid: number; adv: number } | null>();
 
 	/** First fallback font that has a glyph for the code point, with its advance in em. */

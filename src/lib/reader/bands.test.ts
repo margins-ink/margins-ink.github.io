@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import opentype from 'opentype.js';
-import { FONT_DIR, FontSet, GlyphTableBuilder, F } from '../../../scripts/reader/fonts';
+import { fontPath, FontSet, GlyphTableBuilder, F } from '../../../scripts/reader/fonts';
 import { flatten, type Contour } from '../../../scripts/reader/geom';
 import { glyphCount, glyphRec, packFontsBin, readFontsBin, packArticle, unpackArticle, type ArticleModel, type GlyphTable } from './format';
 import { contoursOf, windingFromBands } from './slug-cpu';
@@ -54,7 +54,7 @@ function build() {
 	for (const fi of [F.body, F.italic, F.bold, F.sans, F.code]) {
 		const font = fonts.fonts[fi];
 		if (font.spec.defaultInstance) {
-			const buf = fs.readFileSync(path.join(FONT_DIR, font.spec.file));
+			const buf = fs.readFileSync(fontPath(font.spec.file));
 			ots.set(fi, opentype.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)));
 		}
 		const seen = new Set<number>();

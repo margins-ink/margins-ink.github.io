@@ -1,0 +1,21 @@
+# Magazine fonts: Inter (variable) and Instrument Sans (variable)
+
+- URL: https://github.com/google/fonts/tree/7085eb89a950e85db5b166b7a58d414544b4140c/ofl/{inter,instrumentsans} (google/fonts rev 7085eb89a950e85db5b166b7a58d414544b4140c, the same rev as docs/upstream/reader/fonts); fetched 2026-10-06 UTC via raw.githubusercontent.com. These are the files Google Fonts serves; upstream sources: https://github.com/rsms/inter (commit 66647c0bbbe41a850d79d9c76fb13add3378940f per METADATA.pb) and https://github.com/Instrument/instrument-sans (commit 7fa22308a3d0c94ee2b3cd537a1196b65db34a3e per METADATA.pb).
+- Licence (read, full text stored as OFL-*.txt): SIL Open Font License 1.1.
+  - Inter: "Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)". OFL-Inter.txt is byte-identical to docs/upstream/reader/fonts/OFL-Inter.txt (diff, 2026-10-06).
+  - Instrument Sans: "Copyright 2022 The Instrument Sans Project Authors (https://github.com/Instrument/instrument-sans)".
+  - Geist (spare, not shipped; text only): "Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)", OFL-Geist.txt.
+  - None of the three copyright lines names a Reserved Font Name (read: the term appears only in the OFL definitions and clause 3). Subsetting and compiling outlines into curve tables is permitted; the fonts may not be sold by themselves. Keep the copyright lines in the colophon.
+- Question: which bytes feed the glyph-table build for the one-sans-family direction (MAGAZINE.md 3.1), and which axes and features do they have.
+- sha256 (read, `shasum -a 256`):
+  - 29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031  Inter.ttf  (upstream name `Inter[opsz,wght].ttf`)
+  - acd98e64795781b2058f07b18475e0ecee2a0fe2b42a49e2f9e37d0d6bf66ce6  Inter-Italic.ttf  (`Inter-Italic[opsz,wght].ttf`)
+  - b24f1812584816958afcf22e22d08e44318c5e51651e25d2438efdde389b33b1  InstrumentSans.ttf  (`InstrumentSans[wdth,wght].ttf`)
+  - a74203cc5066a3b2f8de1a7b0887ef897773c2319dc86c911f8e85350cde0d07  InstrumentSans-Italic.ttf  (`InstrumentSans-Italic[wdth,wght].ttf`)
+  - OFL-Inter.txt 5b9321a4..., OFL-InstrumentSans.txt 9e27a72e..., OFL-Geist.txt 1781d280..., METADATA-*.pb 79e4721e... (Inter), 111191da... (Instrument Sans).
+- Extracted (read with harfbuzzjs on the stored bytes, 2026-10-06):
+  - Inter: axes opsz 14..32 (default 14), wght 100..900 (default 400); upem 2048; GSUB has calt, case, tnum, pnum, zero, frac, ss01-08, cv01-14 and **no `liga`**; GPOS has kern. Inter-Italic: same axes and features.
+  - Instrument Sans: axes wdth 75..100 (default 100), wght 400..700 (default 400); upem 1000; GSUB has liga, case, tnum, pnum, ss01-12 and **no `calt`**; GPOS has kern. Italic: same.
+  - So `tnum` and `kern` exist in both (MAGAZINE.md 3.1 and 9 "unverified" resolved); `liga` is Instrument Sans only, Inter uses `calt`.
+- Used instances (set at build with hb_font_set_variations, no static instancing step): Inter wght 400 opsz 14 (body), Inter Italic 400, Inter wght 600 (bold), Inter wght 500 (label); Instrument Sans wdth/wght per article voice (scripts/magazine/voices.ts), default wdth 80 wght 600. Instrument Sans Italic is stored but unused in v1.
+- Retired: Newsreader (docs/upstream/reader/fonts/Newsreader*.ttf stay in git for history; no longer in FONT_SPECS). src/lib/gpu/room/atlas.ts and emblems.ts still draw the shelf covers with the Newsreader CSS family; that is outside the reader and untouched.

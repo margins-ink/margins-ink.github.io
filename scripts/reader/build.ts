@@ -6,7 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { packArticle, packFontsBin, PALETTE_SIZE } from '../../src/lib/reader/format';
-import { FontSet, GlyphTableBuilder, ROOT, FONT_SPECS } from './fonts';
+import { FontSet, GlyphTableBuilder, ROOT, FONT_SPECS, fontPath } from './fonts';
 import { parseArticle, type Parsed } from './parse';
 import { CLASSES, layoutArticle, makePalette, StringSink, TextSink, type Env } from './layout';
 import { collectImageSrcs, ImageStore, OUT_DIR } from './images';
@@ -58,7 +58,7 @@ export function inputsHash(): string {
 	for (const d of fs.readdirSync(THOUGHTS)) { const f = path.join(THOUGHTS, d, '+page.svx'); if (fs.existsSync(f)) add(f); }
 	for (const f of fs.readdirSync(path.join(ROOT, 'scripts/reader')).sort()) if (f.endsWith('.ts') && f !== 'dump.ts' && f !== 'validate.ts') add(path.join(ROOT, 'scripts/reader', f));
 	add(path.join(ROOT, 'src/lib/reader/format.ts'));
-	for (const s of FONT_SPECS) add(path.join(ROOT, 'docs/upstream/reader/fonts', s.file));
+	for (const s of FONT_SPECS) add(fontPath(s.file));
 	for (const f of fs.readdirSync(path.join(ROOT, 'static/posts')).sort()) h.update(f + fs.statSync(path.join(ROOT, 'static/posts', f)).size);
 	return h.digest('hex').slice(0, 16);
 }
