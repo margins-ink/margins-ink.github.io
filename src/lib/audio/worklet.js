@@ -1,3 +1,4 @@
+// @ts-nocheck (AudioWorklet global scope: no DOM lib types)
 // AudioWorkletProcessor host for audio.wasm (see audio/src/lib.rs, docs/AUDIO.md).
 // No allocation per quantum: it copies two planar f32 blocks out of wasm memory.
 class RoomAudio extends AudioWorkletProcessor {
