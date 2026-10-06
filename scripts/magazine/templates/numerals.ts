@@ -2,9 +2,9 @@ import { template } from '../../../src/lib/magazine/types';
 
 // Distilled: 3 to 5 giant numerals (1..5) with labels (a..e), one small diagram G, headline H and quote Q.
 // Narrow class shows numerals 1 and 2 only (35 baselines do not hold five).
-const cap = { type: 'caption', font: 'label', size: 0.78 } as const;
+const cap = { type: 'caption', font: 'label', size: 0.9 } as const;
 const num = { type: 'numeral', font: 'numeral', size: 10 } as const;
-const folio = { type: 'folio', font: 'label', size: 0.72 } as const;
+const folio = { type: 'folio', font: 'label', size: 0.8 } as const;
 
 export const numerals = template('numerals', {
 	cols: 12,

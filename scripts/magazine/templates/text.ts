@@ -3,7 +3,7 @@ import { template } from '../../../src/lib/magazine/types';
 // Full text: two 3-column text frames per sheet (15.4 em measure); figures are placed inline by the planner as
 // exclusions; running head on top, folio under. Thread 0 reads A, B, C, D.
 const body = { type: 'body', font: 'body', size: 1, thread: 0, align: 'justify', hyphenate: true, shape: 'rect' } as const;
-const folio = { type: 'folio', font: 'label', size: 0.72 } as const;
+const folio = { type: 'folio', font: 'label', size: 0.8 } as const;
 
 export const text = template('text', {
 	cols: 12,

@@ -22,7 +22,7 @@ import { F, type FontSet, type GlyphTableBuilder } from '../../reader/fonts';
 import { parseSvgPath, transformContours } from '../../reader/geom';
 import type { StringSink } from '../typeset';
 import type { Fragment, FItem } from '../emit';
-import { compileFigure, type CompiledFigureX, type LintItem } from './compile';
+import { compileFigure, LABEL_SIZE, type CompiledFigureX, type LintItem } from './compile';
 import { lintFigure } from './lint';
 
 export interface FigureArt { id: string; fragment: Fragment; size: [number, number]; compiled: CompiledFigure }
@@ -158,6 +158,27 @@ export function emitFigure(env: FigEnv, figId: string, spec: FigureSpec, cf: Com
 		return frag.groups.length - 1;
 	};
 
+	/** A group that only fades: opacity 0 until the last quarter of the final growth segment of `target`, then 1. NO reveal track: the parent group. */
+	const labelGroup = (parent: number, target: string, full: number): number => {
+		const tr = trackOf(target);
+		if (!tr) return parent;
+		const ks = tr.keys;
+		const keys: KeyRec[] = [];
+		ks.forEach((k, i) => {
+			const done = k.v >= full * 0.999;
+			if (done && i > 0 && ks[i - 1].v < full * 0.999) keys.push({ t: ks[i - 1].t + (k.t - ks[i - 1].t) * 0.75, v: 0, ease: Ease.linear } as KeyRec);
+			keys.push({ t: k.t, v: done ? 1 : 0, ease: Ease[k.ease] } as KeyRec);
+		});
+		const first = frag.keys.length;
+		frag.keys.push(...keys);
+		frag.chans.push({ firstKey: first, keyCount: keys.length } as ChanRec);
+		frag.groups.push({
+			parent: parent !== NONE16 ? parent : -1, txChan: NO_CHAN, tyChan: NO_CHAN, rotChan: NO_CHAN, scaleChan: NO_CHAN, opacityChan: frag.chans.length - 1,
+			tx: 0, ty: 0, rot: 0, scale: 1, opacity: 1, pivotX: 0, pivotY: 0
+		});
+		return frag.groups.length - 1;
+	};
+
 	const push = (type: number, index: number, group: number, li: LintItem | undefined) => {
 		const it: FItem = { type, index };
 		if (group !== NONE16 && li) it.bounds = { ...li.swept };
@@ -288,8 +309,20 @@ export function emitFigure(env: FigEnv, figId: string, spec: FigureSpec, cf: Com
 				// a mixed fill with a stroke uses colour2 for the ring, so the mix channel only applies without one
 				push(ItemType.shape, frag.shapes.length - 1, group, li);
 				if (n.label) {
-					const size = 0.78;
-					emitText(n.label, F.sans, size, (x0 + x1) / 2, (y0 + y1) / 2 + size * 0.36, 'center', labelColour(n.fill), group, li, where);
+					const size = LABEL_SIZE;
+					const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+					// a label appears with its box: opacity ramps over the last quarter of the box's reveal
+					const lg = n.kind === 'rrect' ? labelGroup(group, `${n.id}.size.x`, n.size[0]) : group;
+					if (hatch) {
+						// the hatch crawls under the label: a solid plate keeps the word readable in both schemes
+						const pw = [...n.label].length * size * 0.56 + 0.8, ph = size * 1.5;
+						frag.shapes.push({
+							x0: cx - pw / 2, y0: cy - ph / 2, x1: cx + pw / 2, y1: cy + ph / 2, kind: ShapeKind.rrect, colour: fill.a, colour2: fill.a, flags: 0,
+							radius: 0.25, param: 0, group: lg, chan: NO_CHAN, mixChan: NO_CHAN, pad: NO_CHAN, aux: 0
+						});
+						push(ItemType.shape, frag.shapes.length - 1, lg, li);
+					}
+					emitText(n.label, F.sans, size, cx, cy + size * 0.36, 'center', labelColour(n.fill), lg, li, where);
 				}
 				break;
 			}

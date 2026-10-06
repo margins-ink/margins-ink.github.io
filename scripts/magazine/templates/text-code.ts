@@ -5,7 +5,7 @@ import { template } from '../../../src/lib/magazine/types';
 // bottom rows so its bbox is the full-height band. Code lines sit on the 1.6 em grid (loose for 0.85 em mono).
 const prose = { type: 'body', font: 'body', size: 1, thread: 0, align: 'left', hyphenate: true, shape: 'rect' } as const;
 const code = { type: 'code', font: 'code', size: 0.85, thread: 1, align: 'left' } as const;
-const folio = { type: 'folio', font: 'label', size: 0.72 } as const;
+const folio = { type: 'folio', font: 'label', size: 0.8 } as const;
 
 export const textCode = template('text-code', {
 	cols: 12,

@@ -27,6 +27,8 @@ const KIND_PROPS: Record<string, readonly string[]> = {
 
 /** Average advance of the body face in em per em of size; labels use it for width estimates only. */
 export const CHAR_W = 0.56;
+/** In-shape label size in figure em. */
+export const LABEL_SIZE = 0.9;
 
 export interface LintItem {
 	id: string;
@@ -257,7 +259,7 @@ export function compileFigure(id: string, spec: FigureSpec): CompiledFigureX {
 		const posterRect = groupApply(rectAt(n, pathRects, gp), gid, poster);
 		const nodeLabel = 'label' in n ? n.label : undefined;
 		const text = kind === 'text' ? (n as { text: string }).text : nodeLabel;
-		const fontSize = kind === 'text' ? (n as { size: number }).size : 0.78;
+		const fontSize = kind === 'text' ? (n as { size: number }).size : LABEL_SIZE;
 		let labelRect: Rect | undefined;
 		if (kind !== 'text' && nodeLabel && 'kind' in n) {
 			const cx = (posterRect.x0 + posterRect.x1) / 2, cy = (posterRect.y0 + posterRect.y1) / 2;

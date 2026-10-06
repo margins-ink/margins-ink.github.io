@@ -64,7 +64,7 @@ export const circle = (id: string, o: { at: Vec2; r: number; fill: ColorRef | 'n
 	({ kind: 'circle', id, ...o });
 
 export const text = (s: string, o: { at: Vec2; id?: string } & Opt<TextNode>): TextNode =>
-	({ kind: 'text', id: o.id ?? `t:${s}`, text: s, font: 'label', size: 0.78, color: 'ink', align: 'left', ...o });
+	({ kind: 'text', id: o.id ?? `t:${s}`, text: s, font: 'label', size: 0.95, color: 'ink', align: 'left', ...o });
 
 export const arrow = (id: string, d: string, stroke: StrokeSpec, o: Opt<ArrowNode> = {}): ArrowNode =>
 	({ kind: 'arrow', id, path: d, stroke, head: true, ...o });

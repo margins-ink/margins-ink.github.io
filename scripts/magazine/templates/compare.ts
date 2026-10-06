@@ -16,11 +16,11 @@ export const compare = template('compare', {
 		T: { type: 'head', font: 'display', size: 7.5 },
 		L: { type: 'figure', bleed: ['left'] },
 		R: { type: 'figure', bleed: ['right'] },
-		a: { type: 'caption', font: 'label', size: 0.78 },
-		b: { type: 'caption', font: 'label', size: 0.78 },
+		a: { type: 'caption', font: 'label', size: 0.9 },
+		b: { type: 'caption', font: 'label', size: 0.9 },
 		Q: { type: 'pullquote', font: 'display', size: 2.4 },
-		f: { type: 'folio', font: 'label', size: 0.72 },
-		g: { type: 'folio', font: 'label', size: 0.72 }
+		f: { type: 'folio', font: 'label', size: 0.8 },
+		g: { type: 'folio', font: 'label', size: 0.8 }
 	},
 	fit: { tracking: [-0.005, 0.005], leading: [0.98, 1.02], maxStretch: 1 },
 	narrow: {

@@ -135,10 +135,10 @@ export const resetFigureSerial = () => { figureSerial = 0; };
 
 const pad = (r: Rect, d: number): Rect => ({ x0: r.x0 + d, y0: r.y0 + d, x1: r.x1 - d, y1: r.y1 - d });
 
-function folioLine(w: Writer, text: string, a: Area, align: 'left' | 'right' | 'center', baseline: number, colour = PAL2.muted) {
+function folioLine(w: Writer, text: string, a: Area, align: 'left' | 'right' | 'center', baseline: number, colour = PAL2.ink) {
 	if (!text) return;
 	const o: SetOpts = { font: F.sans, colour, width: 1e4 };
-	const lines = shape(w.env, text, o, 0.72);
+	const lines = shape(w.env, text, o, 0.8);
 	if (!lines.length) return;
 	const l = lines[0];
 	const lw = l.width - l.x0;
@@ -197,8 +197,11 @@ export function planDistilled(env: Env, input: DistilledInput): SpreadContent {
 		if (t === 'deck') {
 			// the deck (large) then the definition (body); both ragged right, baselines on the grid
 			const parts: { text: string; size: number; colour: number; font: number }[] = [];
-			if (d.deck) parts.push({ text: d.deck, size: a.slot.size ?? 1.4, colour: PAL2.ink, font: F.body });
-			if (d.definition) parts.push({ text: d.definition, size: 1, colour: PAL2.muted, font: F.body });
+			// two deck areas: the first holds the deck, the second the definition; one area holds both
+			const deckAreas = letters.filter((x) => solved.areas[x].slot.type === 'deck');
+			const nth = deckAreas.indexOf(l), split = deckAreas.length >= 2;
+			if (d.deck && (!split || nth === 0)) parts.push({ text: d.deck, size: a.slot.size ?? 1.4, colour: PAL2.ink, font: F.body });
+			if (d.definition && (!split || nth === 1)) parts.push({ text: d.definition, size: split ? a.slot.size ?? 1.15 : 1, colour: PAL2.ink, font: F.body });
 			let size = 1;
 			const fitAll = (k: number) => {
 				let used = 0;
@@ -239,8 +242,8 @@ export function planDistilled(env: Env, input: DistilledInput): SpreadContent {
 			const idx = capAreas.indexOf(l);
 			const cap = captionFor(d, idx, capAreas.length);
 			if (!cap) continue;
-			const sz = a.slot.size ?? 0.78;
-			const o: SetOpts = { font: F.sans, colour: PAL2.muted, width, hyphenate: false };
+			const sz = a.slot.size ?? 0.9;
+			const o: SetOpts = { font: F.sans, colour: PAL2.ink, width, hyphenate: false };
 			const lines = shape(env, cap, o, sz);
 			const maxLines = Math.max(1, Math.floor(height / LH));
 			lines.slice(0, maxLines).forEach((tl, k) => w.line(tl, r.x0, firstBaseline(r.y0) + k * LH, NONE16));

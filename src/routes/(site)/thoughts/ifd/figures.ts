@@ -19,11 +19,11 @@ function timeline() {
 	const nodes: FigNode[] = [];
 	const tracks: Track[] = [];
 	const pad = 0.05; // blocks do not touch, so each reads as its own block
-	const block = (id: string, lane: number, u0: number, u1: number, kind: 'eval' | 'build', color: 'muted' | 'accent') => {
+	const block = (id: string, lane: number, u0: number, u1: number, kind: 'eval' | 'build', color: 'muted' | 'accent', named = false) => {
 		const w = (u1 - u0) * 2.9 - pad;
-		if (kind === 'eval') nodes.push(rrect(id, { at: [X(u0), lane], size: [w, LANE_H], fill: color, label: 'eval' }));
+		if (kind === 'eval') nodes.push(rrect(id, { at: [X(u0), lane], size: [w, LANE_H], fill: color, label: named ? 'eval' : undefined }));
 		else {
-			nodes.push(rrect(id, { at: [X(u0), lane], size: [w, LANE_H], fill: 'neutral2', hatch: true, stroke: { w: 0.1, color: 'muted', dash: [0.4, 0.3] }, label: 'build' }));
+			nodes.push(rrect(id, { at: [X(u0), lane], size: [w, LANE_H], fill: 'neutral2', hatch: true, stroke: { w: 0.1, color: 'muted', dash: [0.4, 0.3] }, label: named ? 'build' : undefined }));
 			tracks.push(track(`${id}.phase`, [[0, 0], [12, 7]], 'linear')); // hatch crawls: 10 periods of 0.7 em per loop
 		}
 		tracks.push(fill(id, u0, u1, w));
@@ -31,10 +31,11 @@ function timeline() {
 
 	// CppNix: eval, then the evaluator sits behind each build.
 	const cpp: ['eval' | 'build', number, number][] = [['eval', 0, 1.5], ['build', 1.5, 3], ['eval', 3, 4], ['build', 4, 6], ['eval', 6, 7], ['build', 7, 8.5], ['eval', 8.5, 10]];
-	cpp.forEach(([k, a, b], i) => block(`c${i}`, CPP_Y, a, b, k, 'muted'));
+	// the first block of each kind carries its name; the rest read from it (labels on all 13 blocks only added noise)
+	cpp.forEach(([k, a, b], i) => block(`c${i}`, CPP_Y, a, b, k, 'muted', i < 2));
 	// Snix: eval never stops, so it ends first.
 	const snix: [number, number][] = [[0, 1.5], [1.5, 2.5], [2.5, 3.5], [3.5, 4.5], [4.5, 5.5], [5.5, 6.5]];
-	snix.forEach(([a, b], i) => block(`s${i}`, SNIX_Y, a, b, 'eval', 'accent'));
+	snix.forEach(([a, b], i) => block(`s${i}`, SNIX_Y, a, b, 'eval', 'accent', i === 0));
 
 	// Builds Snix asked for run concurrently on the strip below, each tied to the eval block that requested it.
 	// Lowest row = earliest request, so no arrow crosses a bar.
@@ -153,7 +154,7 @@ function graph() {
 
 	// legend: what a circle and a square are
 	nodes.push(circle('lg-eval', { at: [1.3, 18.7], r: 0.5, fill: 'accent' }));
-	nodes.push(text('eval', { id: 'lg-eval-t', at: [2.3, 19], size: 0.78 }));
+	nodes.push(text('eval', { id: 'lg-eval-t', at: [2.3, 19] }));
 	nodes.push(rrect('lg-build', { at: [6, 18.2], size: [1, 1], radius: 0.15, fill: 'neutral2' }));
 	nodes.push(text('build', { id: 'lg-build-t', at: [7.3, 19] }));
 
