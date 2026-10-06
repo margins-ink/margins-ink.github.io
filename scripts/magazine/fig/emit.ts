@@ -198,7 +198,7 @@ export function emitFigure(env: FigEnv, figId: string, spec: FigureSpec, cf: Com
 	};
 	const labelColour = (fill: ColorRef | 'none'): number => {
 		const a = palOf(fill).a;
-		return fill === 'none' ? PAL2.ink : a === PAL2.accent || a === PAL2.field || a === PAL2.accent2 ? PAL2.accentInk : PAL2.ink;
+		return fill === 'none' ? PAL2.ink : a === PAL2.accent || a === PAL2.field || a === PAL2.accent2 ? PAL2.accentInk : a === PAL2.muted || a === PAL2.ink ? PAL2.paper : PAL2.ink;
 	};
 
 	// ---- strokes (arrows and stroked paths) ----
