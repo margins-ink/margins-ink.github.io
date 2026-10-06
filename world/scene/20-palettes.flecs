@@ -1,0 +1,9 @@
+// Wall colours: plaster above the wainscot, wainscot below it.
+palette0 { Plaster: {0.74, 0.66, 0.52}
+    Wainscot: {0.12, 0.27, 0.22} }
+palette1 { Plaster: {0.55, 0.62, 0.72}
+    Wainscot: {0.13, 0.17, 0.28} }
+palette2 { Plaster: {0.72, 0.58, 0.5}
+     Wainscot: {0.3, 0.12, 0.1} }
+palette3 { Plaster: {0.5, 0.5, 0.47}
+      Wainscot: {0.2, 0.2, 0.2} }

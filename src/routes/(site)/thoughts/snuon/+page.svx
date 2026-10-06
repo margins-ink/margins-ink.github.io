@@ -1,6 +1,8 @@
 ---
 title: "Token-efficient data"
+dek: "A data format models can read and write without escaping: the same syntax in, the same syntax out."
 date: 2025-11-13
+archived: true
 username: andrewgazelka
 ---
 
