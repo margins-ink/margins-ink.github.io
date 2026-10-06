@@ -1,3 +1,5 @@
+import { READER_WGSL } from './reader.wgsl';
+
 /**
  * Progressive path tracer for the study. One compute pass adds one sample per pixel
  * to an accumulation buffer; a fullscreen pass tonemaps it. Diffuse surfaces, next
@@ -29,6 +31,10 @@ struct Scene {
   tone: vec4f,      // x exposure, y rng seed, zw output size
   view: vec4f,      // zoom window: centre xy (rest ndc), half size s
   lmx: vec4f,       // lightmap bake: samples so far, samples this pass, texel count, workgroups per row
+  rd0: vec4f,       // reader (reader.wgsl.ts): reading blend k, magazine object index (-1 none), em in metres, scroll in em
+  rd1: vec4f,       // reader: sheet plane x, y of the top of sheet 0, z, unused
+  rd2: vec4f,       // reader: first visible page, visible pages, hovered page + 1 (0 none), dark
+  rd3: vec4f,       // reader: hovered rect in page em (x0 y0 x1 y1)
 };
 
 @group(0) @binding(0) var<uniform> sc: Scene;
@@ -689,7 +695,21 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
         nrm = n;
         tt = h.t;
         e = lightmap(u32(h.id), ob, h) + direct_sun(p, n, level);
+        // the magazine being opened takes on the reading light as it arrives
+        if (i32(h.id) == i32(sc.rd0.y)) { e = mix(e, vec3f(page_light(p, level)), sc.rd0.x); }
       }
+    }
+  }
+
+  // article sheets (surface kind 10), see reader.wgsl.ts
+  if (sc.rd0.x > 0.0) {
+    let ph = page_trace(o, d);
+    if (ph.t > 0.0 && ph.t < tt) {
+      let ps = page_shade(ph, o + d * ph.t, level);
+      alb = ps.alb;
+      e = vec3f(ps.e);
+      nrm = vec3f(0.0, 0.0, 1.0);
+      tt = ph.t;
     }
   }
 
@@ -802,4 +822,4 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   // dither after the gamma curve (1.5 / 255 peak to peak): before it, the curve amplified the noise visibly in dark areas
   return vec4f(pow(c, vec3f(1.0 / 2.2)) + (hash21(pos.xy) - 0.5) * (1.5 / 255.0), 1.0);
 }
-`;
+` + READER_WGSL;

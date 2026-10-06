@@ -3,9 +3,10 @@ import { accentFor } from '$lib/theme';
 import { ATLAS, buildAtlas } from './atlas';
 import { buildLightmapLayout } from './lightmap';
 import { TRACE } from './shader';
-import { loadWorld, type Floor } from './world';
+import { loadWorld, RS, type Floor } from './world';
+import { EM, linkAt, pickSheet, Reader, type Article, type LinkHit, type Sheet } from './reader';
 
-export type { Floor };
+export type { Floor, LinkHit };
 
 export interface Hotspot {
 	id: string;
@@ -24,11 +25,25 @@ export interface Room {
 	panBy(dnx: number, dny: number): void;
 	resetView(): void;
 	readonly zoom: number;
+	/** The URL is the source of truth: the route layer calls this with the slug in the path, or null on the shelf. */
+	setReading(slug: string | null, opts?: { snap?: boolean }): void;
+	/** Scroll the open article by CSS pixels (wheel, touch, keys) / fling in CSS px per second. */
+	scrollByPx(dy: number): void;
+	flingPx(v: number): void;
+	scrollToAnchor(id: string): void;
+	/** Primary ray through a screen point (ndc, y up), the same basis the tracer uses. */
+	rayAt(nx: number, ny: number): { o: [number, number, number]; d: [number, number, number] };
+	/** Hover and click hit test on the open article; null when the pointer is off the sheet. */
+	hoverAt(nx: number, ny: number): { page: number; link: LinkHit | null } | null;
+	/** Subscribe to reader events: opened, closed, page (arg = page index at the view centre). */
+	onReader(cb: (e: { kind: string; arg: number }) => void): void;
+	readonly reading: { slug: string | null; t: number; page: number; pages: number };
 	floors: Floor[];
 	destroy(): void;
 }
 
 const SPP = 160;
+const READ_PIX = 5.5e6;
 /** Lightmap samples per texel at convergence, and the GPU time one bake dispatch should take. */
 const LM_SPP = 640;
 const LM_BUDGET_MS = 5;
@@ -114,7 +129,7 @@ export async function createRoom(
 	const lvlBuf = storage(world.lvl.byteLength);
 	device.queue.writeBuffer(lvlBuf, 0, world.lvl);
 
-	const sceneBuf = device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const sceneBuf = device.createBuffer({ size: 512, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
 	const atlasTex = device.createTexture({
 		size: [ATLAS, ATLAS],
@@ -170,6 +185,7 @@ export async function createRoom(
 	let bindA: GPUBindGroup[] = [];
 	let bindC: GPUBindGroup;
 	let bindV: GPUBindGroup;
+	let mkBindV: () => GPUBindGroup = () => bindV;
 	let bindP: GPUBindGroup;
 	let bindPV: GPUBindGroup;
 	let bindL: GPUBindGroup | null = null;
@@ -206,7 +222,7 @@ export async function createRoom(
 	}
 
 	/** Camera pose for a given y (the basis is the same on every floor). */
-	const camera = (aspect: number, y: number) => {
+	const shelfCamera = (aspect: number, y: number) => {
 		if (focusObj) {
 			// close, slightly low, hero-lit look at one magazine, framed on the right third
 			const mx = data[focusObj * 28];
@@ -225,6 +241,92 @@ export async function createRoom(
 		return { pos, fwd, rgt, up, th };
 	};
 	const liveY = () => 1.55 - shown * LEVEL_H * (levels.length - 1);
+
+	// ---- reader: the Flecs world drives Reading / Scroll; this blends the camera and feeds the shader (reader.wgsl.ts) ----
+	const rdr = new Reader(device);
+	const TH_READ = Math.tan((17 * Math.PI) / 180);
+	let rs = world.reader.state();
+	let rdLast = performance.now();
+	let rdIdle = 0;
+	let rdSig = '';
+	let rdPix = 2.4e6;
+	const magRow = new Float32Array(28);
+	let wantSlug: string | null = null;
+	let sheet: Sheet = { x: 0, topY: 0, z: 0, scroll: 0, k: 0 };
+	let visFirst = 0;
+	let visCount = 0;
+	let hover: { page: number; link: LinkHit | null } | null = null;
+	let readCb: (e: { kind: string; arg: number }) => void = () => {};
+	let slugIdx = -1;
+	let readPose = { cx: 0, cy: 0, cz: 1, hw: 0.3, hh: 0.4, dist: 1.5, visHEm: 56 };
+	const readingOn = () => rs[RS.article] >= 0 || rs[RS.target] > 0 || rs[RS.t] > 0;
+
+	/** Reading camera: frontal, centred on the sheet, distance fitted so the whole sheet (or its width) fills the view. */
+	function readCamera(aspect: number) {
+		const D = 1.06 * Math.max(readPose.hh / TH_READ, readPose.hw / (TH_READ * aspect));
+		readPose.dist = D;
+		readPose.visHEm = (2 * D * TH_READ) / EM;
+		const pos: V3 = [readPose.cx, readPose.cy, readPose.cz + D];
+		return { pos, fwd: [0, 0, -1] as V3, rgt: [1, 0, 0] as V3, up: [0, 1, 0] as V3, th: TH_READ };
+	}
+	const camera = (aspect: number, y: number) => {
+		const a = shelfCamera(aspect, y);
+		const c = rs[RS.camT];
+		if (!(c > 0) || rs[RS.article] < 0) return a;
+		const r = readCamera(aspect);
+		const mix = (p: V3, q: V3): V3 => [p[0] + (q[0] - p[0]) * c, p[1] + (q[1] - p[1]) * c, p[2] + (q[2] - p[2]) * c];
+		const pos = mix(a.pos, r.pos);
+		const fwd = norm(mix(a.fwd, r.fwd));
+		const rgt = norm(cross(fwd, [0, 1, 0]));
+		return { pos, fwd, rgt, up: cross(rgt, fwd), th: a.th + (r.th - a.th) * c };
+	};
+
+	function applyPose(art: Article) {
+		const mo = world.links[slugIdx] * 28;
+		const cx = data[mo];
+		const cy = data[mo + 1] + 0.2;
+		const cz = 1.0;
+		readPose = { ...readPose, cx, cy, cz, hw: (art.sheetW * EM) / 2, hh: (art.sheetH * EM) / 2 };
+		readCamera(canvas.clientWidth / canvas.clientHeight);
+		world.reader.setReadingPose(cx, cy, cz, readPose.hw, readPose.hh);
+		world.reader.setViewport(art.sheetH / 2 + readPose.visHEm / 2);
+		sheet = { ...sheet, x: cx, topY: cy + readPose.hh, z: cz + 0.008 };
+	}
+
+	async function openArticle(slug: string, snap: boolean) {
+		slugIdx = items.findIndex((t) => t.slug === slug);
+		if (slugIdx < 0 || world!.links[slugIdx] < 0) return;
+		const cls = Reader.classFor(canvas.clientWidth / canvas.clientHeight);
+		const art = await rdr.load(slug, cls).catch((e) => (console.error('reader:', e), null));
+		if (!art || wantSlug !== slug) return;
+		rdPix = READ_PIX;
+		resize();
+		applyPose(art);
+		world!.reader.open(slugIdx, art.pageCount, art.sheetW, art.sheetH, art.gap, snap);
+		touch();
+	}
+
+	function readFloats(night: boolean) {
+		const a = rdr.article;
+		const open = a !== null && rs[RS.article] >= 0;
+		const k = open ? rs[RS.t] : 0;
+		if (a && open && k < 0.999) {
+			visFirst = 0;
+			visCount = Math.min(a.pageCount, 12);
+		} else if (open) {
+			visFirst = rs[RS.firstPage];
+			visCount = rs[RS.visible];
+		}
+		sheet = { ...sheet, scroll: open ? rs[RS.scroll] : 0, k };
+		const hv = hover && open ? hover : null;
+		const r = hv?.link?.rect ?? [0, 0, 0, 0];
+		return [
+			k, open ? rs[RS.magObj] : -1, EM, sheet.scroll,
+			sheet.x, sheet.topY, sheet.z, 0,
+			visFirst, visCount, hv?.link ? hv.page + 1 : 0, night ? 1 : 0,
+			...r
+		];
+	}
 
 	function writeScene(rw: number, rh: number, y: number, seed: number, blend: number, windowed: boolean) {
 		const aspect = canvas.clientWidth / canvas.clientHeight;
@@ -249,14 +351,19 @@ export async function createRoom(
 				...cam.up, 0,
 				0.27, 0.37, 0.0905, 0,
 				levels.length, LEVEL_H, ROOM_D, ROOM_H,
-				night ? 3.4 : 2.6, seed, w, h,
+				(night ? 3.4 : 2.6) * (1 - 0.45 * rs[RS.t]), seed, w, h,
 				...vw, 0,
-				lmN, lmSpp, lmLayout.texels, lmGroupsX
+				lmN, lmSpp, lmLayout.texels, lmGroupsX,
+				...readFloats(night)
 			])
 		);
 	}
 
 	function layoutSpots() {
+		if (readingOn()) {
+			if (spots.length) onLayout((spots = []));
+			return;
+		}
 		const cssW = canvas.clientWidth;
 		const cssH = canvas.clientHeight;
 		const aspect = cssW / cssH;
@@ -298,7 +405,7 @@ export async function createRoom(
 		const cssW = canvas.clientWidth;
 		const cssH = canvas.clientHeight;
 		let dpr = Math.min(devicePixelRatio || 1, 2);
-		while (cssW * dpr * cssH * dpr > 2.4e6 && dpr > 0.5) dpr -= 0.25;
+		while (cssW * dpr * cssH * dpr > rdPix && dpr > 0.5) dpr -= 0.25;
 		const nw = Math.max(8, Math.round(cssW * dpr));
 		const nh = Math.max(8, Math.round(cssH * dpr));
 		if (nw === w && nh === h && accum) return;
@@ -324,7 +431,7 @@ export async function createRoom(
 				{ binding: 8, resource: { buffer: gbuf } }
 			]
 		});
-		bindV = device!.createBindGroup({
+		mkBindV = () => device!.createBindGroup({
 			layout: viewPipe.getBindGroupLayout(0),
 			entries: [
 				{ binding: 0, resource: { buffer: sceneBuf } },
@@ -336,9 +443,13 @@ export async function createRoom(
 				{ binding: 7, resource: { buffer: lvlBuf } },
 				{ binding: 8, resource: { buffer: gbuf } },
 				{ binding: 14, resource: { buffer: lmMetaBuf } },
-				{ binding: 19, resource: { buffer: lmBuf } }
+				{ binding: 19, resource: { buffer: lmBuf } },
+				{ binding: 6, resource: { buffer: rdr.buffer } },
+				{ binding: 22, resource: rdr.imgView },
+				{ binding: 23, resource: rdr.sampler }
 			]
 		});
+		bindV = mkBindV();
 		const chain = [
 			[accum, bufB],
 			[bufB, bufC],
@@ -470,10 +581,56 @@ export async function createRoom(
 		});
 	}
 
+	/** Reading: the Flecs world advances Reading/Scroll, the animated magazine row is copied into the object buffer, one view pass per frame. */
+	function readTick(now: number) {
+		const dt = Math.min(100, now - rdLast);
+		rdLast = now;
+		world!.reader.tick(dt);
+		rs = world!.reader.state();
+		for (let ev = world!.reader.poll(); ev; ev = world!.reader.poll()) {
+			if (ev.kind === 'closed' && wantSlug === null) {
+				rdr.unload();
+				rdPix = 2.4e6;
+				for (const l of linked) device!.queue.writeBuffer(objBuf, l.o * 112, data, l.o * 28, 28);
+				resize();
+				frame = 0;
+				moving = false;
+			}
+			readCb({ kind: ev.kind, arg: ev.arg });
+		}
+		if (rs[RS.article] >= 0) {
+			// the animated magazine row; once the sheets have replaced it, park it below the room so it cannot show through the gap between sheets
+			if (rs[RS.t] > 0.995) {
+				magRow.set(rs.subarray(RS.mag, RS.mag + 28));
+				magRow[1] -= 50;
+				device!.queue.writeBuffer(objBuf, rs[RS.magObj] * 112, magRow);
+			} else device!.queue.writeBuffer(objBuf, rs[RS.magObj] * 112, rs, RS.mag, 28);
+		}
+		const sig = `${rs[RS.t].toFixed(4)} ${rs[RS.scroll].toFixed(3)} ${rs[RS.article]} ${hover?.link?.target ?? ''}`;
+		rdIdle = sig === rdSig && !lmBusy ? rdIdle + 1 : 0;
+		rdSig = sig;
+	}
+
 	function tick() {
 		raf = 0;
 		if (dead) return;
 		const now = performance.now();
+		readTick(now);
+		if (readingOn() && !focusObj) {
+			bakeStep();
+			writeScene(w, h, liveY(), frame, 1, true);
+			const enc = device!.createCommandEncoder();
+			const cp = enc.beginComputePass();
+			cp.setPipeline(viewPipe);
+			cp.setBindGroup(0, bindV);
+			cp.dispatchWorkgroups(groups(w), groups(h));
+			cp.end();
+			draw(enc, bindPV);
+			device!.queue.submit([enc.finish()]);
+			frame = 1;
+			if (rdIdle < 3 || lmN < LM_SPP) raf = requestAnimationFrame(tick);
+			return;
+		}
 		const diff = target - shown;
 		const settling = Math.abs(diff) > 1e-4;
 		if (settling) {
@@ -551,6 +708,25 @@ export async function createRoom(
 	device.lost.then(() => (dead = true));
 	await restart();
 
+	const rayAt = (nx: number, ny: number) => {
+		const aspect = canvas.clientWidth / canvas.clientHeight;
+		const cam = camera(aspect, liveY());
+		const x = vm[0] + nx * vs;
+		const y = vm[1] + ny * vs;
+		const d = norm([
+			cam.fwd[0] + cam.rgt[0] * x * cam.th * aspect + cam.up[0] * y * cam.th,
+			cam.fwd[1] + cam.rgt[1] * x * cam.th * aspect + cam.up[1] * y * cam.th,
+			cam.fwd[2] + cam.rgt[2] * x * cam.th * aspect + cam.up[2] * y * cam.th
+		]);
+		return { o: cam.pos, d };
+	};
+	rdr.onRebind = () => {
+		if (w) bindV = mkBindV();
+		touch();
+	};
+	rdr.onDirty = touch;
+	void rdr.prefetch().catch(() => {});
+
 	const clampView = () => {
 		const lim = 1 - vs;
 		vm = [Math.max(-lim, Math.min(lim, vm[0])), Math.max(-lim, Math.min(lim, vm[1]))];
@@ -584,6 +760,51 @@ export async function createRoom(
 			vs = 1;
 			touch();
 		},
+		setReading(slug: string | null, opts: { snap?: boolean } = {}) {
+			if (slug === wantSlug) return;
+			wantSlug = slug;
+			hover = null;
+			if (slug === null) world.reader.close(!!opts.snap);
+			else void openArticle(slug, !!opts.snap);
+			touch();
+		},
+		scrollByPx(dy: number) {
+			world.reader.scrollBy((dy * readPose.visHEm) / canvas.clientHeight);
+			touch();
+		},
+		flingPx(v: number) {
+			world.reader.fling((v * readPose.visHEm) / canvas.clientHeight);
+			touch();
+		},
+		scrollToAnchor(id: string) {
+			const a = rdr.article?.anchors.find((x) => x.id === id);
+			if (!a || !rdr.article) return;
+			world.reader.scrollTo(a.page * (rdr.article.sheetH + rdr.article.gap) + a.y - readPose.visHEm * 0.15);
+			touch();
+		},
+		rayAt,
+		hoverAt(nx: number, ny: number) {
+			const art = rdr.article;
+			if (!art || rs[RS.article] < 0 || rs[RS.t] < 0.999) {
+				if (hover) ((hover = null), touch());
+				return null;
+			}
+			const { o, d } = rayAt(nx, ny);
+			const hit = pickSheet(art, sheet, visFirst, visCount, o, d);
+			const link = hit ? linkAt(art, hit.page, hit.x, hit.y) : null;
+			const next = hit ? { page: hit.page, link } : null;
+			if (hover?.link !== link) {
+				hover = next;
+				touch();
+			}
+			return next;
+		},
+		onReader(cb: (e: { kind: string; arg: number }) => void) {
+			readCb = cb;
+		},
+		get reading() {
+			return { slug: rdr.article?.slug ?? null, t: rs[RS.t], page: rs[RS.centrePage], pages: rdr.article?.pageCount ?? 0 };
+		},
 		destroy() {
 			dead = true;
 			cancelAnimationFrame(raf);
@@ -591,6 +812,7 @@ export async function createRoom(
 			mq.removeEventListener('change', restart);
 			for (const b of [accum, gbuf, bufB, bufC, volBuf, lmMetaBuf, lmBuf, lmAcc, lmRaw, ...lmTmp]) b?.destroy();
 			atlasTex.destroy();
+			rdr.destroy();
 		}
 	};
 }

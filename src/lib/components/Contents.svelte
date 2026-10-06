@@ -2,13 +2,12 @@
 	import { thoughts } from '$lib/thoughts';
 	import { accentFor, coverFor, issue, shortDate } from '$lib/theme';
 	import { renderTitle } from '$lib/title';
-	import Room from './Room.svelte';
+	import { worldState as ws } from '$lib/world.svelte';
 	import EraRail from './EraRail.svelte';
 
 	const featured = thoughts.filter((t) => !t.archived);
 	const archive = thoughts.filter((t) => t.archived);
 
-	let live = $state(false);
 	let active = $state(thoughts[0].slug);
 	let list = $state<HTMLElement>();
 
@@ -35,9 +34,12 @@
 </script>
 
 <div class="page">
-	<Room bind:live />
+	{#if ws.live}
+		<!-- scroll length of the elevator: the persistent World canvas (site layout) maps this to the floor -->
+		<div id="world-spacer" style:height="{Math.max(ws.floors.length, 1) * 90 + 10}svh"></div>
+	{/if}
 
-	<div class="body" class:hidden={live}>
+	<div class="body" class:hidden={ws.live}>
 		<aside class="rail-col"><EraRail items={thoughts} {active} side="left" onselect={jump} /></aside>
 		<div class="contents" bind:this={list}>
 			<h3 class="label">Pieces</h3>
