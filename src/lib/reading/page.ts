@@ -5,19 +5,23 @@
 //   3. notes text        1 call per run of the visible sidenotes
 //   4. figures           1 instanced call over the visible figure blocks
 //   5. overlays          1 instanced call
+//   6. UI text           1 instanced call (uiText glyphs, same glyph atlas and coverage as the article text)
 // Idle frames (dirty = false) draw nothing. Shader: page.wgsl.ts. Buffer layout: header words MH, channel table, sections.
 import {
 	BlockKind, ItemType, REC2, RectKind, Sec2, fieldOffset, itemIndex, itemType, packReading, toF16, unpackContainer,
 	type ReadingModel
 } from '../magazine/format';
-import { readFontsBin, type GlyphTable } from '../reader/format';
+import { glyphCount, readFontsBin, type GlyphTable } from '../reader/format';
 import type { Overlay, PageFrame, PageOptions, PagePass } from './page-api';
+import { NO_GLYPH, type UiGlyph } from './ui/types';
 import { CHAN_BASE, CHAN_FLOATS, DATA_BASE, FRAME_VEC4, MAGIC_PAGE, MH, PAGE_WGSL, SEG_BYTES } from './page.wgsl';
 
 const MAX_LAYER = 2048;
 const MAX_FIGS = 1024;
 const MAX_OVERLAYS = 512;
 const OVERLAY_FLOATS = 12;
+const MAX_UI_GLYPHS = 4096;
+const UI_FLOATS = 12;
 const MIN_BUF_BYTES = 1 << 20;
 const GLOW_ALPHA = 0.07;
 
@@ -76,8 +80,8 @@ export function textRuns(model: Pick<ReadingModel, 'blocks' | 'items' | 'rects'>
 		if (alpha <= 0) continue;
 		const dy = maps.dy?.get(i) ?? 0;
 		const dx = b.kind === BlockKind.code ? (maps.dx?.get(i) ?? 0) : 0;
-		if (dx === 0) { push(b.firstItem, b.itemCount, alpha, dy, 0, -1); continue; }
-		// panel background: the first rect item of kind codeBg stays put, everything else moves and is clipped to the block box
+		if (dx === 0 && b.kind !== BlockKind.code) { push(b.firstItem, b.itemCount, alpha, dy, 0, -1); continue; }
+		// code is always scissored to its panel (a long line never paints past the border); panel background: the first rect item of kind codeBg stays put, everything else moves and is clipped to the block box
 		let pi = -1;
 		for (let k = b.firstItem; k < b.firstItem + b.itemCount; k++) {
 			const w = model.items[k];
@@ -148,6 +152,25 @@ export function packOverlays(list: readonly Overlay[], extended: boolean, hdrGai
 		const o = list[i];
 		const hdr = extended ? Math.min(o.hdr ?? 1, cap) : 1;
 		out.set([o.x, o.y, o.w, o.h, o.radius, hdr, 0, 0, o.r, o.g, o.b, o.a], i * OVERLAY_FLOATS);
+	}
+	return n;
+}
+
+/**
+ * UI glyph floats, 3 vec4f per glyph: x y size glyphId (f32 integer), r g b a, hdr 0 0 0. Glyphs with a glyph id outside [0, glyphs) (or NO_GLYPH),
+ * a non-finite position or size, or zero alpha are skipped. rgb stays straight sRGB (the shader decodes and premultiplies), alpha is clamped to 0..1.
+ */
+export function packUiText(list: readonly UiGlyph[], glyphs: number, extended: boolean, hdrGain: number, out: Float32Array): number {
+	const cap = Math.max(1, hdrGain);
+	let n = 0;
+	for (const g of list) {
+		if (n >= MAX_UI_GLYPHS) break;
+		if (g.glyphId === NO_GLYPH || g.glyphId < 0 || g.glyphId >= glyphs || g.glyphId >= 1 << 24 || !(g.size > 0) || !Number.isFinite(g.x) || !Number.isFinite(g.y) || !(g.a > 0)) continue;
+		const o = n * UI_FLOATS;
+		out[o] = g.x; out[o + 1] = g.y; out[o + 2] = g.size; out[o + 3] = g.glyphId; // exact in f32 below 2^24; an f32 integer avoids reading integer bit patterns as floats
+		out[o + 4] = g.r; out[o + 5] = g.g; out[o + 6] = g.b; out[o + 7] = Math.min(1, g.a);
+		out[o + 8] = extended ? Math.min(g.hdr ?? 1, cap) : 1; out[o + 9] = 0; out[o + 10] = 0; out[o + 11] = 0;
+		n++;
 	}
 	return n;
 }
@@ -236,6 +259,8 @@ class PageImpl implements PagePass {
 	private segStride: number;
 	private figBuf: GPUBuffer;
 	private ovlBuf: GPUBuffer;
+	private uiBuf: GPUBuffer;
+	private uiGlyphs = 0;
 	private sampler: GPUSampler;
 	private gen = 0;
 	private force = true;
@@ -254,13 +279,14 @@ class PageImpl implements PagePass {
 	private ownCanvas: boolean;
 	private frameData = new Float32Array(FRAME_VEC4 * 4);
 	private ovlData = new Float32Array(MAX_OVERLAYS * OVERLAY_FLOATS);
+	private uiData = new Float32Array(MAX_UI_GLYPHS * UI_FLOATS);
 	private figData = new ArrayBuffer(MAX_FIGS * 16);
 
 	constructor(
 		canvas: HTMLCanvasElement, own: boolean,
 		private device: GPUDevice, private ctx: GPUCanvasContext,
 		private extended: boolean, private opts: PageOptions,
-		private pipes: { ground: GPURenderPipeline; text: GPURenderPipeline; fig: GPURenderPipeline; ovl: GPURenderPipeline },
+		private pipes: { ground: GPURenderPipeline; text: GPURenderPipeline; fig: GPURenderPipeline; ovl: GPURenderPipeline; ui: GPURenderPipeline },
 		private l0: GPUBindGroupLayout, private l1: GPUBindGroupLayout, private format: GPUTextureFormat
 	) {
 		this.canvas = canvas;
@@ -271,7 +297,8 @@ class PageImpl implements PagePass {
 		this.segBuf = this.allocSeg();
 		this.figBuf = device.createBuffer({ size: MAX_FIGS * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
 		this.ovlBuf = device.createBuffer({ size: MAX_OVERLAYS * OVERLAY_FLOATS * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-		this.extraBytes = FRAME_VEC4 * 16 + MAX_FIGS * 16 + MAX_OVERLAYS * OVERLAY_FLOATS * 4;
+		this.uiBuf = device.createBuffer({ size: MAX_UI_GLYPHS * UI_FLOATS * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+		this.extraBytes = FRAME_VEC4 * 16 + MAX_FIGS * 16 + MAX_OVERLAYS * OVERLAY_FLOATS * 4 + MAX_UI_GLYPHS * UI_FLOATS * 4;
 		this.img = this.makeTexture(1, 1, 1);
 		this.imgView = this.img.createView({ dimension: '2d-array' });
 		this.g1 = this.makeG1();
@@ -303,7 +330,8 @@ class PageImpl implements PagePass {
 				{ binding: 0, resource: { buffer: this.frameBuf } },
 				{ binding: 1, resource: { buffer: this.segBuf, size: SEG_BYTES } },
 				{ binding: 2, resource: { buffer: this.figBuf } },
-				{ binding: 3, resource: { buffer: this.ovlBuf } }
+				{ binding: 3, resource: { buffer: this.ovlBuf } },
+				{ binding: 4, resource: { buffer: this.uiBuf } }
 			]
 		});
 	}
@@ -333,7 +361,9 @@ class PageImpl implements PagePass {
 
 	async load(fonts: Uint8Array, model: ReadingModel, imageUrls: string[]): Promise<void> {
 		const my = ++this.gen;
-		const asm = assemblePage(readFontsBin(fonts).table, model);
+		const fb = readFontsBin(fonts);
+		const asm = assemblePage(fb.table, model);
+		this.uiGlyphs = glyphCount(fb.table);
 		const bytes = asm.words.byteLength;
 		const lim = Math.min(this.device.limits.maxStorageBufferBindingSize, this.device.limits.maxBufferSize);
 		if (bytes > lim) throw new Error(`page: article buffer ${bytes} bytes exceeds the device storage binding limit ${lim}`);
@@ -471,6 +501,8 @@ class PageImpl implements PagePass {
 		}
 		const nOvl = packOverlays(f.overlays, this.extended, f.hdrGain, this.ovlData);
 		if (nOvl) dev.queue.writeBuffer(this.ovlBuf, 0, this.ovlData, 0, nOvl * OVERLAY_FLOATS);
+		const nUi = f.uiText?.length ? packUiText(f.uiText, this.uiGlyphs, this.extended, f.hdrGain, this.uiData) : 0;
+		if (nUi) dev.queue.writeBuffer(this.uiBuf, 0, this.uiData, 0, nUi * UI_FLOATS);
 
 		const enc = dev.createCommandEncoder();
 		const pass = enc.beginRenderPass({
@@ -522,6 +554,16 @@ class PageImpl implements PagePass {
 			pass.draw(4, nOvl);
 			calls++;
 		}
+		if (nUi) {
+			const uc = f.uiClip ? this.scissor(f.uiClip.x0, f.uiClip.y0, f.uiClip.x1, f.uiClip.y1, s) : full;
+			if (uc) {
+				pass.setScissorRect(...uc);
+				pass.setPipeline(this.pipes.ui);
+				pass.setBindGroup(1, this.g1, [0]);
+				pass.draw(4, nUi);
+				calls++;
+			}
+		}
 		pass.end();
 
 		let rb: { buf: GPUBuffer; busy: boolean } | undefined;
@@ -566,6 +608,7 @@ class PageImpl implements PagePass {
 		this.segBuf.destroy();
 		this.figBuf.destroy();
 		this.ovlBuf.destroy();
+		this.uiBuf.destroy();
 		this.qs?.destroy();
 		this.qResolve?.destroy();
 		this.qRead.forEach((q) => q.buf.destroy());
@@ -621,7 +664,8 @@ export async function createPagePass(canvas: HTMLCanvasElement | null, opts: Pag
 			{ binding: 0, visibility: vf, buffer: { type: 'uniform' } },
 			{ binding: 1, visibility: vf, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: SEG_BYTES } },
 			{ binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
-			{ binding: 3, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } }
+			{ binding: 3, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+				{ binding: 4, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } }
 		]
 	});
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [l0, l1] });
@@ -640,9 +684,9 @@ export async function createPagePass(canvas: HTMLCanvasElement | null, opts: Pag
 		fragment: { module, entryPoint: fs, targets: [{ format, blend }] },
 		primitive: { topology }
 	});
-	const [ground, text, fig, ovl] = await Promise.all([
+	const [ground, text, fig, ovl, ui] = await Promise.all([
 		mk('vs_ground', 'fs_ground', 'triangle-list'), mk('vs_text', 'fs_text', 'triangle-strip'),
-		mk('vs_fig', 'fs_fig', 'triangle-strip'), mk('vs_ovl', 'fs_ovl', 'triangle-strip')
+		mk('vs_fig', 'fs_fig', 'triangle-strip'), mk('vs_ovl', 'fs_ovl', 'triangle-strip'), mk('vs_ui', 'fs_ui', 'triangle-strip')
 	]);
-	return new PageImpl(canvas, own, device, ctx, extended, opts, { ground, text, fig, ovl }, l0, l1, format);
+	return new PageImpl(canvas, own, device, ctx, extended, opts, { ground, text, fig, ovl, ui }, l0, l1, format);
 }

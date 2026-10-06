@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { BlockKind, ItemType, RectKind, packItem, sampleReading, type ReadingModel } from '../magazine/format';
 import { PAGE_WGSL, DATA_BASE, MH } from './page.wgsl';
-import { assemblePage, blockSpan, docToClip, itemRange, noteRuns, textRuns } from './page';
+import { assemblePage, blockSpan, docToClip, itemRange, noteRuns, packUiText, textRuns } from './page';
+import { NO_GLYPH, type UiGlyph } from './ui/types';
 
 const m = { originX: 100, originY: 50, scrollPx: 200, emPx: 20, viewW: 1000, viewH: 800 };
 
@@ -52,7 +53,7 @@ describe('textRuns', () => {
 	});
 	test('splits at blocks with their own alpha', () => {
 		const runs = textRuns(model, 0, 4, { alpha: new Map([[1, 0.5]]) });
-		expect(runs.map((r) => [r.first, r.count, r.alpha])).toEqual([[0, 10, 1], [10, 5, 0.5], [15, 15, 1]]);
+		expect(runs.map((r) => [r.first, r.count, r.alpha])).toEqual([[0, 10, 1], [10, 5, 0.5], [15, 5, 1], [20, 1, 1], [21, 4, 1], [25, 5, 1]]); // the code block (15..25) is always scissored to its panel
 	});
 	test('code block with dx: panel stays, text is clipped to the block', () => {
 		const runs = textRuns(model, 2, 3, { dx: new Map([[2, 40]]) });
@@ -99,8 +100,48 @@ describe('WGSL', () => {
 		for (const bad of ['spread_albedo', 'mg_peel', 'MG_SEL_BASE', 'mg_hov', 'MH_SPREADS', 'PAL_PAPER']) expect(PAGE_WGSL).not.toContain(bad);
 	});
 	test('has every entry point and no unresolved interpolation', () => {
-		for (const e of ['vs_ground', 'fs_ground', 'vs_text', 'fs_text', 'vs_fig', 'fs_fig', 'vs_ovl', 'fs_ovl', 'fn fig_eval']) expect(PAGE_WGSL).toContain(e);
+		for (const e of ['vs_ground', 'fs_ground', 'vs_text', 'fs_text', 'vs_fig', 'fs_fig', 'vs_ovl', 'fs_ovl', 'vs_ui', 'fs_ui', 'fn fig_eval']) expect(PAGE_WGSL).toContain(e);
 		expect(PAGE_WGSL).not.toContain('${');
 		expect(PAGE_WGSL).not.toContain('undefined');
+	});
+});
+
+describe('packUiText', () => {
+	const g = (o: Partial<UiGlyph> = {}): UiGlyph => ({ x: 10, y: 20, glyphId: 7, font: 'sans', size: 14, r: 0.1, g: 0.2, b: 0.3, a: 0.5, ...o });
+	const run = (list: UiGlyph[], glyphs = 100, extended = false, gain = 1) => {
+		const out = new Float32Array(4096 * 12);
+		return { n: packUiText(list, glyphs, extended, gain, out), out };
+	};
+	test('layout: x y size id, rgba straight, hdr', () => {
+		const { n, out } = run([g(), g({ x: 11, glyphId: 9 })]);
+		expect(n).toBe(2);
+		expect([...out.slice(0, 3)]).toEqual([10, 20, 14]);
+		expect(out[3]).toBe(7);
+		expect(out[4]).toBeCloseTo(0.1, 6);
+		expect(out[7]).toBe(0.5);
+		expect(out[8]).toBe(1);
+		expect(out[12]).toBe(11);
+		expect(out[15]).toBe(9);
+	});
+	test('glyph ids out of range, NO_GLYPH, bad size, NaN and zero alpha are skipped', () => {
+		const { n, out } = run([g({ glyphId: 100 }), g({ glyphId: NO_GLYPH }), g({ size: 0 }), g({ x: NaN }), g({ a: 0 }), g({ glyphId: 99 })]);
+		expect(n).toBe(1);
+		expect(out[3]).toBe(99);
+	});
+	test('hdr only on extended canvases and capped by hdrGain; alpha clamped', () => {
+		expect(run([g({ hdr: 3 })], 100, false, 2).out[8]).toBe(1);
+		expect(run([g({ hdr: 3 })], 100, true, 2).out[8]).toBe(2);
+		expect(run([g({ hdr: 1.5 })], 100, true, 2).out[8]).toBe(1.5);
+		expect(run([g({ a: 4 })]).out[7]).toBe(1);
+	});
+	test('capped at 4096 glyphs', () => {
+		expect(run(Array.from({ length: 5000 }, () => g())).n).toBe(4096);
+	});
+	test('shader reads the same union glyph table and coverage as the article text', () => {
+		const ui = PAGE_WGSL.slice(PAGE_WGSL.indexOf('fn vs_ui'));
+		expect(ui).toContain('reader[MH_FDIR]');
+		expect(ui).toContain('slug_cov(u32(g0.w)');
+		expect(ui).toContain('pg_out(');
+		expect(PAGE_WGSL).toContain('@group(1) @binding(4) var<storage, read> uitext');
 	});
 });

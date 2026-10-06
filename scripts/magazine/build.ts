@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { packFontsBin } from '../../src/lib/reader/format';
 import { PALETTE2_SIZE, WIDTH_CLASSES } from '../../src/lib/magazine/format';
+import { buildUiTables } from './uifont';
 import { FontSet, GlyphTableBuilder, ROOT, FONT_SPECS, fontPath } from '../reader/fonts';
 import { parseArticle, type Block, type Parsed, type Run } from '../reader/parse';
 import { StringSink, TextSink, type Env } from './typeset';
@@ -17,7 +18,8 @@ import { emitReading, type EmitContext } from './emit';
 import { CFG, flowArticle, wordsOf, type Neighbour } from './flow';
 import { parsePost, lintDistill, type DistillBlock as LintBlock } from './distill';
 import { voiceFor } from './voices';
-import { buildPalette, PAL_SYNTAX_START, type Rgb } from './palette';
+import { buildPalette, PAL_SYNTAX_START } from './palette';
+import { SYNTAX_ORDER, syntaxHex } from '../../src/lib/reading/theme';
 import { loadEnUs, type Hyphenator } from './hyph';
 import { loadFigures, type FigureArt } from './fig/emit';
 
@@ -35,21 +37,23 @@ export const MAX_CHANNELS = 256;
 // ---- palette ----------------------------------------------------------------------------------------
 
 const hexRGB = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-const toRgb = (h: string): Rgb => hexRGB(h).map((v) => v / 255) as unknown as Rgb;
 export const SYNTAX_BASE = PAL_SYNTAX_START;
 
-/** Greedy palette quantisation: the most-used shiki (github-dark) colours get the syntax slots, the rest map to the nearest. */
+/**
+ * Map every colour the Shiki pass emitted to a palette slot. The theme (scripts/reader/shiki-theme.ts) only emits the twelve SYNTAX colours, which own
+ * slots SYNTAX_BASE + k in SYNTAX_ORDER (see palette.ts); a colour that is not one of them (a grammar-embedded literal) maps to the nearest of the twelve.
+ */
 export function quantiseSyntax(pairs: Map<string, number>) {
-	const entries = [...pairs.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
-	const reps = entries.slice(0, PALETTE2_SIZE - SYNTAX_BASE).map(([k]) => k);
+	const hex = syntaxHex();
+	const reps = SYNTAX_ORDER.map((k) => hex[k]);
 	const dist = (a: string, b: string) => {
 		const ar = hexRGB(a), br = hexRGB(b);
 		return ar.reduce((s, v, i) => s + (v - br[i]) ** 2, 0);
 	};
 	const idx = new Map<string, number>();
-	for (const [k] of entries) {
+	for (const k of pairs.keys()) {
 		let best = 0, bd = Infinity;
-		reps.forEach((r, i) => { const d = dist(k, r); if (d < bd) { bd = d; best = i; } });
+		reps.forEach((r, i) => { const d = dist(k.toLowerCase(), r); if (d < bd) { bd = d; best = i; } });
 		idx.set(k, SYNTAX_BASE + best);
 	}
 	return { syntax: reps.map((r) => ({ dark: r })), idx };
@@ -110,7 +114,7 @@ async function layOut(sh: Shared, p: Parsed, cls: MagClass, neighbours: { prev?:
 	const dir = path.dirname(p.file);
 	const side = sidecar(dir);
 	const voice = voiceOf(p.slug, side);
-	const palette = buildPalette(side.accentHue ?? voice.hue, sh.syntax.map((x) => toRgb(x.dark)));
+	const palette = buildPalette(side.accentHue ?? voice.hue);
 	const cfg = CFG[cls.id];
 	const wc = { id: cls.id, sheetW: cfg.colW, sheetH: 0, measure: cfg.colW, marginX: 0, marginY: 0 };
 	const env: Env = {
@@ -158,9 +162,21 @@ async function prepare(files: string[], errors: string[], log: (...a: unknown[])
 	return { parsed, sh };
 }
 
-const fontsBin = (sh: Shared) => {
+/** Every string the chrome shows for the corpus: titles, deks, section names (headings), reference titles. */
+function uiTexts(parsed: Parsed[]): string[] {
+	const out: string[] = [];
+	for (const p of parsed) {
+		out.push(p.meta.title, p.meta.dek ?? '');
+		for (const r of p.refs) out.push(r.title ?? '');
+		for (const b of p.blocks) if (b.t === 'heading') out.push(b.runs.map((r) => r.text ?? '').join(''));
+	}
+	return out;
+}
+
+const fontsBin = (sh: Shared, parsed: Parsed[]) => {
+	const ui = buildUiTables(sh.fonts, sh.union, uiTexts(parsed)); // before finish(): adds glyphs, may append the UI sans instance
 	const table = sh.union.finish();
-	return packFontsBin(table, sh.fonts.fonts.map((f) => f.info), Uint32Array.from(sh.union.tag.map((t) => Number(t[0]))), Uint32Array.from(sh.union.tag.map((t) => Number(t[1]))));
+	return packFontsBin(table, sh.fonts.fonts.map((f) => f.info), Uint32Array.from(sh.union.tag.map((t) => Number(t[0]))), Uint32Array.from(sh.union.tag.map((t) => Number(t[1]))), ui);
 };
 
 /** Visible articles newest first; prev = the next newer one, next = the next older one. */
@@ -236,7 +252,7 @@ export async function buildMagazine(opts: BuildOpts = {}): Promise<BuildResult> 
 		outFiles.push(e);
 		return e;
 	};
-	const fontsBytes = fontsBin(sh);
+	const fontsBytes = fontsBin(sh, everything);
 	const fontsName = `fonts.${sha1(fontsBytes)}.bin`;
 	const fe = write(fontsName, fontsBytes);
 	const articles: any[] = [];

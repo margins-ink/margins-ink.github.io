@@ -38,7 +38,9 @@ export const EXTRA_BIT = 0x80000000;
 export const Sec = {
 	pages: 1, gridCells: 2, items: 3, glyphs: 4, rects: 5, images: 6, lines: 7, links: 8, anchors: 9,
 	exDir: 10, exCurves: 11, exBands: 12, text: 13, strings: 14, palette: 15,
-	fonts: 20, dir: 21, curves: 22, bands: 23, fontTable: 24
+	fonts: 20, dir: 21, curves: 22, bands: 23, fontTable: 24,
+	/** fonts.bin only, optional: UI font tables (src/lib/reading/ui/tables.ts); older files lack it */
+	ui: 25
 } as const;
 
 export const REC = { page: 36, cell: 8, glyph: 20, rect: 20, image: 24, line: 28, link: 28, anchor: 12 } as const;
@@ -209,7 +211,7 @@ export interface FontInfo {
 	xHeight: number;
 }
 
-export function packFontsBin(t: GlyphTable, fonts: FontInfo[], glyphFont: Uint32Array, glyphSrcId: Uint32Array): Uint8Array {
+export function packFontsBin(t: GlyphTable, fonts: FontInfo[], glyphFont: Uint32Array, glyphSrcId: Uint32Array, ui?: Uint8Array): Uint8Array {
 	const meta = new TextEncoder().encode(JSON.stringify(fonts));
 	// per glyph: fontIndex, source glyph id (debug / runtime lookup), 2 x u32
 	const gmap = new Uint32Array(glyphFont.length * 2);
@@ -219,7 +221,8 @@ export function packFontsBin(t: GlyphTable, fonts: FontInfo[], glyphFont: Uint32
 		{ id: Sec.fonts, data: gmap, count: glyphFont.length },
 		{ id: Sec.dir, data: t.dir, count: t.dir.length >> 3 },
 		{ id: Sec.curves, data: t.curves, count: t.curves.length >> 2 },
-		{ id: Sec.bands, data: t.bands, count: t.bands.length }
+		{ id: Sec.bands, data: t.bands, count: t.bands.length },
+		...(ui ? [{ id: Sec.ui, data: ui, count: 1 }] : [])
 	]);
 }
 
@@ -229,7 +232,7 @@ export function readFontsBin(bytes: Uint8Array) {
 	const table: GlyphTable = { dir: u32v(c, Sec.dir), curves: u16v(c, Sec.curves), bands: u32v(c, Sec.bands) };
 	const fonts: FontInfo[] = JSON.parse(new TextDecoder().decode(sec(c, Sec.fontTable).bytes));
 	const gmap = u32v(c, Sec.fonts);
-	return { table, fonts, glyphFont: (i: number) => gmap[i * 2], glyphSrc: (i: number) => gmap[i * 2 + 1] };
+	return { table, fonts, glyphFont: (i: number) => gmap[i * 2], glyphSrc: (i: number) => gmap[i * 2 + 1], ui: c.sections.get(Sec.ui)?.bytes };
 }
 
 // ---- article model + codec -------------------------------------------------------------------

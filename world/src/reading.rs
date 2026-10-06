@@ -34,6 +34,7 @@
 //!   * The per figure flag at `RD.figBase + 2i + 1` is "intersects the viewport" (draw it); `figVisFirst/figVisCount` is the 1.5 viewport data range.
 //!   * A figure autoplays only while 60 percent of it (or 60 percent of the viewport height) is inside the viewport, the page has been
 //!     idle for 0.2 s, nothing holds it, and the user has not touched it for 1.5 s (`USER_HOLD_S`).
+use crate::scroll::{self, ScrollSim};
 use flecs_ecs::prelude::*;
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -53,6 +54,8 @@ const SPY_EM: f32 = 3.0;
 const TEXT_AHEAD: f32 = 0.25;
 const FIG_AHEAD: f32 = 1.5;
 const NONE: u32 = 0xff_ffff;
+/// Body line height in em (`LINE_EM` in src/lib/reading/metrics.ts): a wheel line is this many em.
+const LINE_EM: f32 = 1.62;
 const MAX_EVENTS: usize = 256;
 
 // events (1-based index into READING_EVENTS)
@@ -92,6 +95,13 @@ const RD_WIDTH_CLASS: usize = 21;
 const RD_IDLE: usize = 22;
 const RD_EM_PX: usize = 23;
 const RD_VIEWPORT_EM: usize = 24;
+/// Engine-owned scroll (docs/READING_GPU.md): CSS px, not em. scrollY may be outside [0, max] while the rubber band is out.
+const RD_SCROLL_Y_PX: usize = 25;
+const RD_SCROLL_MAX_PX: usize = 26;
+/// 0 idle, 1 wheel, 2 drag, 3 fling, 4 animate, 5 rubber (`scroll::MODE_*`)
+const RD_SCROLL_MODE: usize = 27;
+/// px/s
+const RD_VELOCITY: usize = 28;
 const RD_FIG_BASE: usize = 32;
 
 // dirty bits
@@ -489,6 +499,7 @@ impl Module for ReadingModule {
         world.component::<Figure>();
         world.component::<FigureTime>();
         world.component::<Scroll>();
+        world.component::<ScrollSim>();
         world.component::<Viewport>();
         world.component::<Typography>();
         world.component::<Fold>();
@@ -539,6 +550,7 @@ impl Module for ReadingModule {
 
         world.set(Doc { protos, ..Doc::default() });
         world.set(Scroll::default());
+        world.set(ScrollSim::default());
         world.set(Viewport::default());
         world.set(Typography::default());
         world.set(Fold::default());
@@ -559,7 +571,12 @@ impl Module for ReadingModule {
 // ---- systems ----
 
 fn systems(world: &World, input_ph: EntityView, spring_ph: EntityView, layout_ph: EntityView, cull_ph: EntityView, pack_ph: EntityView) {
-    // ---- Input ----
+    // ---- Input ---- (the scroll integrator first: ScrollTrack then sees the new `Scroll.y`)
+    world.system_named::<()>("ScrollSim").kind(input_ph).run(|mut it| {
+        while it.next() {
+            scroll_step(&it.world(), it.delta_time());
+        }
+    });
     world.system_named::<()>("ScrollTrack").kind(input_ph).run(|mut it| {
         while it.next() {
             scroll_track(&it.world(), it.delta_time());
@@ -642,6 +659,34 @@ fn scroll_track(w: &World, dt: f32) {
         }
     });
     w.get::<&mut Scroll>(|s| s.vel = vel);
+}
+
+/// Run `f` on the scroll simulation after syncing it with the singletons (page size, viewport, reduced motion, a `Scroll.y` that
+/// someone else wrote), then write the position back. The simulation lives in px, `Scroll.y` in em.
+fn with_sim<T>(w: &World, f: impl FnOnce(&mut ScrollSim, f32) -> T) -> T {
+    let em = w.try_cloned::<&Typography>().map_or(16.0, |t| t.em_px).max(1e-3);
+    let sc = w.try_cloned::<&Scroll>().unwrap_or_default();
+    let vp = w.try_cloned::<&Viewport>().unwrap_or_default();
+    let mut sim = w.try_cloned::<&ScrollSim>().unwrap_or_default();
+    sim.max = sc.max * em;
+    sim.view_h = vp.h.max(1.0);
+    sim.reduced = w.has(Reduced::id());
+    sim.sync(sc.y * em);
+    let r = f(&mut sim, em);
+    w.get::<&mut Scroll>(|s| s.y = sim.y / em);
+    w.set(sim);
+    r
+}
+
+/// Advance the scroll simulation by `dt` seconds.
+fn scroll_step(w: &World, dt: f32) {
+    let moving = with_sim(w, |sim, _| {
+        sim.step(dt);
+        sim.mode != scroll::MODE_IDLE && sim.mode != scroll::MODE_DRAG
+    });
+    if moving {
+        mark(w, D_SPRING);
+    }
 }
 
 /// Fold clip line, document height and `Scroll.max`.
@@ -823,9 +868,14 @@ fn pack(w: &World) {
     let s = w.try_cloned::<&Scroll>().unwrap_or_default();
     let fold = w.try_cloned::<&Fold>().unwrap_or_default();
     let ty = w.try_cloned::<&Typography>().unwrap_or_default();
+    let sim = w.try_cloned::<&ScrollSim>().unwrap_or_default();
     let mut out = [0.0f32; STATE_LEN];
     w.get::<&Doc>(|d| {
         out[RD_SCROLL] = s.y;
+        out[RD_SCROLL_Y_PX] = s.y * ty.em_px;
+        out[RD_SCROLL_MAX_PX] = s.max * ty.em_px;
+        out[RD_SCROLL_MODE] = sim.mode as f32;
+        out[RD_VELOCITY] = sim.v;
         out[RD_SCROLL_MAX] = s.max;
         out[RD_FOLD_T] = fold.t;
         out[RD_FOLD_TARGET] = fold.target;
@@ -969,6 +1019,59 @@ pub fn set_scroll(y_px: f32) {
         let em = w.try_cloned::<&Typography>().map_or(16.0, |t| t.em_px).max(1e-3);
         w.get::<&mut Scroll>(|s| s.y = y_px / em);
     });
+}
+
+/// `reading_wheel`: a wheel event (`deltaMode` 0 px, 1 lines, 2 pages). Pinch (ctrl) is ignored. Returns 1 when the event scrolls.
+pub fn wheel(dx: f32, dy: f32, delta_mode: u32, ctrl: bool) -> u32 {
+    let _ = dx;
+    with_world(|w| {
+        let r = with_sim(w, |sim, em| sim.wheel(dy, delta_mode, ctrl, em * LINE_EM));
+        if r {
+            mark(w, D_SCROLL);
+        }
+        r as u32
+    })
+    .unwrap_or(0)
+}
+
+/// `reading_pointer`: kind 1 down, 2 move, 3 up, 4 cancel; `id` is `pointerId | pointerType << 16` (0 mouse, 1 touch, 2 pen); `y` CSS px;
+/// `t_ms` the event time (f64, `event.timeStamp`). Returns 1 while this pointer drives the scroll.
+pub fn pointer(kind: u32, id: u32, _x: f32, y: f32, t_ms: f64) -> u32 {
+    with_world(|w| {
+        let r = with_sim(w, |sim, _| sim.pointer(kind, id, y, t_ms));
+        mark(w, D_SCROLL);
+        r as u32
+    })
+    .unwrap_or(0)
+}
+
+/// `reading_key`: a `scroll::KEY_*` code. Returns 1 when consumed.
+pub fn key(code: u32, shift: bool) -> u32 {
+    with_world(|w| {
+        let r = with_sim(w, |sim, _| sim.key(code, shift));
+        if r {
+            mark(w, D_SCROLL);
+            scroll_instant_refresh(w);
+        }
+        r as u32
+    })
+    .unwrap_or(0)
+}
+
+/// `reading_scroll_to`: `y` CSS px, `smooth` animates (instant under reduced motion).
+pub fn scroll_to(y_px: f32, smooth: bool) {
+    with_world(|w| {
+        with_sim(w, |sim, _| sim.scroll_to(y_px, smooth));
+        mark(w, D_SCROLL);
+        scroll_instant_refresh(w);
+    });
+}
+
+/// An instant move (a key under reduced motion, a non-smooth scroll-to) is visible in the state vector at once, before the next tick.
+fn scroll_instant_refresh(w: &World) {
+    if w.try_cloned::<&ScrollSim>().is_some_and(|s| s.mode == scroll::MODE_IDLE) {
+        refresh(w);
+    }
 }
 
 pub fn set_viewport(w_px: f32, h_px: f32, dpr: f32, em_px: f32, class: u32) {
@@ -1336,5 +1439,69 @@ fn set_reduced(w: &World, on: bool) {
         if f.t != f.target || f.vel != 0.0 {
             set_fold(w, f.target > 0.5, true);
         }
+    }
+}
+
+#[cfg(test)]
+mod scroll_tests {
+    use super::*;
+
+    fn state(i: usize) -> f32 {
+        RD.with(|s| s.borrow()[i])
+    }
+
+    /// The exports end to end in a Flecs world: an empty article of 100 em, a 800 px viewport at 16 px/em (max 50 em = 800 px).
+    #[test]
+    fn engine_owns_the_scroll() {
+        assert_eq!(init(), 0);
+        let p = buf(LOAD_HEADER as u32);
+        // SAFETY: `buf` returned at least LOAD_HEADER words and nothing else touches the buffer in this test.
+        let b = unsafe { std::slice::from_raw_parts_mut(p, LOAD_HEADER) };
+        b.fill(0);
+        b[5] = 100.0f32.to_bits();
+        assert_eq!(load(), 0);
+        set_viewport(800.0, 800.0, 1.0, 16.0, 2);
+        tick(16.0);
+        assert_eq!(state(RD_SCROLL_MAX_PX), (100.0 - 50.0) * 16.0);
+
+        // Space animates a page minus 40 px; the state vector follows frame by frame
+        assert_eq!(key(scroll::KEY_SPACE, false), 1);
+        assert_eq!(key(99, false), 0);
+        tick(16.0);
+        assert_eq!(state(RD_SCROLL_MODE), scroll::MODE_ANIMATE as f32);
+        assert!(state(RD_VELOCITY) > 0.0);
+        for _ in 0..60 {
+            tick(16.0);
+        }
+        assert_eq!(state(RD_SCROLL_MODE), scroll::MODE_IDLE as f32);
+        assert!((state(RD_SCROLL_Y_PX) - 760.0).abs() < 0.01, "{}", state(RD_SCROLL_Y_PX));
+        assert!((state(RD_SCROLL) * 16.0 - 760.0).abs() < 0.01, "Scroll.y in em stays in step");
+
+        // the page is 800 px max: End clamps; a pinch wheel does nothing; reading_set_scroll cancels motion
+        assert_eq!(wheel(0.0, 100.0, 0, true), 0);
+        scroll_to(10_000.0, false);
+        assert_eq!(state(RD_SCROLL_Y_PX), 800.0);
+        assert_eq!(wheel(0.0, -7.0, 0, false), 1);
+        tick(16.0);
+        assert_eq!(state(RD_SCROLL_Y_PX), 793.0);
+        set_scroll(100.0);
+        tick(16.0);
+        assert_eq!(state(RD_SCROLL_Y_PX), 100.0);
+        assert_eq!(state(RD_SCROLL_MODE), 0.0);
+        // a touch drag past the top: the band opens and closes
+        let id = 1 << 16;
+        set_scroll(0.0);
+        pointer(scroll::PTR_DOWN, id, 0.0, 100.0, 0.0);
+        pointer(scroll::PTR_MOVE, id, 0.0, 400.0, 10.0);
+        pointer(scroll::PTR_MOVE, id, 0.0, 400.0, 300.0);
+        tick(16.0);
+        assert!(state(RD_SCROLL_Y_PX) < -50.0 && state(RD_SCROLL_Y_PX) > -800.0);
+        assert_eq!(state(RD_SCROLL_MODE), scroll::MODE_DRAG as f32);
+        pointer(scroll::PTR_UP, id, 0.0, 400.0, 400.0);
+        for _ in 0..120 {
+            tick(16.0);
+        }
+        assert_eq!(state(RD_SCROLL_Y_PX), 0.0);
+        assert_eq!(state(RD_SCROLL_MODE), 0.0);
     }
 }

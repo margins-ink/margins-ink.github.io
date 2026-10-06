@@ -11,6 +11,7 @@ mod export;
 mod reader;
 mod reading;
 mod scene;
+mod scroll;
 
 use std::cell::RefCell;
 
@@ -167,6 +168,31 @@ pub extern "C" fn reading_set_viewport(w_px: f32, h_px: f32, dpr: f32, em_px: f3
 #[no_mangle]
 pub extern "C" fn reading_set_scroll(y_px: f32) {
     reading::set_scroll(y_px);
+}
+
+/// A wheel event (`deltaMode` 0 px, 1 lines, 2 pages; ctrl = pinch, ignored). Returns 1 when it scrolls. The engine owns the scroll (docs/READING_GPU.md).
+#[no_mangle]
+pub extern "C" fn reading_wheel(dx: f32, dy: f32, delta_mode: u32, ctrl: u32) -> u32 {
+    reading::wheel(dx, dy, delta_mode, ctrl != 0)
+}
+
+/// Touch or pen drag: kind 1 down, 2 move, 3 up, 4 cancel; `id` = pointerId | pointerType << 16 (0 mouse, 1 touch, 2 pen); `t_ms` as f64.
+/// Returns 1 while this pointer drives the scroll (the host captures it).
+#[no_mangle]
+pub extern "C" fn reading_pointer(kind: u32, id: u32, x: f32, y: f32, t_ms: f64) -> u32 {
+    reading::pointer(kind, id, x, y, t_ms)
+}
+
+/// A scroll key (1 Space, 2 PageDown, 3 PageUp, 4 Home, 5 End, 6 ArrowDown, 7 ArrowUp). Returns 1 when consumed.
+#[no_mangle]
+pub extern "C" fn reading_key(code: u32, shift: u32) -> u32 {
+    reading::key(code, shift != 0)
+}
+
+/// Scroll to `y_px` (clamped); `smooth` 1 animates 250..700 ms (instant under reduced motion).
+#[no_mangle]
+pub extern "C" fn reading_scroll_to(y_px: f32, smooth: u32) {
+    reading::scroll_to(y_px, smooth != 0);
 }
 
 /// One gesture or command (`INPUT` in abi.ts): `a` and `b` are block or figure indices or floats as the kind says.

@@ -85,6 +85,13 @@ export const RD = {
 } as const;
 export const MAX_FIG_STATE = 16;
 
+/** `state[RD.scrollMode]` */
+export const SCROLL_MODE = { idle: 0, wheel: 1, drag: 2, fling: 3, animate: 4, rubber: 5 } as const;
+/** `reading_key` codes (input.ts maps KeyboardEvent.code to these) */
+export const SCROLL_KEY = { space: 1, pageDown: 2, pageUp: 3, home: 4, end: 5, arrowDown: 6, arrowUp: 7 } as const;
+/** `reading_pointer` kinds. The id word is `pointerId | pointerType << 16` (0 mouse, 1 touch, 2 pen); only touch and pen drag the page. */
+export const POINTER_KIND = { down: 1, move: 2, up: 3, cancel: 4 } as const;
+
 /** Events from reading_event_poll(): kind in the top byte (1-based index into READING_EVENTS), arg in the low 24 bits. */
 export const READING_EVENTS = ['section', 'foldSettled', 'foldExpand', 'figureVisible', 'figureHidden', 'open', 'focus', 'hover', 'layout'] as const;
 export type ReadingEventKind = (typeof READING_EVENTS)[number];
@@ -135,4 +142,33 @@ export interface Reading {
 	poll(): { kind: ReadingEventKind; arg: number } | null;
 	blockAt(yEm: number): number;
 	entityCount(): number;
+}
+
+// ---- scroll (docs/READING_GPU.md "Scroll (lane R)"): the engine owns the position, JS forwards events and reads state[RD.scrollY] ----
+
+/** The scroll exports of world.wasm (world/src/lib.rs). */
+export interface ScrollExports {
+	reading_wheel(dx: number, dy: number, deltaMode: number, ctrl: number): number; // 1 when the event scrolls (preventDefault it)
+	reading_pointer(kind: number, id: number, x: number, y: number, tMs: number): number; // 1 while this pointer drives the scroll
+	reading_key(code: number, shift: number): number; // 1 when consumed
+	reading_scroll_to(yPx: number, smooth: number): void;
+}
+
+export interface ScrollApi {
+	/** `deltaMode` 0 px, 1 lines, 2 pages; ctrl (pinch) is ignored by the engine. True when the event scrolled. */
+	wheel(dx: number, dy: number, deltaMode: number, ctrl: boolean): boolean;
+	/** `id` = pointerId | pointerType << 16, `tMs` = event.timeStamp (a double: f32 loses the millisecond after 16 s). True while the pointer drives the scroll. */
+	pointer(kind: number, id: number, x: number, y: number, tMs: number): boolean;
+	/** a `SCROLL_KEY` code; true when consumed */
+	key(code: number, shift: boolean): boolean;
+	scrollTo(yPx: number, smooth: boolean): void;
+}
+
+export function createScrollApi(x: ScrollExports): ScrollApi {
+	return {
+		wheel: (dx, dy, mode, ctrl) => x.reading_wheel(dx, dy, mode, ctrl ? 1 : 0) !== 0,
+		pointer: (kind, id, px, py, t) => x.reading_pointer(kind, id, px, py, t) !== 0,
+		key: (code, shift) => x.reading_key(code, shift ? 1 : 0) !== 0,
+		scrollTo: (y, smooth) => x.reading_scroll_to(y, smooth ? 1 : 0)
+	};
 }

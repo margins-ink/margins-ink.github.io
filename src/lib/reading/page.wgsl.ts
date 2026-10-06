@@ -3,21 +3,23 @@
  * spread shader (Slug glyph coverage, groups, strokes, shapes, paths, numerals, rects, images) copied out of
  * src/lib/gpu/room/magazine.wgsl.ts and generated from the RDR3 SCHEMA the same way, plus four render passes:
  *
- *   vs_ground / fs_ground   full screen triangle: page ground (oklch 0.165 0.012 hue), ambient accent radial, rounded rect clip
+ *   vs_ground / fs_ground   full screen triangle: page ground (theme.ts GROUND: tinted near-black, vertical gradient), ambient accent radial, rounded rect clip
  *   vs_text / fs_text       instanced quads over a contiguous range of the items table (glyph, rect, image words)
  *   vs_fig / fs_fig         one instanced quad per visible figure block, items found through the figure cell grid
  *   vs_ovl / fs_ovl         instanced rounded rectangles (UI overlays)
+ *   vs_ui / fs_ui           instanced UI glyph quads (same union glyph table and slug_cov coverage as the article text)
  *
  * Output is premultiplied alpha, blend one / one-minus-src-alpha. On an 8 bit canvas the shader gamma-encodes (blending in
  * display space like CSS text); on the extended range float16 canvas it writes linear values.
  *
  * Bindings: group 0 = reader storage buffer (6), image texture array (27), sampler (28); group 1 = frame uniform (0),
- * dynamic per-draw segment uniform (1), figure instance list (2), overlay list (3).
+ * dynamic per-draw segment uniform (1), figure instance list (2), overlay list (3), UI glyph list (4).
  *
  * WGSL reserved words avoided as identifiers (active, target, get, sample, texture, ref, half, loop, filter, mod, set, view, ...).
  * No backticks in comments: this is a TS template literal.
  */
 import { REC2, SCHEMA, fieldOffset, CELL_W, CELL_H } from '../magazine/format';
+import { GROUND_WGSL } from './theme';
 
 /** Header word indices of the page buffer, shared with page.ts. Word values are offsets (in words) of each section. */
 export const MH = {
@@ -407,6 +409,7 @@ fn mg_rect(ix: u32, p0: vec2f, fw0: f32) -> vec4f {
   let b = vec2f(${g('rect', 'x1')}, ${g('rect', 'y1')});
   let rad = min(${g('rect', 'radius')}, 0.5 * min(b.x - a.x, b.y - a.y));
   var cov = 0.0;
+  var edge = 0.0;
   if (rad > 1e-4) {
     // rounded box: analytic coverage from the signed distance and the pixel footprint
     let c = 0.5 * (a + b);
@@ -414,11 +417,14 @@ fn mg_rect(ix: u32, p0: vec2f, fw0: f32) -> vec4f {
     let qq = abs(q.xy - c) - h + vec2f(rad);
     let sd = length(max(qq, vec2f(0.0))) + min(max(qq.x, qq.y), 0.0) - rad;
     cov = saturate(0.5 - sd / q.z);
+    // 1 px hairline just inside the edge (code panel, RectKind.codeBg = 1): 1 where -1 px < sd < 0
+    edge = saturate(0.5 - (-sd - q.z) / q.z) * select(0.0, 1.0, ${g('rect', 'kind')} == 1u);
   } else {
     cov = mg_box(q.xy, a, b, q.z);
   }
   if (cov <= 0.0) { return vec4f(0.0); }
-  let pc = mg_pal(${g('rect', 'colour')});
+  var pc = mg_pal(${g('rect', 'colour')});
+  if (edge > 0.0) { pc = mix(pc, mg_pal(4u), edge); } // palette slot 4 (PAL2.rule) is the hairline colour (theme.ts hairline)
   return vec4f(pc.rgb, cov * pc.a * q.w);
 }
 
@@ -685,6 +691,8 @@ struct SegU { first: u32, pad0: u32, alpha: f32, dy: f32, dx: f32, pad1: f32, pa
 @group(1) @binding(1) var<uniform> sg: SegU;
 @group(1) @binding(2) var<storage, read> fig_inst: array<vec4u>;
 @group(1) @binding(3) var<storage, read> ovl: array<vec4f>;
+// UI text glyphs, 3 vec4f each: (x css, y css baseline, size css px, glyph id as an exact f32 integer), (r g b a straight sRGB), (hdr, 0, 0, 0)
+@group(1) @binding(4) var<storage, read> uitext: array<vec4f>;
 
 fn pg_clip(px: vec2f) -> vec4f { return vec4f(px.x / fu.v0.x * 2.0 - 1.0, 1.0 - px.y / fu.v0.y * 2.0, 0.0, 1.0); }
 fn pg_px(p: vec2f, dy: f32, dx: f32) -> vec2f { return vec2f(fu.v1.x + p.x * fu.v0.w - dx, fu.v1.y + p.y * fu.v0.w + dy); }
@@ -857,8 +865,10 @@ fn pg_rrect_sd(p: vec2f, a: vec2f, b: vec2f, radius: f32) -> f32 {
   let cov = saturate(0.5 - sd * fu.v0.z);
   let ga = fu.v4.y * cov;
   if (ga <= 0.0) { discard; }
-  let bg = pg_oklch(0.165, 0.012, fu.v4.z);
-  let acc = pg_oklch(0.78, 0.14, fu.v4.z);
+  // ground: a soft vertical gradient of the tinted near-black (theme.ts GROUND), lighter at the top of the viewport
+  let gt = saturate((css.y - fu.v3.y) / max(fu.v3.w - fu.v3.y, 1.0));
+  let bg = pg_oklch(mix(${GROUND_WGSL.top}, ${GROUND_WGSL.bottom}, gt), ${GROUND_WGSL.chroma}, fu.v4.z);
+  let acc = pg_oklch(${GROUND_WGSL.accentL}, ${GROUND_WGSL.accentC}, fu.v4.z);
   let d = length(css - fu.v5.xy) / max(fu.v5.z, 1.0);
   let glow = 1.0 - smoothstep(0.0, 1.0, d);
   var col = mix(bg, acc, fu.v4.w * glow);
@@ -894,5 +904,40 @@ struct OOut {
   let a = col.a * saturate(0.5 - sd * fu.v0.z);
   if (a <= 0.0) { discard; }
   return pg_out(pg_srgb_dec(col.rgb) * k.y, a);
+}
+
+// ---- UI text ----
+struct UOut {
+  @builtin(position) pos: vec4f,
+  @location(0) @interpolate(flat) ui: u32,
+};
+
+@vertex fn vs_ui(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> UOut {
+  var o: UOut;
+  let g0 = uitext[3u * ii];
+  let gid = u32(g0.w);
+  let dir = reader[MH_FDIR] + gid * 8u;
+  let b0 = vec2f(mg_f(dir + 4u), mg_f(dir + 5u));
+  let b1 = vec2f(mg_f(dir + 6u), mg_f(dir + 7u));
+  let m = 2.0 / fu.v0.z;
+  let lo = vec2f(g0.x + b0.x * g0.z - m, g0.y - b1.y * g0.z - m);
+  let hi = vec2f(g0.x + b1.x * g0.z + m, g0.y - b0.y * g0.z + m);
+  let c = vec2f(f32(vi & 1u), f32(vi >> 1u));
+  let ok = b1.x > b0.x && b1.y > b0.y;
+  o.pos = select(vec4f(-2.0, -2.0, 0.0, 1.0), pg_clip(mix(lo, hi, c)), ok);
+  o.ui = ii;
+  return o;
+}
+
+@fragment fn fs_ui(in: UOut) -> @location(0) vec4f {
+  let g0 = uitext[3u * in.ui];
+  let col = uitext[3u * in.ui + 1u];
+  let k = uitext[3u * in.ui + 2u];
+  let css = in.pos.xy / fu.v0.z;
+  let rc = vec2f((css.x - g0.x) / g0.z, (g0.y - css.y) / g0.z);
+  let cov = slug_cov(u32(g0.w), rc, g0.z * fu.v0.z, false);
+  let a = cov * col.a;
+  if (a <= 0.0) { discard; }
+  return pg_out(pg_srgb_dec(col.rgb) * k.x, a);
 }
 `;

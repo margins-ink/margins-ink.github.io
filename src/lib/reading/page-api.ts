@@ -2,6 +2,7 @@
 // It owns a canvas, a device and the article's GPU buffers; it knows nothing about scrolling physics, the DOM or Flecs.
 // The reader hands it one PageFrame per animation frame and it draws that and only that.
 import type { ReadingModel } from '../magazine/format';
+import type { UiGlyph } from './ui/types';
 
 /** A rounded rectangle in CSS pixels of the canvas, premultiplied on output. rgba are straight, 0..1; hdr multiplies rgb above 1 on an extended-range canvas. */
 export interface Overlay { x: number; y: number; w: number; h: number; radius: number; r: number; g: number; b: number; a: number; hdr?: number }
@@ -42,6 +43,11 @@ export interface PageFrame {
 	blockDx?: Map<number, number>;
 	/** UI rectangles (progress rail, focus ring, hover frame, copy flash, selection plates), drawn over the page */
 	overlays: Overlay[];
+	/** UI text (chrome labels, find query ...), drawn after the overlays by a second instanced draw with the article's glyph atlas and coverage shader.
+	 *  Glyph ids come from ui/text.ts (fonts.bin union ids); ids out of range are skipped. Capped at 4096 glyphs per frame. */
+	uiText?: UiGlyph[];
+	/** scissor in CSS px for uiText; omit for the whole viewport (the overlays and uiText are never clipped by `clip`) */
+	uiClip?: { x0: number; y0: number; x1: number; y1: number };
 	/** accent peak above 1.0 on extended-range canvases (hover underline, focus ring, rail head); 1 = SDR */
 	hdrGain: number;
 	/** seconds, for dithering and the ambient glow */
