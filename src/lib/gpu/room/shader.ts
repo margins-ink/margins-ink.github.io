@@ -1164,8 +1164,8 @@ fn shafts(pos: vec2f, tend_in: f32) -> vec3f {
   let q = o + d * tp;
   let tend = min(tend_in, 7.0);
   let l = sun_dir();
-  let N = 32;
-  let j = hash21(pos);
+  let N = 40;
+  let j = fract(52.9829189 * fract(dot(pos, vec2f(0.06711056, 0.00583715))));
   var sum = 0.0;
   for (var i = 0; i < N; i++) {
     let x = q + d * (tend * (f32(i) + j) / f32(N));
@@ -1173,10 +1173,24 @@ fn shafts(pos: vec2f, tend_in: f32) -> vec3f {
     let k = floor(depth / sc.misc.y);
     if (k < 0.0 || k >= sc.misc.x || depth - k * sc.misc.y > sc.misc.w || x.z < 0.1 || x.z > sc.misc.z) { continue; }
     let yl = x.y + k * sc.misc.y;
-    let ix = u32(clamp((x.x + 3.3) / 6.6 * f32(VX), 0.0, f32(VX - 1u)));
-    let iy = u32(clamp(yl / sc.misc.w * f32(VY), 0.0, f32(VY - 1u)));
-    let iz = u32(clamp((x.z - 0.1) / (sc.misc.z - 0.1) * f32(VZ), 0.0, f32(VZ - 1u)));
-    sum += vol[((u32(k) * VZ + iz) * VY + iy) * VX + ix];
+    // trilinear fetch of the baked sun-visibility grid (nearest voxels showed as steps in the beam)
+    let g = vec3f(
+      clamp((x.x + 3.3) / 6.6 * f32(VX) - 0.5, 0.0, f32(VX - 1u)),
+      clamp(yl / sc.misc.w * f32(VY) - 0.5, 0.0, f32(VY - 1u)),
+      clamp((x.z - 0.1) / (sc.misc.z - 0.1) * f32(VZ) - 0.5, 0.0, f32(VZ - 1u)));
+    let g0 = vec3u(floor(g));
+    let g1 = min(g0 + vec3u(1u), vec3u(VX - 1u, VY - 1u, VZ - 1u));
+    let fr = g - floor(g);
+    let kb = u32(k) * VZ;
+    var v = array<f32, 8>();
+    for (var c = 0u; c < 8u; c++) {
+      let px = select(g0.x, g1.x, (c & 1u) != 0u);
+      let py = select(g0.y, g1.y, (c & 2u) != 0u);
+      let pz = select(g0.z, g1.z, (c & 4u) != 0u);
+      v[c] = vol[((kb + pz) * VY + py) * VX + px];
+    }
+    sum += mix(mix(mix(v[0], v[1], fr.x), mix(v[2], v[3], fr.x), fr.y),
+               mix(mix(v[4], v[5], fr.x), mix(v[6], v[7], fr.x), fr.y), fr.z);
   }
   return sun_col() * (sum / f32(N)) * tend * 0.022;
 }
