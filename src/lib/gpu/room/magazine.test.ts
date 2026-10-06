@@ -10,8 +10,8 @@ const model = (): MagazineModel => ({
 	widthClass: 0, emPx0: 16, spreadW: 80, spreadH: 56, sheetW: 40, marginOuter: 4.5, marginSpine: 3.5, gutter: 1.2,
 	cellW: 6, cellH: 1.6, plainTextBytes: 5,
 	spreads: [
-		{ x: 0, w: 80, h: 56, template: 3, gridCols: 14, gridRows: 35, firstItem: 0, itemCount: 4, firstCell: 0, tone565: 0xf79e, materialMask: 3, accentIdx: 8, firstLine: 0, lineCount: 1 },
-		{ x: 100, w: 80, h: 56, template: 4, gridCols: 14, gridRows: 35, firstItem: 4, itemCount: 0, firstCell: 1, tone565: 0xf79e, materialMask: 1, accentIdx: 8, firstLine: 0, lineCount: 0 }
+		{ x: 0, w: 80, h: 56, template: 3, gridCols: 14, gridRows: 35, firstItem: 0, itemCount: 4, firstCell: 0, tone565: 0xf79e, materialMask: 3, accentIdx: 8, firstLine: 0, lineCount: 1, layer: 0 },
+		{ x: 100, w: 80, h: 56, template: 4, gridCols: 14, gridRows: 35, firstItem: 4, itemCount: 0, firstCell: 1, tone565: 0xf79e, materialMask: 1, accentIdx: 8, firstLine: 0, lineCount: 0, layer: 0 }
 	],
 	cells: [{ start: 0, count: 4 }, { start: 4, count: 0 }],
 	items: [packItem(ItemType.glyph, 0), packItem(ItemType.shape, 0), packItem(ItemType.stroke, 0), packItem(ItemType.numeral, 0)],

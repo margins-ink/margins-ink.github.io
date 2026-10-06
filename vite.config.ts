@@ -1,11 +1,11 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import Icons from 'unplugin-icons/vite';
-import { reader } from './scripts/reader/vite-plugin';
+import { magazine } from './scripts/magazine/vite-plugin';
 
 export default defineConfig({
 	plugins: [
-		reader(),
+		magazine(),
 		sveltekit(),
 		Icons({
 			compiler: 'svelte',

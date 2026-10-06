@@ -24,9 +24,11 @@ export interface World {
 	links: Int32Array;
 	/** Reader state machine (Reading/Scroll/Page entities, see docs/WORLD.md "Reader"). */
 	reader: ReaderApi;
+	/** the raw wasm exports (the magazine wrapper in ecs/magazine.ts drives them) */
+	exports: unknown;
 }
 
-export type ReaderEvent = { kind: 'opened' | 'closed' | 'scrollEnd' | 'page'; arg: number };
+export type ReaderEvent = { kind: 'opened' | 'closed' | 'scrollEnd' | 'page' | 'spread' | 'layerOpened' | 'layerClosed' | 'focus' | 'overview'; arg: number };
 
 /** Indices into `ReaderApi.state()`. */
 export const RS = {
@@ -119,7 +121,7 @@ interface Exports {
 	world_entity_count(): number;
 }
 
-const EVENTS: ReaderEvent['kind'][] = ['opened', 'closed', 'scrollEnd', 'page'];
+const EVENTS: ReaderEvent['kind'][] = ['opened', 'closed', 'scrollEnd', 'page', 'spread', 'layerOpened', 'layerClosed', 'focus', 'overview'];
 
 function readerApi(x: Exports): ReaderApi {
 	return {
@@ -169,6 +171,7 @@ export async function loadWorld(items: Thought[]): Promise<World> {
 		panes: new Float32Array(bytes(1)),
 		lvl: new Float32Array(bytes(2)),
 		links: new Int32Array(bytes(3)),
-		reader: readerApi(x)
+		reader: readerApi(x),
+		exports: x
 	};
 }

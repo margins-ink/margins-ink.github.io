@@ -1,4 +1,4 @@
-import { READER_WGSL } from './reader.wgsl';
+import { MAGAZINE_WGSL } from './magazine.wgsl';
 
 /**
  * Progressive path tracer for the study. One compute pass adds one sample per pixel
@@ -35,10 +35,12 @@ struct Scene {
   amb: vec4f,       // rgb ambient irradiance (E / pi units, added at the first vertex), w unused
   post: vec4f,      // x bloom strength, y chromatic aberration, z grain, w fog density
   fx: vec4f,        // probe bake: samples so far, samples this pass, 0, 0
-  rd0: vec4f,       // reader (reader.wgsl.ts): reading blend k, magazine object index (-1 none), em in metres, scroll in em
-  rd1: vec4f,       // reader: sheet plane x, y of the top of sheet 0, z, unused
-  rd2: vec4f,       // reader: first visible page, visible pages, hovered page + 1 (0 none), dark
-  rd3: vec4f,       // reader: hovered rect in page em (x0 y0 x1 y1)
+  rd0: vec4f,       // magazine (magazine.wgsl.ts): reading blend k, magazine object index (-1 none), em in metres, turn progress
+  rd1: vec4f,       // magazine: spine x, y of the top edge, plane z, turn direction
+  rd2: vec4f,       // magazine: shown spread index, 0, hovered spread + 1 (0 none), dark
+  rd3: vec4f,       // magazine: hovered rect in spread em (x0 y0 x1 y1)
+  rd4: vec4f,       // magazine: x tab peel amount (-1 none)
+  rd5: vec4f,       // magazine: x page bow, y gutter, z gain
 };
 
 @group(0) @binding(0) var<uniform> sc: Scene;
@@ -1069,7 +1071,7 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
     }
   }
 
-  // article sheets (surface kind 10), see reader.wgsl.ts
+  // article sheets (surface kind 10), see magazine.wgsl.ts
   if (sc.rd0.x > 0.0) {
     let ph = page_trace(o, d);
     if (ph.t > 0.0 && ph.t < tt) {
@@ -1214,4 +1216,4 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   // dither after the gamma curve (1.5 / 255 peak to peak): before it, the curve amplified the noise visibly in dark areas
   return vec4f(pow(c, vec3f(1.0 / 2.2)) + (hash21(pos.xy) - 0.5) * (1.5 / 255.0), 1.0);
 }
-` + READER_WGSL;
+` + MAGAZINE_WGSL;

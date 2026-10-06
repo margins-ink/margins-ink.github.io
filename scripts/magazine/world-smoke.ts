@@ -1,7 +1,8 @@
+// Headless smoke test of the magazine ECS in world.wasm: bun scripts/magazine/world-smoke.ts
 import { wasiImports } from '../../src/lib/gpu/room/world.ts';
 import fs from 'node:fs';
 let memory: WebAssembly.Memory;
-const bytes = fs.readFileSync('../../src/lib/gpu/room/world.wasm');
+const bytes = fs.readFileSync(new URL('../../src/lib/gpu/room/world.wasm', import.meta.url));
 const { instance } = await WebAssembly.instantiate(bytes, wasiImports(() => memory) as any);
 const x: any = instance.exports; memory = x.memory;
 const items = [{slug:'ifd',date:'2025-01-01',archived:false,tex:[0,0,1,1]}];

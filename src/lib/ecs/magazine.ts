@@ -33,6 +33,8 @@
 //   bounce(), pulse_tab()
 //   figure_focus(id: i32)                       -1 clears
 //   figure_seek(id: u32, t: f32)
+//   figure_define(id, spread, mode, duration, poster)   declare one figure of the resident article (call after spread_init)
+//   set_reduced_motion(on)                      figures pin their poster time
 //   overview_set(on: u32)
 //   figure_clock_ptr() -> *const f32            Figure.t per figure index, as the channel evaluator reads them
 //   magazine_state_ptr() -> *const f32          MAG_STATE_LEN floats, layout MagState below
@@ -69,6 +71,8 @@ export interface MagazineExports {
 	pulse_tab(): void;
 	figure_focus(id: number): void;
 	figure_seek(id: number, t: number): void;
+	figure_define(id: number, spread: number, mode: number, duration: number, poster: number): void;
+	set_reduced_motion(on: number): void;
 	overview_set(on: number): void;
 	figure_clock_ptr(): number;
 	magazine_state_ptr(): number;

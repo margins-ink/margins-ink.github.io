@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createAudio } from '$lib/audio';
 	import { page } from '$app/state';
-	import { afterNavigate, goto } from '$app/navigation';
+	import { afterNavigate, goto, replaceState } from '$app/navigation';
 	import { tick } from 'svelte';
 	import { thoughts, thoughtBySlug } from '$lib/thoughts';
 	import { createRoom, type Room, type LinkHit } from '$lib/gpu/room/room';
@@ -42,12 +42,16 @@
 				ws.floors = r?.floors ?? [];
 				if (r) r.setAudio(audio);
 				r?.onReader((e) => {
-					if (e.kind === 'page') {
-						ws.page = e.arg;
-						audio.event('paperTurn', 0.5);
-					} else if (e.kind === 'opened') audio.event('open', 0.7);
-					else if (e.kind === 'closed') audio.event('close', 0.6);
-				});
+						if (e.kind === 'spread') {
+							ws.page = e.arg;
+							audio.event('paperTurn', 0.5);
+						} else if (e.kind === 'layerOpened') audio.event('open', 0.7);
+						else if (e.kind === 'layerClosed') audio.event('close', 0.6);
+						else if (e.kind === 'opened') audio.event('open', 0.7);
+						else if (e.kind === 'closed') audio.event('close', 0.6);
+					});
+					r?.onFollow(follow);
+					r?.onHash((h) => replaceState(page.url.pathname + h, page.state));
 				onscroll();
 			})
 			.catch((e) => {
@@ -73,7 +77,7 @@
 		if (s === null) void restoreShelf();
 	});
 	$effect(() => {
-		ws.pages = room?.reading.pages ?? 0;
+		ws.pages = room?.reading.spreads ?? 0;
 	});
 
 	let canGoBack = false;
@@ -117,7 +121,6 @@
 
 	function follow(l: LinkHit) {
 		if (l.kind === 0) window.open(l.target, '_blank', 'noopener');
-		else if (l.kind === 1 || l.kind === 2) room?.scrollToAnchor(l.target);
 		else void goto(l.target);
 	}
 
@@ -130,8 +133,11 @@
 			if (!e.ctrlKey) {
 				if (reading) {
 					e.preventDefault();
-					const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1;
-					room.scrollByPx(e.deltaY * k);
+					const r = el.getBoundingClientRect();
+					room.wheel({
+						dx: e.deltaX, dy: e.deltaY, mode: e.deltaMode as 0 | 1 | 2, ctrl: false, pageH: innerHeight,
+						ndcDx: (e.deltaX / r.width) * 2, ndcDy: (e.deltaY / r.height) * 2
+					});
 					return;
 				}
 				// two-finger pan: while zoomed in, the scene moves instead of the page
@@ -159,16 +165,19 @@
 		};
 		const pts = new Map<number, { x: number; y: number }>();
 		let dist = 0;
-		let moved = 0;
-		let samples: { t: number; y: number }[] = [];
+		const rec = (e: PointerEvent) => {
+			const [nx, ny] = ndc(e);
+			return { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, type: (e.pointerType || 'mouse') as 'mouse' | 'touch' | 'pen', nx, ny };
+		};
 		const down = (e: PointerEvent) => {
 			void audio.resume();
 			pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-			moved = 0;
-			samples = [{ t: e.timeStamp, y: e.clientY }];
 			if (pts.size === 2) {
 				const [a, b] = [...pts.values()];
 				dist = Math.hypot(a.x - b.x, a.y - b.y);
+			}
+			if (reading && room && pts.size === 1) {
+				if (room.pointerDown(rec(e)) === 'handled') el.setPointerCapture(e.pointerId);
 			}
 		};
 		const move = (e: PointerEvent) => {
@@ -177,6 +186,7 @@
 			if (!p) {
 				if (reading && e.pointerType === 'mouse') {
 					const [nx, ny] = ndc(e);
+					room.pointerMove(rec(e));
 					el.style.cursor = room.hoverAt(nx, ny)?.link ? 'pointer' : '';
 				}
 				return;
@@ -186,32 +196,22 @@
 			const dy = e.clientY - p.y;
 			p.x = e.clientX;
 			p.y = e.clientY;
-			moved += Math.abs(dx) + Math.abs(dy);
 			if (pts.size === 2) {
 				const [a, b] = [...pts.values()];
 				const d = Math.hypot(a.x - b.x, a.y - b.y);
 				const [nx, ny] = ndc({ clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 });
 				if (dist > 0) room.zoomAt(d / dist, nx, ny);
 				dist = d;
-			} else if (e.pointerType === 'touch' && reading) {
-				room.scrollByPx(-dy);
-				samples.push({ t: e.timeStamp, y: e.clientY });
-				samples = samples.filter((s) => e.timeStamp - s.t < 80);
-			} else if (room.zoom > 1.01 && e.pointerType === 'mouse') {
-				room.panBy((dx / r.width) * 2, -(dy / r.height) * 2);
+			} else {
+				if (reading) room.pointerMove(rec(e));
+				if (room.zoom > 1.01 && e.pointerType === 'mouse') room.panBy((dx / r.width) * 2, -(dy / r.height) * 2);
 			}
 		};
 		const up = (e: PointerEvent) => {
-			if (e.pointerType === 'touch' && reading && pts.size === 1 && samples.length > 1) {
-				const a = samples[0];
-				const b = samples[samples.length - 1];
-				if (b.t > a.t) room?.flingPx((-(b.y - a.y) / (b.t - a.t)) * 1000);
-			}
-			if (e.type === 'pointerup' && reading && room && moved < 6 && pts.size === 1) {
+			if (reading && room && pts.size === 1) {
+				const out = room.pointerUp(rec(e), e.type === 'pointercancel');
 				const [nx, ny] = ndc(e);
-				const h = room.hoverAt(nx, ny);
-				if (h?.link) follow(h.link);
-				else if (!h) close();
+				if (out === 'ignore' && e.type === 'pointerup' && !room.onBook(nx, ny)) close();
 			}
 			pts.delete(e.pointerId);
 			dist = 0;
@@ -241,22 +241,19 @@
 		if (!reading || !room || e.metaKey || e.ctrlKey || e.altKey) return;
 		const t = e.target as HTMLElement | null;
 		if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
-		const vh = innerHeight;
-		const step: Record<string, number> = { ArrowDown: 60, ArrowUp: -60, PageDown: vh * 0.9, PageUp: -vh * 0.9, ' ': e.shiftKey ? -vh * 0.9 : vh * 0.9 };
-		if (e.key === 'Escape') {
+		const out = room.keyIn({ key: e.key, shift: e.shiftKey, mod: false });
+		if (out === 'handled') e.preventDefault();
+		else if (e.key === 'Escape') {
 			e.preventDefault();
 			close();
-		} else if (e.key in step) {
-			e.preventDefault();
-			room.scrollByPx(step[e.key]);
-		} else if (e.key === 'Home' || e.key === 'End') {
-			e.preventDefault();
-			room.scrollByPx(e.key === 'Home' ? -1e6 : 1e6);
 		}
+	}
+	function onhashchange() {
+		if (reading) room?.applyHash(location.hash);
 	}
 </script>
 
-<svelte:window {onscroll} {onkeydown} />
+<svelte:window {onscroll} {onkeydown} {onhashchange} />
 
 <div class="stage" class:live={ws.live} class:reading>
 	<canvas bind:this={canvas} aria-hidden="true"></canvas>

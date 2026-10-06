@@ -1,4 +1,4 @@
-// GPU side of the in-world magazine (docs/MAGAZINE.md): loads the build-time RDR2 binaries (static/reader/*.bin), assembles
+// GPU side of the in-world magazine (docs/MAGAZINE.md): loads the build-time RDR2 binaries (static/magazine/*.bin), assembles
 // the single `reader` storage buffer magazine.wgsl.ts reads, owns the image texture array and the per-frame channel
 // subrange, mirrors the sheet geometry on the CPU for hit tests, and fills the rd* scene uniforms. Replaces reader.ts.
 //
@@ -25,7 +25,7 @@ interface ImageInfo { id: number; w: number; h: number; tiers: { w: number; h: n
 interface Index {
 	fonts: string;
 	classes: { id: number; name: string; sheetW: number; sheetH: number }[];
-	articles: { slug: string; bins: Record<string, { file: string }> }[];
+	articles: { slug: string; opensFull?: boolean; bins: Record<string, { file: string }> }[];
 	images: ImageInfo[];
 }
 
@@ -57,6 +57,11 @@ export interface Article {
 	anchors: { id: string; spread: number; y: number }[];
 	figures: FigureInfo[];
 	imageIds: number[];
+	/** the article has no distilled layer of its own (voice template null): open on the full text */
+	opensFull: boolean;
+	/** packed channel and key tables (format.ts records) for the figure evaluator */
+	chans: { firstKey: number; keyCount: number }[];
+	keys: { t: number; v: number; ease: number }[];
 }
 
 /** Everything the book geometry and the shader depend on; written into the scene uniform with writeRd. */
@@ -218,8 +223,8 @@ export class Magazine {
 	}
 
 	private getIndex() {
-		return (this.index ??= fetch('/reader/index.json').then((r) => {
-			if (!r.ok) throw new Error(`reader/index.json: ${r.status}`);
+		return (this.index ??= fetch('/magazine/index.json').then((r) => {
+			if (!r.ok) throw new Error(`magazine/index.json: ${r.status}`);
 			return r.json() as Promise<Index>;
 		}));
 	}
@@ -227,8 +232,8 @@ export class Magazine {
 	private async bin(file: string): Promise<Container> {
 		let p = this.bins.get(file);
 		if (!p) {
-			p = fetch(`/reader/${file}`).then(async (r) => {
-				if (!r.ok) throw new Error(`reader/${file}: ${r.status}`);
+			p = fetch(`/magazine/${file}`).then(async (r) => {
+				if (!r.ok) throw new Error(`magazine/${file}: ${r.status}`);
 				return unpackContainer(new Uint8Array(await r.arrayBuffer()));
 			});
 			this.bins.set(file, p);
@@ -289,7 +294,8 @@ export class Magazine {
 		const layers = m.spreads.map((s) => (s as unknown as { layer?: number }).layer ?? 0);
 		this.article = {
 			slug, cls, single, sheetW: m.sheetW, spreadW: m.spreadW, spreadH: m.spreadH, spreadCount: m.spreads.length,
-			layers, links, anchors, figures, imageIds: asm.imageIds
+			layers, links, anchors, figures, imageIds: asm.imageIds, opensFull: !!a.opensFull,
+			chans: m.chans as unknown as Article['chans'], keys: m.keys as unknown as Article['keys']
 		};
 		void this.loadImages(asm.imageIds, asm.imageIds.map((id) => tierFor(id)), my);
 		return this.article;
