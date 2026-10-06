@@ -224,7 +224,7 @@ describe('page_trace mirror', () => {
 		writeRd(out, 3, { k: 1, magObj: 7, progress: 0.5, dir: -1, spineX: 2, topY: 3, z: 4, index: 5, hoverSpread: 6, hoverRect: [1, 2, 3, 4], peel: 0.25 });
 		expect(RD_FLOATS).toBe(24);
 		expect(Array.from(out.subarray(3, 3 + 24)).map((v) => +v.toFixed(4))).toEqual([
-			1, 7, +EM.toFixed(4), 0.5, 2, 3, 4, -1, 5, 0, 7, 0, 1, 2, 3, 4, 0.25, 0, 0, 0, +BOW.toFixed(4), 0.18, 1, 0
+			1, 7, +EM.toFixed(4), 0.5, 2, 3, 4, -1, 5, 0, 7, 0, 1, 2, 3, 4, 0.25, 1, 0, 0, +BOW.toFixed(4), 0.18, 1, 0
 		]);
 	});
 });
