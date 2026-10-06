@@ -1,12 +1,10 @@
 <script lang="ts">
 	import '../../app.css';
 	import { page } from '$app/state';
-	import Navbar from '$lib/components/Navbar.svelte';
 	import type { LayoutData } from './$types';
 
 	const { data, children }: { data?: LayoutData; children: any } = $props();
 
-	// Landing is its own masthead; navbar would duplicate identity there.
 	const isLanding = $derived(page.url.pathname === '/');
 </script>
 
@@ -16,12 +14,17 @@
 	{/if}
 </svelte:head>
 
-{#if !isLanding}
-	<Navbar />
-{/if}
-
-<div
-	style="max-width: var(--content-max-width); margin: 0 auto; padding-top: {isLanding ? '0' : '5rem'};"
->
+<div class="shell" class:landing={isLanding}>
 	{@render children?.()}
 </div>
+
+<style>
+	:global(body) {
+		max-width: none;
+		padding: 0;
+	}
+	.shell {
+		width: min(1120px, calc(100vw - 3rem));
+		margin: 0 auto;
+	}
+</style>

@@ -16,6 +16,8 @@
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.60.0",
 		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"@types/d3": "^7.4.3",
+		"@webgpu/types": "^0.1.74",
 		"hast-util-to-string": "^3.0.1",
 		"mdsvex": "^0.12.7",
 		"shiki": "^4.0.2",

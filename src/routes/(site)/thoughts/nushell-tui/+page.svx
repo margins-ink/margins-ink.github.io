@@ -1,6 +1,8 @@
 ---
 title: Giving AI agents `gdb`
+dek: "A Nushell plugin that lets agents drive gdb, SSH and other terminal apps through typed commands."
 date: 2025-11-10
+archived: true
 username: andrewgazelka
 ---
 

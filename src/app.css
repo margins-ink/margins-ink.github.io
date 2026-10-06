@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,450;14..32,500;14..32,550&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..800;1,6..72,400..700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -13,6 +14,7 @@
 :root {
     /* Typography */
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-serif: 'Newsreader', 'Iowan Old Style', Georgia, serif;
     --font-mono: 'Fira Code', 'SF Mono', ui-monospace, monospace;
     --font-mono-features: "liga" 1, "calt" 1;
 
@@ -325,3 +327,8 @@ tbody tr:hover {
     color: var(--background);
 }
 
+
+html,
+body {
+	overscroll-behavior: none;
+}

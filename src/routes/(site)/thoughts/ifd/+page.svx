@@ -1,5 +1,6 @@
 ---
 title: "IFD is fine"
+dek: "The case against import-from-derivation is a case against CppNix's evaluator, not against the idea."
 date: 2026-05-13
 username: andrewgazelka
 ---
@@ -79,7 +80,7 @@ Tvix's roadmap names the goal explicitly: make IFD "a first-class citizen withou
 
 **Job enumeration.** Hydra wants the full job set before dispatching. With IFD, the set is discovered as eval progresses. That is a scheduler change. Snix's evaluator emits derivations as it finds them, which is what an async dispatcher would want even without IFD. The dispatcher you cannot write against CppNix is the one Snix makes natural.
 
-**Cycles.** Can IFD create a cycle: a derivation whose output is read by the eval that defines it? The store is content-addressed, so the cycle reduces to whether you can compute a hash whose inputs depend on the hash. You cannot. Snix detects the case the same way CppNix does, by tracking the eval frame around each thunk. This is the [Nix-without-the-DAG](/thoughts/nix-cycles) problem from a different angle, and IFD does not change the answer.
+**Cycles.** Can IFD create a cycle: a derivation whose output is read by the eval that defines it? The store is content-addressed, so the cycle reduces to whether you can compute a hash whose inputs depend on the hash. You cannot. Snix detects the case the same way CppNix does, by tracking the eval frame around each thunk. IFD does not change the answer.
 
 **Reproducibility under unsandboxed builds.** The real risk people gesture at when they say "IFD is impure" is the impurity of the underlying build (network access, host tooling, wall-clock dependence). That risk exists for any derivation. IFD just lets you read the result. If the build is reproducible, IFD is reproducible. If the build is not, the problem was the build.
 
