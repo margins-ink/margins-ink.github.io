@@ -42,6 +42,10 @@ struct Scene {
   rd4: vec4f,       // magazine: x tab peel amount (-1 none), y cover hinge 0..1, z cover board in play
   rd5: vec4f,       // magazine: x page bow, y gutter, z gain
   cab: vec4f,       // elevator (docs/ELEVATOR.md): x car depth in metres (cab frame y = world y + x), y settled (skip rays that clearly pass the open door), z cab on, w cab level index in lvl
+  ov: array<vec4f, 24>, // the world's scrollbar (rail.ts): 12 rounded rects, each (x y w h in device px) then (straight sRGB rgb, alpha)
+  lab: vec4f,       // floor sign plate beside the thumb: rect in device px
+  labt: vec4f,      // its atlas rect (u0 v0 u1 v1)
+  laba: vec4f,      // x alpha
 };
 
 @group(0) @binding(0) var<uniform> sc: Scene;
@@ -610,6 +614,11 @@ fn radiance(o_in: vec3f, d_in: vec3f, level: u32, cam: bool) -> PathOut {
 // is shifted by the car depth. The hall doors of every floor are part of this list.
 const CAB_GAIN = 7.0;
 fn cab_level() -> u32 { return u32(sc.cab.w); }
+// zoomed out: per-ray random for the cutaway dissolve, the share of rays that skip the building's front wall
+var<private> cut_r: f32 = 1.0;
+fn hall_cut() -> f32 { return smoothstep(0.1, 0.5, sc.fx.z); }
+// where a ray enters the building: the front plane, or just behind the hall wall for the rays that cut it away
+fn front_z() -> f32 { return select(sc.misc.z, sc.misc.z - 0.11, cut_r < hall_cut()); }
 fn cab_primary(oc: vec3f, d: vec3f) -> Hit {
   if (sc.cab.y > 0.5 && oc.z > 4.6 && d.z < -1e-3) {
     // settled with the doors open: a ray that stays inside the clear opening from the eye to the shaft rails cannot hit
@@ -619,7 +628,24 @@ fn cab_primary(oc: vec3f, d: vec3f) -> Hit {
     let ya = oc.y + d.y * (4.1 - oc.z) / d.z;
     if (abs(xa) < 0.8 && abs(xb) < 0.8 && ya > 0.15 && ya < 1.85) { return Hit(-1.0, vec3f(0.0), vec3f(0.0), -1); }
   }
-  return intersect(oc, d, 1e5, false, cab_level());
+  if (sc.fx.z <= 0.0) { return intersect(oc, d, 1e5, false, cab_level()); }
+  // zoomed out: the ceiling (and the hall door leaves, which stand in the building's front wall) dissolve per ray with the zoom,
+  // the accumulation turns the noise into a see-through cutaway
+  let cut_ceil = smoothstep(0.05, 0.3, sc.fx.z);
+  let cut_wall = hall_cut();
+  var best = Hit(-1.0, vec3f(0.0), vec3f(0.0), -1);
+  var tmax = 1e5;
+  let first = u32(lvl[cab_level() * LS].x);
+  let n = first + u32(lvl[cab_level() * LS].y);
+  for (var i = first; i < n; i++) {
+    let ob = objs[i];
+    if (ob.c.z > 4.5 && ob.c.y > 2.3 && ob.c.y < 2.8 && cut_r < cut_ceil) { continue; }
+    if (ob.c.z > 3.8 && ob.c.z < 3.9 && cut_r < cut_wall) { continue; }
+    var h: Hit;
+    if (ob.c.w >= 8.0) { h = sphere_hit(oc, d, ob, tmax); } else { h = box_hit(oc, d, ob, tmax); }
+    if (h.t > 0.0) { best = h; best.id = i32(i); tmax = h.t; }
+  }
+  return best;
 }
 
 // sphere light of the cab lamp at cab-frame point pc: (direction to it, irradiance factor E / pi per unit colour)
@@ -665,6 +691,7 @@ fn cs(@builtin(global_invocation_id) gid: vec3u) {
   rng_state = idx * 9781u + u32(sc.tone.y) * 6271u + 1u;
   pcg(); pcg();
 
+  cut_r = pcg();
   let uv = (vec2f(gid.xy) + vec2f(pcg(), pcg())) / sc.res;
   let ndc = sc.view.xy + vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0) * sc.view.z;
   let aspect = sc.res.x / sc.res.y;
@@ -686,7 +713,7 @@ fn cs(@builtin(global_invocation_id) gid: vec3u) {
   if (sc.cab.z > 0.5) { ch = cab_primary(oc, d); }
 
   // enter the building through its open front
-  let tp = (sc.misc.z - o.z) / d.z;
+  let tp = (front_z() - o.z) / d.z;
   let q = o + d * tp;
   let top = sc.misc.w;
   let depth = top - q.y;
@@ -1056,6 +1083,7 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
   if (f32(gid.x) >= sc.res.x || f32(gid.y) >= sc.res.y) { return; }
   let idx = gid.y * u32(sc.res.x) + gid.x;
 
+  cut_r = hash21(vec2f(gid.xy) + vec2f(0.5));
   let uv = (vec2f(gid.xy) + vec2f(0.5)) / sc.res;
   let ndc = sc.view.xy + vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0) * sc.view.z;
   let aspect = sc.res.x / sc.res.y;
@@ -1073,7 +1101,7 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
   var ch = Hit(-1.0, vec3f(0.0), vec3f(0.0), -1);
   if (sc.cab.z > 0.5) { ch = cab_primary(oc, d); }
 
-  let tp = (sc.misc.z - o.z) / d.z;
+  let tp = (front_z() - o.z) / d.z;
   let q = o + d * tp;
   let top = sc.misc.w;
   let depth = top - q.y;
@@ -1305,6 +1333,28 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let uv = pos.xy / vec2f(sc.tone.z, sc.tone.w) - 0.5;
   c *= 1.0 - 0.55 * dot(uv, uv);
   // dither after the gamma curve (1.5 / 255 peak to peak): before it, the curve amplified the noise visibly in dark areas
-  return vec4f(pow(c, vec3f(1.0 / 2.2)) + (hash21(pos.xy) - 0.5) * (1.5 / 255.0), 1.0);
+  var o = pow(c, vec3f(1.0 / 2.2)) + (hash21(pos.xy) - 0.5) * (1.5 / 255.0);
+  // the scrollbar, in display space over the finished picture
+  for (var i = 0u; i < 12u; i++) {
+    let r = sc.ov[i * 2u];
+    let col = sc.ov[i * 2u + 1u];
+    if (col.w <= 0.0) { continue; }
+    let hs = r.zw * 0.5;
+    let rad = min(hs.x, hs.y);
+    let q = abs(pos.xy - (r.xy + hs)) - hs + vec2f(rad);
+    let d = length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - rad;
+    o = mix(o, col.rgb, clamp(0.5 - d, 0.0, 1.0) * col.w);
+  }
+  if (sc.laba.x > 0.0) {
+    let r = sc.lab;
+    let hs = r.zw * 0.5;
+    let q = abs(pos.xy - (r.xy + hs)) - hs + vec2f(6.0);
+    let d = length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - 6.0;
+    let t = clamp((pos.xy - r.xy) / r.zw, vec2f(0.0), vec2f(1.0));
+    let tc = mix(sc.labt.xy, sc.labt.zw, t);
+    let tx = textureSampleLevel(atlas, atlas_s, tc, 0.0).rgb;
+    o = mix(o, tx, clamp(0.5 - d, 0.0, 1.0) * sc.laba.x);
+  }
+  return vec4f(o, 1.0);
 }
 ` + MAGAZINE_WGSL;

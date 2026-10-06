@@ -119,3 +119,12 @@ Measure frame time against the pre-elevator baseline (benchmark rules) before ad
 Compile risk: flecs_ecs calls (observers with pair `.with`, `try_cloned`, `add_trait`) were inferred from magazine.rs, not built.
 The Rig role parameters a, b and prefab names (`CabGateBar`, `CabLeaf`, `CabDialLamp`, `CabButton`) must match 11-elevator.flecs.
 `elevator_tick` and `world_tick` ordering: Rust systems run in `world_tick`, so call `elevator_tick` first.
+
+## Zoom-out and the world scrollbar (2026-10-06, verified in headless Chrome, dark)
+
+- `Zoom {level, target, vel}` is a Flecs singleton (world/src/elevator.rs, system `ZoomSpring`, critically damped, omega 7); exports `elevator_zoom_by(delta)`, `elevator_zoom_to(t)`; state[40..42]. Independent of the floor detents; `Hold` (reading) sets the target to 0.
+- Input: `Room.zoomAt` routes ctrl-wheel / pinch (factor < 1 at full frame zooms out, factor > 1 zooms back in first, then the old view-window zoom), and `-` / `=` (World.svelte) call `zoomOutBy`. No button.
+- Camera (room.ts `shelfCamera`): depth leaves first (smoothstep), height follows once the cab is behind (0.25..0.9), FOV widens to tan 0.5; fits all floors (x1.3 margin). The cab has no back wall, so the camera leaves through it.
+- Cutaway (shader.ts, both `cs` and `cs_view`): per-ray dissolve with `sc.fx.z` (the zoom): the building's front wall (rays enter at z 3.89 instead of 4.0) and the hall door leaves from zoom 0.1, the cab ceiling from 0.05; accumulation turns the noise into a see-through cutaway. Rig role 12 = full-height guide rails and four shaft posts (x = a, z = b, world-fixed).
+- Clicking a floor of the cross-section (`Room.floorAt`) scrolls the page to that floor; the cab goes there.
+- Scrollbar: `src/lib/gpu/room/rail.ts` reuses the reader's `reading/ui/scrollbar.ts` maths; drawn in `fs` from the `ov` rows of the Scene uniform (floats from `RAIL_AT` = 92, the end of the Scene struct: recount when a field is added), a tick per floor, the floor's sign plate beside the thumb while it moves, dim when zoomed out, faint at rest. Thumb drag scrolls the spacer (the cab follows), release snaps the scroll to the nearest floor, a tick or the track pages.

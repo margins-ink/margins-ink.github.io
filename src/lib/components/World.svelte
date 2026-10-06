@@ -119,6 +119,14 @@
 		scrollTo({ top: sp.getBoundingClientRect().top + scrollY + (k / Math.max(1, floorCount - 1)) * span, behavior: 'smooth' });
 	}
 
+	/** Send the cab to floor k at once (the page scroll is the elevator's input; the detents settle on k). */
+	function goFloor(k: number) {
+		const sp = document.getElementById('world-spacer');
+		if (!sp) return;
+		const span = Math.max(1, sp.offsetHeight - innerHeight);
+		scrollTo({ top: sp.getBoundingClientRect().top + scrollY + (k / Math.max(1, floorCount - 1)) * span, behavior: 'instant' });
+	}
+
 	const ndc = (e: { clientX: number; clientY: number }) => {
 		const r = canvas!.getBoundingClientRect();
 		return [((e.clientX - r.left) / r.width) * 2 - 1, 1 - ((e.clientY - r.top) / r.height) * 2];
@@ -155,7 +163,34 @@
 		};
 		const pts = new Map<number, { x: number; y: number }>();
 		let dist = 0;
+		// the scrollbar (GPU-drawn, gpu/room/rail.ts): thumb drag moves the cab continuously, release snaps to the nearest floor,
+		// a tick sends the cab to that floor, the track pages
+		let railPtr = -1;
+		let swallow = false;
+		const spacerTo = (y: number, behavior: ScrollBehavior) => {
+			const sp = document.getElementById('world-spacer');
+			if (sp) scrollTo({ top: sp.getBoundingClientRect().top + scrollY + y, behavior });
+		};
+		const local = (e: PointerEvent) => {
+			const r = el.getBoundingClientRect();
+			return { x: e.clientX - r.left, y: e.clientY - r.top };
+		};
+		const railDown = (e: PointerEvent) => {
+			if (reading || !room || e.button !== 0) return false;
+			const p = local(e);
+			const h = room.rail.down(p.x, p.y);
+			if (!h) return false;
+			swallow = true;
+			e.preventDefault();
+			if (h.kind === 'thumb') {
+				railPtr = e.pointerId;
+				el.setPointerCapture(e.pointerId);
+			} else if (h.kind === 'tick') spacerTo(room.rail.floorScroll(h.floor), 'instant');
+			else spacerTo(h.scrollY, 'smooth');
+			return true;
+		};
 		const down = (e: PointerEvent) => {
+			if (railDown(e)) return;
 			void audio.resume();
 			pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
 			if (pts.size === 2) {
@@ -164,6 +199,15 @@
 			}
 		};
 		const move = (e: PointerEvent) => {
+			if (room && !reading) {
+				const lp = local(e);
+				if (e.pointerId === railPtr) {
+					const sy = room.rail.drag(lp.y);
+					if (sy !== null) spacerTo(sy, 'instant');
+					return;
+				}
+				if (e.pointerType === 'mouse') room.rail.hover(lp);
+			}
 			const p = pts.get(e.pointerId);
 			if (!room || !p) return;
 			const r = el.getBoundingClientRect();
@@ -180,6 +224,12 @@
 			} else if (room.zoom > 1.01 && e.pointerType !== 'mouse') room.panBy((dx / r.width) * 2, -(dy / r.height) * 2);
 		};
 		const up = (e: PointerEvent) => {
+			if (e.pointerId === railPtr) {
+				railPtr = -1;
+				const sy = room?.rail.up();
+				if (sy != null) spacerTo(sy, 'smooth');
+				return;
+			}
 			pts.delete(e.pointerId);
 			dist = 0;
 		};
@@ -192,6 +242,17 @@
 			return ws.spots.find((s) => x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h);
 		};
 		const click = (e: MouseEvent) => {
+			if (swallow) {
+				swallow = false;
+				return;
+			}
+			if (!reading && room && room.zoomLevel > 0.5) {
+				// zoomed out: a floor of the cross-section is a hit region, the cab goes there
+				const [nx, ny] = ndc(e);
+				const k = room.floorAt(nx, ny);
+				if (k >= 0) goFloor(k);
+				return;
+			}
 			const s = spotAt(e);
 			if (s) void goto(hrefOf(s.id));
 		};
@@ -207,6 +268,15 @@
 			else return;
 			e.preventDefault();
 		};
+		// - and = pull the camera out of the cab and back in (no button, no hover target)
+		const zoomKey = (e: KeyboardEvent) => {
+			if (reading || !room || e.metaKey || e.ctrlKey || e.altKey) return;
+			if (e.key === '-' || e.key === '_') room.zoomOutBy(0.06);
+			else if (e.key === '=' || e.key === '+') room.zoomOutBy(-0.06);
+			else return;
+			e.preventDefault();
+		};
+		window.addEventListener('keydown', zoomKey);
 		el.addEventListener('click', click);
 		el.addEventListener('pointermove', hover);
 		el.addEventListener('keydown', key);
@@ -218,8 +288,10 @@
 		el.addEventListener('pointermove', move);
 		el.addEventListener('pointerup', up);
 		el.addEventListener('pointercancel', up);
+		el.addEventListener('pointerleave', () => room?.rail.hover(null));
 		el.addEventListener('dblclick', () => room?.resetView());
 		return () => {
+			window.removeEventListener('keydown', zoomKey);
 			el.removeEventListener('click', click);
 			el.removeEventListener('pointermove', hover);
 			el.removeEventListener('keydown', key);

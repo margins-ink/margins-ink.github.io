@@ -181,11 +181,21 @@ prefab CabCounterweight : CabIron { Half: {0.2, 0.6, 0.04}
 prefab CabCable : CabIron { Half: {0.007, 0.5, 0.007}
   Center: {0.55, -50, 4.12}
   Material: {0.4, 0.7} }
+// shaft frame seen from outside when the camera is zoomed out: full-height corner posts (the cab frame is open at its back)
+prefab CabPost : CabIron { Half: {0.035, 1.9, 0.035}
+  Center: {0, 1.25, 4.16}
+  Material: {0.6, 0.5} }
 prefab CabShaft {
   rail_l : CabIron { Center: {-0.93, 1.25, 4.08}
-    Half: {0.025, 1.9, 0.02} }
+    Half: {0.025, 1.9, 0.02}
+    Rig: {12, -0.93, 4.08, 0} }
   rail_r : CabIron { Center: {0.93, 1.25, 4.08}
-    Half: {0.025, 1.9, 0.02} }
+    Half: {0.025, 1.9, 0.02}
+    Rig: {12, 0.93, 4.08, 0} }
+  post_fl : CabPost { Rig: {12, -1.52, 4.16, 0} }
+  post_fr : CabPost { Rig: {12, 1.52, 4.16, 0} }
+  post_bl : CabPost { Rig: {12, -1.52, 6.6, 0} }
+  post_br : CabPost { Rig: {12, 1.52, 6.6, 0} }
   fp_l0 : CabPlate { Center: {-0.93, 0.6, 4.08}
     Rig: {7, -1, 0, 0} }
   fp_l1 : CabPlate { Center: {-0.93, 1.8, 4.08}

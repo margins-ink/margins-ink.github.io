@@ -5,6 +5,7 @@ import { buildLightmapLayout } from './lightmap';
 import { TRACE } from './shader';
 import { loadWorld, RS, type Floor } from './world';
 import { elevatorApi, ES } from './elevator';
+import { createRail, RAIL_FLOATS, signLabel, type RailHit, type RailView } from './rail';
 import { makeBookBuffer, writeRd, SHEET_W, SHEET_H, type BookUniforms } from './book';
 import type { Reading } from '$lib/reading/abi';
 
@@ -27,6 +28,21 @@ export interface Room {
 	panBy(dnx: number, dny: number): void;
 	resetView(): void;
 	readonly zoom: number;
+	/** Camera pull-back 0 (in the cab) .. 1 (the whole shaft and building cross-section), spring-animated by the Flecs Zoom singleton. */
+	readonly zoomLevel: number;
+	/** The world's scrollbar (GPU-drawn, rail.ts). Positions are CSS px on the canvas; scroll values are px into the spacer (0 .. docPx - viewH). */
+	rail: {
+		hover(p: { x: number; y: number } | null): void;
+		down(x: number, y: number): RailHit | null;
+		drag(y: number): number | null;
+		up(): number | null;
+		floorScroll(k: number): number;
+		readonly dragging: boolean;
+	};
+	/** Move the zoom target by delta (> 0 out, < 0 in); wheel, pinch and the - and = keys all land here. */
+	zoomOutBy(delta: number): void;
+	/** Floor index under a screen point (ndc, y up) in the zoomed-out view, or -1. */
+	floorAt(nx: number, ny: number): number;
 	/** The URL is the source of truth: the route layer calls this with the slug in the path, or null on the shelf. */
 	setReading(slug: string | null, opts?: { snap?: boolean }): void;
 	/** Primary ray through a screen point (ndc, y up), the same basis the tracer uses. */
@@ -57,8 +73,12 @@ const PROBE_MIPS = 5;
 const PROBE_SPP = 256;
 const PROBE_STEP = 2;
 /** Floats in the Scene uniform (see shader.ts). */
-const SCENE_FLOATS = 104;
+/** floats before the rail rows: the Scene struct up to `cab` (shader.ts) */
+const RAIL_AT = 92;
+const SCENE_FLOATS = RAIL_AT + RAIL_FLOATS;
 const CAM_Z = 5.2;
+/** ln of the pinch factor that takes the camera from the cab to the whole shaft. */
+const ZOOM_GAIN = 1.5;
 type V3 = [number, number, number];
 
 /** Eye z at the door (lens 1): as far forward as the room view still fits through the hall door (its top ray 0.4 m above the eye at z 3.9). */
@@ -68,6 +88,10 @@ function doorEyeZ(thBase: number) {
 	return z;
 }
 
+const smooth = (a: number, b: number, x: number) => {
+	const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+	return t * t * (3 - 2 * t);
+};
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const norm = (a: V3): V3 => {
@@ -170,7 +194,7 @@ export async function createRoom(
 	const lvlBuf = storage(world.lvl.byteLength);
 	device.queue.writeBuffer(lvlBuf, 0, world.lvl);
 
-	const sceneBuf = device.createBuffer({ size: 512, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const sceneBuf = device.createBuffer({ size: 1024, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
 	const atlasTex = device.createTexture({
 		size: [ATLAS, ATLAS],
@@ -313,7 +337,20 @@ export async function createRoom(
 		const up = cross(rgt, fwd);
 		// room framing is the old one (the whole room width at the back wall), kept through the dolly
 		const th = st[ES.thCab] + (thBase * (zc / CAM_Z) - st[ES.thCab]) * lens;
-		return { pos, fwd, rgt, up, th };
+		const zm = st[ES.zoom];
+		if (zm < 1e-4) return { pos, fwd, rgt, up, th };
+		// zoomed out (the Flecs Zoom singleton): the camera backs out through the cab's open back to a front view of the whole
+		// shaft and the building cross-section. Depth leaves first, height and the look-at follow once the cab is behind us.
+		const ez = zm * zm * (3 - 2 * zm);
+		const ey = smooth(0.25, 0.9, zm);
+		const thFar = 0.5;
+		const half = 0.5 * (ROOM_H + (levels.length - 1) * LEVEL_H) * 1.3;
+		const dist = Math.max(half / thFar, 3.7 / (thFar * aspect));
+		const yc = 0.5 * (ROOM_H - (levels.length - 1) * LEVEL_H);
+		const pf: V3 = [pos[0] * (1 - ez), pos[1] + (yc - pos[1]) * ey, pos[2] + (ROOM_D + dist - pos[2]) * ez];
+		const ff = norm([fwd[0] * (1 - ez), fwd[1] * (1 - ez), fwd[2] * (1 - ez) - ez]);
+		const rf = norm(cross(ff, [0, 1, 0]));
+		return { pos: pf, fwd: ff, rgt: rf, up: cross(rf, ff), th: th + (thFar - th) * ez };
 	};
 	const liveY = () => elev.state()[ES.eye] - elev.state()[ES.posM];
 
@@ -403,6 +440,23 @@ export async function createRoom(
 		};
 	}
 
+	// ---- the world's scrollbar (rail.ts): drawn by the present pass; the spacer's scroll range is its document ----
+	const rail = createRail();
+	const railRows = new Float32Array(RAIL_FLOATS);
+	let railLast = 0;
+	let railDirty = true;
+	const railView = (): RailView => {
+		const sp = document.getElementById('world-spacer');
+		const vh = canvas.clientHeight;
+		const docPx = sp && !readingOn() && !focusObj ? sp.offsetHeight : vh;
+		const top = sp ? sp.getBoundingClientRect().top : 0;
+		return { w: canvas.clientWidth, h: vh, docPx, scrollY: Math.min(Math.max(0, docPx - vh), Math.max(0, -top)), floors: levels.length, dpr: w / Math.max(1, canvas.clientWidth), zoom: elev.state()[ES.zoom] };
+	};
+	const railKick = () => {
+		railDirty = true;
+		kick();
+	};
+
 	function writeScene(rw: number, rh: number, y: number, seed: number, blend: number, windowed: boolean) {
 		const aspect = canvas.clientWidth / canvas.clientHeight;
 		const cam = camera(aspect, y);
@@ -417,7 +471,7 @@ export async function createRoom(
 		const sun = sky.map((c) => (c / sk) * 5.0);
 		const es = elev.state();
 		const cabOn = !focusObj && cam.pos[2] > 3.95 ? 1 : 0;
-		const settled = es[ES.settled] > 0.5 && es[ES.lens] > 0.999 && es[ES.car] === 0 ? 1 : 0;
+		const settled = es[ES.settled] > 0.5 && es[ES.lens] > 0.999 && es[ES.car] === 0 && es[ES.zoom] < 1e-4 ? 1 : 0;
 		const amb = [0, 0, 0];
 		const vw = windowed ? [vm[0], vm[1], vs] : [0, 0, 1];
 		device!.queue.writeBuffer(
@@ -439,16 +493,20 @@ export async function createRoom(
 				...sun, 0,
 				...amb, 0,
 				DBG, 0, 0, 0,
-				probeN, probeSpp, 0, 0,
+				probeN, probeSpp, es[ES.zoom], 0,
 				...rdFloats,
 				es[ES.posM], settled, cabOn, levels.length
 			])
 		);
+		const nowR = performance.now();
+		rail.frame(railView(), Math.min(100, railLast ? nowR - railLast : 16), railRows, (i) => signLabel(i));
+		railLast = nowR;
+		device!.queue.writeBuffer(sceneBuf, RAIL_AT * 4, railRows);
 	}
 
 	function layoutSpots() {
 		// no click targets while reading or while the doors still hide the room
-		if (readingOn() || elev.state()[ES.lens] < 0.97) {
+		if (readingOn() || elev.state()[ES.lens] < 0.97 || elev.state()[ES.zoom] > 0.01) {
 			if (spots.length) onLayout((spots = []));
 			return;
 		}
@@ -563,6 +621,8 @@ export async function createRoom(
 				layout: presentPipe.getBindGroupLayout(0),
 				entries: [
 					{ binding: 0, resource: { buffer: sceneBuf } },
+					{ binding: 3, resource: atlasTex.createView() },
+					{ binding: 4, resource: sampler },
 					{ binding: 9, resource: { buffer: gbuf! } },
 					{ binding: 12, resource: { buffer: finalBuf } },
 					{ binding: 18, resource: { buffer: volBuf } }
@@ -749,7 +809,7 @@ export async function createRoom(
 				device!.queue.writeBuffer(objBuf, rs[RS.magObj] * 112, magRow);
 			} else device!.queue.writeBuffer(objBuf, rs[RS.magObj] * 112, rs, RS.mag, 28);
 		}
-		const sig = `${dbg.hinge ?? ''} ${es[ES.posM].toFixed(4)} ${es[ES.lens].toFixed(3)} ${es[ES.gate].toFixed(3)} ${rs[RS.t].toFixed(4)} ${rs[RS.dim].toFixed(4)} ${rs[RS.phase]} ${rs[RS.article]}`;
+		const sig = `${dbg.hinge ?? ''} ${es[ES.posM].toFixed(4)} ${es[ES.lens].toFixed(3)} ${es[ES.gate].toFixed(3)} ${rs[RS.t].toFixed(4)} ${rs[RS.dim].toFixed(4)} ${rs[RS.phase]} ${rs[RS.article]} ${es[ES.zoom].toFixed(4)}`;
 		rdIdle = sig === rdSig && !lmBusy ? rdIdle + 1 : 0;
 		rdSig = sig;
 	}
@@ -778,7 +838,7 @@ export async function createRoom(
 		}
 		// the cab is at rest when parked with gate and doors open and the lens fully on the room
 		const es = elev.state();
-		const settling = !(es[ES.car] === 0 && es[ES.settled] > 0.5 && es[ES.lens] > 0.999 && es[ES.gateCode] === 2 && es[ES.doorsCode] === 2);
+		const settling = es[ES.zoom] !== es[ES.zoomTarget] || !(es[ES.car] === 0 && es[ES.settled] > 0.5 && es[ES.lens] > 0.999 && es[ES.gateCode] === 2 && es[ES.doorsCode] === 2);
 		if (settling) lastChange = now;
 		audio?.setElevator(es[ES.speed], es[ES.floor]);
 		const nowMoving = !focusObj && (settling || now - lastChange < 120);
@@ -823,6 +883,17 @@ export async function createRoom(
 			raf = requestAnimationFrame(tick);
 			return;
 		}
+		if (rail.animating || railDirty) {
+			// only the scrollbar changed (hover, fade, label): draw the finished picture again with the new rows
+			railDirty = false;
+			writeScene(w, h, liveY(), frame, 0, true);
+			const enc = device!.createCommandEncoder();
+			draw(enc, bindP);
+			device!.queue.submit([enc.finish()]);
+			raf = requestAnimationFrame(tick);
+			return;
+		}
+		railLast = 0;
 		if (baking) raf = requestAnimationFrame(tick);
 	}
 
@@ -855,6 +926,7 @@ export async function createRoom(
 		g.__dbg = dbg;
 		g.__world = world;
 		g.__rs = () => Array.from(rs.slice(0, 64));
+		g.__rail = () => ({ rows: Array.from(railRows.slice(0, 40)), view: railView() });
 	}
 
 	const kick = () => {
@@ -960,7 +1032,61 @@ export async function createRoom(
 			elev.hold(on);
 			touch();
 		},
+		rail: {
+			hover(p: { x: number; y: number } | null) {
+				rail.hover(p);
+				railKick();
+			},
+			down(x: number, y: number): RailHit | null {
+				const h = rail.down(railView(), x, y);
+				railKick();
+				return h;
+			},
+			/** page scroll (px into the spacer) the dragged thumb asks for, or null when no drag */
+			drag(y: number): number | null {
+				const v = rail.drag(railView(), y);
+				railKick();
+				return v;
+			},
+			/** release: the page scroll of the nearest floor (the detent), or null when nothing was dragged */
+			up(): number | null {
+				const v = rail.up(railView());
+				railKick();
+				return v;
+			},
+			floorScroll: (k: number) => rail.floorScroll(railView(), k),
+			get dragging() {
+				return rail.dragging;
+			}
+		},
+		get zoomLevel() {
+			return elev.state()[ES.zoom];
+		},
+		zoomOutBy(delta: number) {
+			if (readingOn() || focusObj) return;
+			elev.zoomBy(delta);
+			touch();
+		},
+		floorAt(nx: number, ny: number) {
+			const { o, d } = rayAt(nx, ny);
+			if (d[2] > -1e-4) return -1;
+			const t = (ROOM_D - o[2]) / d[2];
+			const px = o[0] + d[0] * t;
+			const py = o[1] + d[1] * t;
+			const k = Math.floor((ROOM_H - py) / LEVEL_H);
+			return Math.abs(px) < 3.3 && k >= 0 && k < levels.length ? k : -1;
+		},
 		zoomAt(factor: number, nx: number, ny: number) {
+			// one gesture, two zooms: zooming out past the full frame backs the camera out of the cab; zooming in first returns it
+			const lv = elev.state()[ES.zoomTarget];
+			if (factor < 1 && vs >= 1) {
+				this.zoomOutBy(-Math.log(factor) / ZOOM_GAIN);
+				return;
+			}
+			if (factor > 1 && lv > 0) {
+				this.zoomOutBy(-Math.log(factor) / ZOOM_GAIN);
+				return;
+			}
 			const s1 = Math.min(1, Math.max(1 / 6, vs / factor));
 			vm = [vm[0] + nx * (vs - s1), vm[1] + ny * (vs - s1)];
 			vs = s1;

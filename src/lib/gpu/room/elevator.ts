@@ -8,16 +8,18 @@ interface ElevatorExports {
 	elevator_scroll(p: number): void;
 	elevator_goto(floor: number, snap: number): void;
 	elevator_hold(on: number): void;
+	elevator_zoom_by(delta: number): void;
+	elevator_zoom_to(t: number): void;
 	elevator_event_poll(): number;
 	elevator_state_ptr(): number;
 	elevator_rows_ptr(): number;
 }
 
-export const STATE_LEN = 40;
+export const STATE_LEN = 44;
 /** state[] indices, see docs/ELEVATOR.md */
 export const ES = {
 	posM: 0, frac: 1, speed: 2, floor: 3, target: 4, gate: 5, doors: 6, lens: 7, needle: 9, car: 10, doorsCode: 11, gateCode: 12, sway: 13, push: 14,
-	yaw: 16, pitch: 17, thCab: 18, settled: 19, cabStart: 36, cabCount: 37, eye: 38, pushM: 39
+	yaw: 16, pitch: 17, thCab: 18, settled: 19, cabStart: 36, cabCount: 37, eye: 38, pushM: 39, zoom: 40, zoomTarget: 41, zoomVel: 42
 } as const;
 
 export interface Elevator {
@@ -26,6 +28,9 @@ export interface Elevator {
 	scroll(p: number): void;
 	goto(floor: number, snap?: boolean): void;
 	hold(on: boolean): void;
+	/** Zoom the camera out (delta > 0) or in (< 0) by moving the Flecs `Zoom` singleton's target; the spring in world/src/elevator.rs animates it. */
+	zoomBy(delta: number): void;
+	zoomTo(t: number): void;
 	state(): Float32Array;
 	/** Live cab rows (count * 28 f32); write them to the objs buffer at cabStart * 28 * 4 bytes. */
 	rows(): Float32Array;
@@ -40,6 +45,8 @@ export function elevatorApi(x: ElevatorExports): Elevator {
 		scroll: (p) => x.elevator_scroll(p),
 		goto: (f, snap = false) => x.elevator_goto(f, snap ? 1 : 0),
 		hold: (on) => x.elevator_hold(on ? 1 : 0),
+		zoomBy: (d) => x.elevator_zoom_by(d),
+		zoomTo: (t) => x.elevator_zoom_to(t),
 		state,
 		rows() {
 			const s = state();

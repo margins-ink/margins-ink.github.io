@@ -20,7 +20,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::f32::consts::FRAC_PI_2;
 
-pub const STATE_LEN: usize = 40;
+pub const STATE_LEN: usize = 44;
 pub const MAX_FLOORS: usize = 8;
 /// tan of the half field of view inside the cab (about 45 degrees). The room view uses the renderer's own.
 pub const TH_CAB: f32 = 1.0;
@@ -70,6 +70,8 @@ const ARC_R: f32 = 0.26;
 const NEEDLE_HALF: f32 = 0.11;
 const LEAF_Z: f32 = 3.84;
 const PLATE_PITCH: f32 = 1.2;
+/// World y of the shaft top (just above the room ceiling, 00-building.flecs room_h).
+const ROOF_Y: f32 = 3.6;
 
 #[derive(Component, Clone, Copy, Default)]
 #[flecs(meta)]
@@ -122,6 +124,18 @@ pub struct Glance {
     pub t: f32,
     pub on: f32,
 }
+
+/// Zoom-out of the camera (singleton): `level` 0 inside the cab .. 1 the whole shaft and building cross-section, `target`
+/// is what the gesture asked for, `vel` the spring velocity. Independent of the floor detents: the gesture only moves
+/// `target`, the spring (critically damped) moves `level`, so an interrupt keeps position and velocity.
+#[derive(Component, Clone, Copy, Default)]
+#[flecs(meta)]
+pub struct Zoom {
+    pub level: f32,
+    pub target: f32,
+    pub vel: f32,
+}
+const ZOOM_W: f32 = 7.0;
 
 // relations and their targets
 #[derive(Component, Clone, Copy, Default)]
@@ -281,6 +295,8 @@ pub fn setup(world: &World, cab: EntityView, rows: Vec<f32>, n: usize, level_h: 
     world.component_named::<Lights>("Lights");
     world.component_named::<Glance>("Glance");
     world.component_named::<Hold>("Hold");
+    world.component_named::<Zoom>("Zoom");
+    world.set(Zoom::default());
     for r in [world.component_named::<Car>("Car").id(), world.component_named::<Doors>("Doors").id(), world.component_named::<Gate>("Gate").id()] {
         world.entity_from_id(*r).add_trait::<flecs::Exclusive>();
     }
@@ -452,6 +468,21 @@ pub fn setup(world: &World, cab: EntityView, rows: Vec<f32>, n: usize, level_h: 
         }
     });
 
+    // The zoom spring (singleton Zoom): critically damped toward the target, zero velocity on the stops.
+    world.system_named::<&mut Zoom>("ZoomSpring").kind(move_ph).term_at(0).set_src(Zoom::id()).each(|z| {
+        let dt = DT.with(|c| c.get());
+        z.target = z.target.clamp(0.0, 1.0);
+        spring2(&mut z.level, &mut z.vel, z.target, ZOOM_W, 1.0, dt);
+        if z.level <= 0.0 && z.vel < 0.0 || z.level >= 1.0 && z.vel > 0.0 {
+            z.vel = 0.0;
+        }
+        z.level = z.level.clamp(0.0, 1.0);
+        if (z.level - z.target).abs() < 5e-4 && z.vel.abs() < 5e-3 {
+            z.level = z.target;
+            z.vel = 0.0;
+        }
+    });
+
     // ---- Sequence: the interlock between gate, doors and car. One transition per tick.
     world
         .system_named::<(&Elevator, &mut Slide, &mut Latch, &mut Glance)>("Sequencer")
@@ -559,6 +590,10 @@ pub fn setup(world: &World, cab: EntityView, rows: Vec<f32>, n: usize, level_h: 
                 // cab list location in objs, written by cab_info (indices 36, 37), eye height and dolly
                 st[38] = EYE;
                 st[39] = PUSH;
+                let z = e.world().try_cloned::<&Zoom>().unwrap_or_default();
+                st[40] = z.level;
+                st[41] = z.target;
+                st[42] = z.vel;
             });
         });
 
@@ -720,6 +755,13 @@ fn pack_rig(rig: &Rig) {
                     }
                 }
             }
+            // full-height guide rail or post, fixed in the building: x = a, z = b, from below the last floor to above the roof
+            12 => {
+                let y0 = -(n as f32 - 1.0) * lh - 0.4;
+                let y1 = ROOF_Y;
+                set_c(row, a, 0.5 * (y0 + y1) + pos_m, b);
+                row[5] = 0.5 * (y1 - y0);
+            }
             // ceiling lamp flickers a little while the car runs
             11 => {
                 let f = 1.0 - 0.05 * s[2] * (t * 41.0).sin();
@@ -793,8 +835,36 @@ pub extern "C" fn elevator_hold(on: u32) {
     with_cab(|e| {
         if on != 0 {
             e.add(Hold::id());
+            // an article is being read: back inside the cab
+            e.world().get::<&mut Zoom>(|z| z.target = 0.0);
         } else {
             e.remove(Hold::id());
+        }
+    });
+}
+
+/// Zoom the camera out (`delta` > 0) or back in (< 0): moves the target of the Zoom singleton, the spring does the rest.
+#[no_mangle]
+pub extern "C" fn elevator_zoom_by(delta: f32) {
+    if !delta.is_finite() {
+        return;
+    }
+    WORLD.with(|w| {
+        if let Some(w) = w.borrow().as_ref() {
+            w.get::<&mut Zoom>(|z| z.target = (z.target + delta).clamp(0.0, 1.0));
+        }
+    });
+}
+
+/// Set the zoom target (0 inside the cab, 1 the whole shaft). Not clamped state: the spring continues from where it is.
+#[no_mangle]
+pub extern "C" fn elevator_zoom_to(t: f32) {
+    if !t.is_finite() {
+        return;
+    }
+    WORLD.with(|w| {
+        if let Some(w) = w.borrow().as_ref() {
+            w.get::<&mut Zoom>(|z| z.target = t.clamp(0.0, 1.0));
         }
     });
 }
