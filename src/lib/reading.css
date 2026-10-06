@@ -66,6 +66,8 @@
 .doc .g { position: static; margin: 0; padding: 0; height: 0; display: block; list-style: none; font: inherit; color: transparent; }
 .doc .ln {
 	position: absolute;
+	/* an explicit 0 (not normal) makes Chrome shape like the build: 70-char line 690.1 px against 678.6 px with normal */
+	letter-spacing: 0px;
 	left: calc(var(--x) * var(--em));
 	top: calc(var(--y) * var(--em));
 	height: calc(var(--lh) * var(--em));
@@ -88,7 +90,7 @@
 .doc .ln[data-f='2'] { font-family: Inter, system-ui, sans-serif; font-weight: 400; font-style: italic; font-variation-settings: 'opsz' 14; }
 .doc .ln[data-f='3'] { font-family: 'Fira Code', ui-monospace, monospace; font-weight: 400; font-feature-settings: 'calt' 1; }
 .doc .ln[data-f='4'] { font-family: Inter, system-ui, sans-serif; font-weight: 500; font-variation-settings: 'opsz' 14; }
-.doc .ln[data-f='5'] { font-family: 'Instrument Sans', Inter, system-ui, sans-serif; font-weight: 600; font-stretch: 80%; font-variation-settings: 'wdth' 80; }
+.doc .ln[data-f='5'] { font-family: 'Instrument Sans', Inter, system-ui, sans-serif; font-weight: var(--dwght, 600); font-stretch: calc(var(--dwdth, 80) * 1%); font-variation-settings: 'wdth' var(--dwdth, 80), 'wght' var(--dwght, 600); }
 .doc .ln[data-f='6'] { font-family: Inter, system-ui, sans-serif; font-weight: 400; font-variation-settings: 'opsz' 14; }
 .doc a { color: transparent; -webkit-text-fill-color: transparent; text-decoration: none; cursor: pointer; pointer-events: auto; }
 .doc ::selection,

@@ -484,6 +484,20 @@ function emOf(doc: HTMLElement): number {
  * Fit each line of [range.first, range.last) that is laid out (width > 0) and not yet calibrated in this generation:
  * scaleX(layout width / natural width), limited to 0.5 percent. Reads and writes are batched (one layout). Returns the lines done.
  */
+/** Width of a line's text without the trailing whitespace (the span keeps the line break's space for copy; the layout width excludes it). */
+function inkWidth(el: HTMLElement): number {
+	const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+	let last: Text | null = null;
+	while (tw.nextNode()) last = tw.currentNode as Text;
+	if (!last) return el.getBoundingClientRect().width;
+	let end = last.data.length;
+	while (end > 0 && /\s/.test(last.data[end - 1])) end--;
+	const r = document.createRange();
+	r.setStart(el, 0);
+	r.setEnd(last, end);
+	return r.getBoundingClientRect().width;
+}
+
 export function calibrate(doc: HTMLElement, range: LineRange, emPx?: number): number {
 	const L = layers.get(doc);
 	if (!L) return 0;
@@ -492,17 +506,33 @@ export function calibrate(doc: HTMLElement, range: LineRange, emPx?: number): nu
 	const idx: number[] = [];
 	for (let i = first; i < last; i++) if (L.calGen[i] !== L.gen && L.lineW[i] > 0) idx.push(i);
 	if (idx.length === 0) return 0;
+	// The page pass sets glyphs at the build's advances (hb, unhinted); Chrome's advances for the same font differ by up to ~1 percent per
+	// glyph. Spread the difference evenly with letter-spacing so every word lands within a pixel of its glyphs (a uniform scaleX would
+	// leave the middle of a long line half off). Reads and writes are batched.
+	for (const i of idx) { L.lines[i].style.letterSpacing = ''; L.lines[i].style.transform = ''; }
 	const widths = new Float32Array(idx.length);
-	for (let j = 0; j < idx.length; j++) widths[j] = L.lines[idx[j]].getBoundingClientRect().width;
+	const ls = new Float32Array(idx.length);
+	const todo: number[] = [];
+	for (let j = 0; j < idx.length; j++) widths[j] = inkWidth(L.lines[idx[j]]);
+	const chars = (i: number) => Math.max(2, L.lines[i].textContent?.length ?? 2);
 	for (let j = 0; j < idx.length; j++) {
 		const i = idx[j];
-		const w = widths[j];
-		if (w <= 0) continue; // hidden (collapsed fold) or detached: try again later
-		const natural = w / L.lineK[i];
-		const k = Math.min(1 + CAL_CAP, Math.max(1 - CAL_CAP, (L.lineW[i] * em) / natural));
-		L.lines[i].style.transform = Math.abs(k - 1) < 2e-4 ? '' : `scaleX(${k.toFixed(5)})`;
-		L.lineK[i] = Math.abs(k - 1) < 2e-4 ? 1 : k;
+		if (widths[j] <= 0) continue; // hidden (collapsed fold) or detached: try again later
+		const target = L.lineW[i] * em;
 		L.calGen[i] = L.gen;
+		L.lineK[i] = 1;
+		if (Math.abs(target - widths[j]) < 0.05 || Math.abs(target - widths[j]) / target > 0.06) continue;
+		ls[j] = (target - widths[j]) / (chars(i) - 1);
+		L.lines[i].style.letterSpacing = `${ls[j].toFixed(4)}px`;
+		todo.push(j);
+	}
+	// letter-spacing also switches off some font features, so the width is not exactly linear in it: one correction pass
+	for (const j of todo) widths[j] = inkWidth(L.lines[idx[j]]);
+	for (const j of todo) {
+		const i = idx[j];
+		const target = L.lineW[i] * em;
+		const err = target + ls[j] - widths[j];
+		if (Math.abs(err) > 0.3) L.lines[i].style.letterSpacing = `${(ls[j] + err / (chars(i) - 1)).toFixed(4)}px`;
 	}
 	return idx.length;
 }

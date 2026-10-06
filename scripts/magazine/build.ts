@@ -251,7 +251,7 @@ export async function buildMagazine(opts: BuildOpts = {}): Promise<BuildResult> 
 		const b0 = built.find((x) => x.p === p)!;
 		articles.push({
 			slug: p.slug, title: p.meta.title, dek: p.meta.dek, date: p.meta.date, hidden: !p.meta.visible, hasBrief: b0.hasBrief, words: b0.words,
-			hue: voiceOf(p.slug, sidecar(path.dirname(p.file))).hue, refs: p.refs, neighbours: nbs.get(p.slug) ?? {}, bins
+			hue: voiceOf(p.slug, sidecar(path.dirname(p.file))).hue, wdth: voiceOf(p.slug, sidecar(path.dirname(p.file))).wdth, wght: voiceOf(p.slug, sidecar(path.dirname(p.file))).wght, refs: p.refs, neighbours: nbs.get(p.slug) ?? {}, bins
 		});
 	}
 	const index = {

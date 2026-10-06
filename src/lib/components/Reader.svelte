@@ -263,6 +263,8 @@
 		if (fresh) foldExpanded = readFoldPref(a);
 		if (model.foldH <= 0) foldExpanded = true;
 		root.style.setProperty('--hue', String(hue));
+		root.style.setProperty('--dwdth', String(a.meta.wdth));
+		root.style.setProperty('--dwght', String(a.meta.wght));
 		foldBlockIdx = model.blocks.findIndex((b) => b.kind === BlockKind.fold);
 
 		layer = buildTextLayer(model, doc, { foldExpanded });
