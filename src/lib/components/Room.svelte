@@ -213,8 +213,10 @@
 		flex-direction: column;
 		gap: 0.5rem;
 		padding: 0.6rem;
-		background: #14110e;
-		border: 1px solid #5a4a33;
+		background: rgba(20, 17, 14, 0.38);
+		backdrop-filter: blur(14px) saturate(1.3);
+		-webkit-backdrop-filter: blur(14px) saturate(1.3);
+		border: 1px solid rgba(233, 217, 179, 0.28);
 		border-radius: 6px;
 	}
 	.panel button {
@@ -222,15 +224,15 @@
 		height: 2rem;
 		padding: 0 0.5rem;
 		border-radius: 1rem;
-		border: 1px solid #8a7550;
-		background: #231a12;
-		color: #e9d9b3;
+		border: 1px solid rgba(233, 217, 179, 0.35);
+		background: rgba(35, 26, 18, 0.35);
+		color: #f3e7c6;
 		font-family: var(--font-mono);
 		font-size: 0.72rem;
 		cursor: pointer;
 	}
 	.panel button.on {
-		background: #e9d9b3;
+		background: rgba(233, 217, 179, 0.85);
 		color: #231a12;
 		box-shadow: 0 0 10px rgba(233, 217, 179, 0.6);
 	}

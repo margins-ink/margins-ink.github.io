@@ -34,7 +34,7 @@
 	}
 </script>
 
-<div class="page">
+<div class="page" class:live>
 	<Room bind:live />
 
 	<div class="body" class:hidden={live}>
@@ -75,6 +75,9 @@
 <style>
 	.page {
 		padding: 0 0 8rem;
+	}
+	.page.live {
+		padding: 0;
 	}
 	.body.hidden {
 		display: none;
