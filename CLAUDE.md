@@ -10,10 +10,12 @@ Make sure always use current date (get with CLI command)
 
 ## SvelteKit Patterns
 
+Trap: a long-running `vite dev` whose route set changed (a route dir added or removed) keeps the old node numbering in the SSR `node_ids` while the client reads the regenerated `.svelte-kit/generated/client/app.js`: `/` hydrates as another route (it once showed lmllmtfy and redirected to claude.ai). Restart the dev server after adding or removing a route. lmllmtfy now lives in ../blog.
+
 To break layout inheritance (avoid parent layouts like navbar), use **route groups** `(parentheses)`:
 - Wrap main site in `(site)/` group with its own layout
 - Keep root layout minimal (just global CSS)
-- Other routes like `lmllmtfy/` sit at root level with their own layouts
+- Other routes (e.g. `artifact/`) sit at root level with their own layouts
 - Route groups don't affect URL paths - `(site)/thoughts/` → `/thoughts/`
 - This is the idiomatic SvelteKit way, NOT using CSS hacks or `+layout@.svelte`
 
