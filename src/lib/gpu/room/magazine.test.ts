@@ -135,7 +135,7 @@ describe('assemble', () => {
 
 describe('page_trace mirror', () => {
 	const u = (o: Partial<MagazineUniforms> = {}): MagazineUniforms => ({
-		k: 1, magObj: -1, progress: 0, dir: 0, spineX: 0, topY: 0.4, z: 0, index: 3, hoverSpread: -1, dark: false, peel: -1, bow: 0, ...o
+		k: 1, magObj: -1, progress: 0, dir: 0, spineX: 0, topY: 0.4, z: 0, index: 3, hoverSpread: -1, peel: -1, bow: 0, ...o
 	});
 	const book: Book = { sheetW: 40, spreadH: 56, spreadCount: 8, single: false };
 	// camera on +z looking down -z
@@ -221,10 +221,10 @@ describe('page_trace mirror', () => {
 
 	test('writeRd fills 24 floats in the documented order', () => {
 		const out = new Float32Array(30);
-		writeRd(out, 3, { k: 1, magObj: 7, progress: 0.5, dir: -1, spineX: 2, topY: 3, z: 4, index: 5, hoverSpread: 6, hoverRect: [1, 2, 3, 4], dark: true, peel: 0.25 });
+		writeRd(out, 3, { k: 1, magObj: 7, progress: 0.5, dir: -1, spineX: 2, topY: 3, z: 4, index: 5, hoverSpread: 6, hoverRect: [1, 2, 3, 4], peel: 0.25 });
 		expect(RD_FLOATS).toBe(24);
 		expect(Array.from(out.subarray(3, 3 + 24)).map((v) => +v.toFixed(4))).toEqual([
-			1, 7, +EM.toFixed(4), 0.5, 2, 3, 4, -1, 5, 0, 7, 1, 1, 2, 3, 4, 0.25, 0, 0, 0, +BOW.toFixed(4), 0.18, 1, 0
+			1, 7, +EM.toFixed(4), 0.5, 2, 3, 4, -1, 5, 0, 7, 0, 1, 2, 3, 4, 0.25, 0, 0, 0, +BOW.toFixed(4), 0.18, 1, 0
 		]);
 	});
 });

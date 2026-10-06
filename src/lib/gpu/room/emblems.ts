@@ -452,7 +452,6 @@ export interface CoverScheme {
 	ink: string;
 	mute: string;
 }
-export const COVER_LIGHT: CoverScheme = { paper: '#f1ead9', ink: '#1d1a16', mute: '#6b6252' };
 export const COVER_DARK: CoverScheme = { paper: '#d8cdb6', ink: '#171410', mute: '#5a5242' };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -535,8 +534,8 @@ export interface CoverThought {
 }
 
 /** Paints one cover into the 256x340 tile at (x, y). */
-export function drawCover(c: Ctx, t: CoverThought, accent: string, rect: { x: number; y: number; w: number; h: number }, dark: boolean) {
-	const s = dark ? COVER_DARK : COVER_LIGHT;
+export function drawCover(c: Ctx, t: CoverThought, accent: string, rect: { x: number; y: number; w: number; h: number }) {
+	const s = COVER_DARK;
 	const { w, h } = rect;
 	const pam = PAMPHLETS.has(t.slug);
 	const emblem = EMBLEMS[t.slug] ?? seal;

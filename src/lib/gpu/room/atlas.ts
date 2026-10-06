@@ -22,15 +22,6 @@ export const tileRect = (i: number) => ({
 });
 
 type Scheme = { paper: string; ink: string; sea: string; land: string; heritage: string; nordic: string; line: string };
-const LIGHT: Scheme = {
-	paper: '#efe6d2',
-	ink: '#1d1a16',
-	sea: '#2c4a5c',
-	land: '#e6d9bc',
-	heritage: '#b8321f',
-	nordic: '#2f6f8f',
-	line: 'rgba(240,230,205,0.16)'
-};
 const DARK: Scheme = {
 	paper: '#d8cdb6',
 	ink: '#171410',
@@ -161,8 +152,8 @@ async function drawMap(ctx: CanvasRenderingContext2D, s: Scheme) {
 	ctx.restore();
 }
 
-function drawCover(ctx: CanvasRenderingContext2D, t: Thought, accent: string, i: number, dark: boolean) {
-	paintCover(ctx, t, accent, tileRect(i), dark);
+function drawCover(ctx: CanvasRenderingContext2D, t: Thought, accent: string, i: number) {
+	paintCover(ctx, t, accent, tileRect(i));
 }
 
 function drawSign(ctx: CanvasRenderingContext2D, i: number, title: string, sub: string, big: boolean) {
@@ -189,7 +180,6 @@ function drawSign(ctx: CanvasRenderingContext2D, i: number, title: string, sub: 
 export async function buildAtlas(
 	items: Thought[],
 	accents: string[],
-	dark: boolean,
 	signs: { title: string; sub: string }[]
 ): Promise<HTMLCanvasElement> {
 	await Promise.all([
@@ -202,8 +192,8 @@ export async function buildAtlas(
 	const ctx = c.getContext('2d')!;
 	ctx.fillStyle = '#f1ead9';
 	ctx.fillRect(0, 0, ATLAS, ATLAS);
-	await drawMap(ctx, dark ? DARK : LIGHT);
-	items.forEach((t, i) => drawCover(ctx, t, accents[i], i, dark));
+	await drawMap(ctx, DARK);
+	items.forEach((t, i) => drawCover(ctx, t, accents[i], i));
 	signs.forEach((g, i) => drawSign(ctx, i, g.title, g.sub, i === 0));
 	return c;
 }

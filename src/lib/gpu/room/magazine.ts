@@ -88,7 +88,6 @@ export interface MagazineUniforms {
 	hoverRect?: readonly [number, number, number, number];
 	/** 0: the rect is a link (underline), 1: a scrubbable figure (frame) */
 	hoverKind?: number;
-	dark: boolean;
 	/** corner peel 0..1 for spread 0's Full text corner, -1 for none */
 	peel: number;
 	bow?: number;
@@ -104,7 +103,7 @@ export function writeRd(out: Float32Array, at: number, u: MagazineUniforms) {
 	out.set([
 		u.k, u.magObj, u.em ?? EM, u.progress,
 		u.spineX, u.topY, u.z, u.dir,
-		u.index, u.hoverKind ?? 0, u.hoverSpread + 1, u.dark ? 1 : 0,
+		u.index, u.hoverKind ?? 0, u.hoverSpread + 1, 0,
 		hr[0], hr[1], hr[2], hr[3],
 		u.peel, 0, 0, 0,
 		u.bow ?? BOW, u.gutter ?? GUTTER, u.gain ?? 1, 0
