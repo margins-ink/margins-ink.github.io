@@ -111,6 +111,8 @@
 .doc .b.wash { background: oklch(0.78 0.14 var(--hue) / 0.14); border-radius: 0.3em; }
 
 /* code: a native horizontal scroller; the page pass draws the ink at scrollLeft */
+/* app.css styles every pre (panel, border, padding, margin): the page pass draws the panel, the DOM box is only the scroller */
+.reader .doc pre.b { background: transparent !important; border: 0 !important; border-radius: 0 !important; padding: 0 !important; margin: 0 !important; line-height: inherit !important; }
 .doc pre.b {
 	overflow-x: auto;
 	overflow-y: hidden;
