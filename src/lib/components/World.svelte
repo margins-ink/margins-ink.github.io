@@ -269,13 +269,6 @@
 				style:height="{s.h}px"
 			></a>
 		{/each}
-		<nav class="panel" aria-label="Floors">
-			{#each ws.floors as f, k}
-				<button class:on={k === current} onclick={() => go(k)} aria-label={f.title}>
-					<span class="n">{f.label}</span>
-				</button>
-			{/each}
-		</nav>
 	{/if}
 </div>
 {#if reading && ws.live}
@@ -285,6 +278,18 @@
 <style>
 	:global(html[data-gpu]) {
 		background: #1a1612;
+		scrollbar-width: thin;
+		scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+	}
+	:global(html[data-gpu]::-webkit-scrollbar) {
+		width: 5px;
+	}
+	:global(html[data-gpu]::-webkit-scrollbar-track) {
+		background: transparent;
+	}
+	:global(html[data-gpu]::-webkit-scrollbar-thumb) {
+		background: rgba(255, 255, 255, 0.28);
+		border-radius: 3px;
 	}
 	.stage {
 		position: fixed;
@@ -316,36 +321,6 @@
 	.spot:focus-visible {
 		outline: 2px solid #fff;
 		outline-offset: 2px;
-	}
-	.panel {
-		position: absolute;
-		right: 1.25rem;
-		top: 50%;
-		transform: translateY(-50%);
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		padding: 0.6rem;
-		background: #14110e;
-		border: 1px solid #5a4a33;
-		border-radius: 6px;
-	}
-	.panel button {
-		min-width: 3.4rem;
-		height: 2rem;
-		padding: 0 0.5rem;
-		border-radius: 1rem;
-		border: 1px solid #8a7550;
-		background: #231a12;
-		color: #e9d9b3;
-		font-family: var(--font-mono);
-		font-size: 0.72rem;
-		cursor: pointer;
-	}
-	.panel button.on {
-		background: #e9d9b3;
-		color: #231a12;
-		box-shadow: 0 0 10px rgba(233, 217, 179, 0.6);
 	}
 	/* keyboard users reach the close control; it is not drawn until focused */
 	.back {
