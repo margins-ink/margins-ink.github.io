@@ -24,7 +24,7 @@ const post = (extra = '') => parsePost(`---\ntitle: "Title here"\ndek: "A dek se
 const filler = Array.from({ length: 120 }, (_, i) => `w${i}`).join(' ');
 const bigPost = () => parsePost(`---\ntitle: "T"\n---\n\n# H\n\n${filler}\n\n## Sec\n\nok.\n`);
 const goodBlock = (): DistillBlock => ({
-	template: 'duo', headline: 'T', figures: ['a'], quote: { text: 'w1 w2 w3', from: 'Sec' },
+	headline: 'T', figures: ['a'], quote: { text: 'w1 w2 w3', from: 'Sec' },
 	captions: [{ fig: 'a', text: filler.split(' ').slice(0, 110).join(' ') }], synth: []
 });
 
@@ -52,17 +52,17 @@ describe('post text extraction', () => {
 describe('parseDistill', () => {
 	test('absent block is null', () => expect(parseDistill({})).toBeNull());
 	test('unknown key, bad template, missing headline fail closed', () => {
-		expect(() => parseDistill({ distill: { template: 'duo', headline: 'x', bogus: 1 } })).toThrow(DistillError);
-		expect(() => parseDistill({ distill: { template: 'opener', headline: 'x' } })).toThrow(/not one of/);
-		expect(() => parseDistill({ distill: { template: 'duo' } })).toThrow(/headline: required/);
-		expect(() => parseDistill({ distill: { template: 'duo', headline: 'x', captions: [{ fig: 'a', text: 't', z: 1 }] } })).toThrow(/unknown key/);
+		expect(() => parseDistill({ distill: { headline: 'x', bogus: 1 } })).toThrow(DistillError);
+		expect(() => parseDistill({ distill: { template: 'duo', headline: 'x' } })).toThrow(/unknown key/);
+		expect(() => parseDistill({ distill: {} })).toThrow(/headline: required/);
+		expect(() => parseDistill({ distill: { headline: 'x', captions: [{ fig: 'a', text: 't', z: 1 }] } })).toThrow(/unknown key/);
 	});
 	test('empty review mapping means unreviewed', () => {
-		const b = parseDistill({ distill: { template: 'solo', headline: 'x', review: {} } });
+		const b = parseDistill({ distill: { headline: 'x', review: {} } });
 		expect(b?.review).toBeUndefined();
 	});
 	test('review date from YAML Date', () => {
-		const b = parseDistill({ distill: { template: 'solo', headline: 'x', review: { by: 'a', at: new Date('2026-10-07'), post_sha: 'abc' } } });
+		const b = parseDistill({ distill: { headline: 'x', review: { by: 'a', at: new Date('2026-10-07'), post_sha: 'abc' } } });
 		expect(b?.review?.at).toBe('2026-10-07');
 	});
 });
@@ -152,7 +152,7 @@ describe('review gate', () => {
 		expect(reviewGate(goodBlock(), p, 'production')[0].path).toBe('review');
 	});
 	test('a post edit invalidates a review', () => {
-		const src = `---\ntitle: "T"\ndistill:\n  template: solo\n  headline: T\n  figures: [a]\n  review: { by: a, at: 2026-10-07, post_sha: SHA }\n---\n\n# H\n\nbody\n`;
+		const src = `---\ntitle: "T"\ndistill:\n  headline: T\n  figures: [a]\n  review: { by: a, at: 2026-10-07, post_sha: SHA }\n---\n\n# H\n\nbody\n`;
 		const sha = parsePost(src).sha;
 		const ok = checkDistill(src.replace('SHA', sha), 'x', 'production');
 		expect(ok.gate).toEqual([]);
@@ -165,7 +165,6 @@ describe('review gate', () => {
 describe('the real ifd post', () => {
 	test('block parses, every string is verbatim, counts hold', () => {
 		const r = checkDistill(ifdSource(), IFD, 'preview');
-		expect(r.block?.template).toBe('duo');
 		expect(r.errors).toEqual([]);
 		// 115 words without diagram labels (the doc hand-counted 116): warn below 150, pass above 100
 		expect(r.words).toBe(115);

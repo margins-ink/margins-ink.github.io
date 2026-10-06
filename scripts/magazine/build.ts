@@ -1,62 +1,36 @@
-// Magazine build: every thoughts/*/+page.svx (+ distill block, figures.ts, spread.json) -> RDR2 binaries.
-//   bun scripts/magazine/build.ts [--force] [--only slug] [--preview]
-// Output: static/magazine/<slug>.<wide|narrow>.<hash>.bin, fonts.<hash>.bin, index.json.
-//
-// Pipeline per article and width class:
-//   parse (scripts/reader/parse.ts, directives + distill) -> figures (fig lane) -> distilled spread, layer 0
-//   (grid lane, only if a REVIEWED distill block exists; preview builds also take unreviewed ones) ->
-//   full text spreads, layer 1 (grid lane planner) -> emitMagazine (emit.ts: rebase, grid, pack).
-//
-// Other lanes are loaded by file, by the names in docs/MAGAZINE.md section 8. A lane that is not merged yet is
-// replaced by a stub behind the same interface; the stub is recorded in index.json (`stubs`) and the production
-// build (vite plugin, not --preview) fails closed on it.
+// Reading build: every thoughts/*/+page.svx (+ figures.ts, spread.json) -> RDR3 page binaries, one per width class.
+//   bun scripts/magazine/build.ts [--force] [--only slug]
+// Output: static/magazine/<slug>.<wide|mid|narrow>.<hash>.bin, fonts.<hash>.bin, index.json (version 3).
+// Pipeline per article and class: parse (scripts/reader/parse.ts) -> figures (fig lane) -> flow layout (flow.ts) ->
+// emitReading (emit.ts: rebase, per-figure cell grids, pack). Output is byte-deterministic for the same inputs.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { packFontsBin } from '../../src/lib/reader/format';
-import { PALETTE2_SIZE } from '../../src/lib/magazine/format';
+import { PALETTE2_SIZE, WIDTH_CLASSES } from '../../src/lib/magazine/format';
 import { FontSet, GlyphTableBuilder, ROOT, FONT_SPECS, fontPath } from '../reader/fonts';
 import { parseArticle, type Block, type Parsed, type Run } from '../reader/parse';
-import { CLASSES, StringSink, TextSink, type Env, type WidthClass } from './typeset';
+import { StringSink, TextSink, type Env } from './typeset';
 import { collectImageSrcs, ImageStore } from '../reader/images';
-import { emitMagazine, TEMPLATE_IDS, type SpreadContent, type EmitContext } from './emit';
-import { parsePost, lintDistill, postSha, type DistillBlock as LintBlock } from './distill';
+import { emitReading, type EmitContext } from './emit';
+import { CFG, flowArticle, wordsOf, type Neighbour } from './flow';
+import { parsePost, lintDistill, type DistillBlock as LintBlock } from './distill';
 import { voiceFor } from './voices';
 import { buildPalette, PAL_SYNTAX_START, type Rgb } from './palette';
 import { loadEnUs, type Hyphenator } from './hyph';
 import { loadFigures, type FigureArt } from './fig/emit';
-import { planDistilled, planFullText, planOpener, resetFigureSerial, type Voice } from './compose';
 
 export const THOUGHTS = path.join(ROOT, 'src/routes/(site)/thoughts');
 export const OUT_DIR = path.join(ROOT, 'static/magazine');
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const sha1 = (b: Buffer | Uint8Array | string) => crypto.createHash('sha1').update(b).digest('hex').slice(0, 10);
 
-export interface MagClass extends WidthClass { name: 'wide' | 'narrow' }
-export const MAG_CLASSES: MagClass[] = CLASSES.map((c) => ({ ...c, name: c.id === 0 ? ('wide' as const) : ('narrow' as const) }));
+export interface MagClass { id: number; name: 'wide' | 'mid' | 'narrow' }
+export const MAG_CLASSES: MagClass[] = WIDTH_CLASSES.map((c) => ({ id: c.id, name: c.name }));
 
 /** Channel records are article-global and the runtime channel table holds 256 f32 (reader[32..288)). */
 export const MAX_CHANNELS = 256;
-
-// ---- distill gate (MAGAZINE.md 1.7) -----------------------------------------------------------------
-
-export type DistillState = 'none' | 'unreviewed' | 'reviewed';
-
-/**
- * - no block: 'none'.
- * - review.post_sha present but different from the current body: THROWS (a post edit forces a re-review; the stale spread is not shipped).
- * - review empty: 'unreviewed' (drawn only by a preview build).
- */
-export function gateDistill(p: Pick<Parsed, 'file' | 'body' | 'distill'>): DistillState {
-	const d = p.distill;
-	if (!d) return 'none';
-	const have = d.review?.post_sha;
-	if (!have) return 'unreviewed';
-	const want = postSha(p.body);
-	if (have !== want) throw new Error(`${p.file}: distill review.post_sha ${have.slice(0, 12)} does not match the current post body ${want.slice(0, 12)}; the post changed, re-review the distill block`);
-	return 'reviewed';
-}
 
 // ---- palette ----------------------------------------------------------------------------------------
 
@@ -118,97 +92,70 @@ export const wordCount = (bl: Block[]) => (blockText(bl).match(/\S+/g) ?? []).le
 
 // ---- build ------------------------------------------------------------------------------------------
 
-export interface BuildOpts { force?: boolean; only?: string; preview?: boolean; quiet?: boolean; thoughts?: string; outDir?: string }
+export interface BuildOpts { force?: boolean; only?: string; quiet?: boolean; thoughts?: string; outDir?: string }
 export interface BuildResult { skipped: boolean; index: any; files: { name: string; bytes: number; brotli: number }[]; ms: number }
 
 interface Shared { fonts: FontSet; union: GlyphTableBuilder; missing: Set<string>; images: ImageStore; shikiIdx: Map<string, number>; syntax: { dark: string }[] }
-
-interface Laid { spreads: SpreadContent[]; env: Env; palette: Uint32Array; state: DistillState }
 
 function voiceOf(slug: string, side: ReturnType<typeof sidecar>) {
 	const ov: Record<string, number> = {};
 	if (side.accentHue !== undefined) ov.hue = side.accentHue;
 	if (side.display?.wdth !== undefined) ov.wdth = side.display.wdth;
 	if (side.display?.wght !== undefined) ov.wght = side.display.wght;
-	try { return voiceFor(slug, ov); } catch { return { slug, hue: 265, wdth: 85, wght: 600, template: null as null | string, ...ov }; }
+	try { return voiceFor(slug, ov); } catch { return { slug, hue: 265, wdth: 85, wght: 600, ...ov }; }
 }
 
-/** One article at one width class. `layers` selects what to lay out (preview builds ask for one). */
-async function layOut(sh: Shared, p: Parsed, cls: MagClass, state: DistillState, o: { preview: boolean; layers?: ('distilled' | 'full')[]; template?: string }): Promise<Laid> {
+/** One article at one width class: flow layout and emit. */
+async function layOut(sh: Shared, p: Parsed, cls: MagClass, neighbours: { prev?: Neighbour; next?: Neighbour }) {
 	const dir = path.dirname(p.file);
 	const side = sidecar(dir);
 	const voice = voiceOf(p.slug, side);
 	const palette = buildPalette(side.accentHue ?? voice.hue, sh.syntax.map((x) => toRgb(x.dark)));
+	const cfg = CFG[cls.id];
+	const wc = { id: cls.id, sheetW: cfg.colW, sheetH: 0, measure: cfg.colW, marginX: 0, marginY: 0 };
 	const env: Env = {
-		fonts: sh.fonts, union: sh.union, extra: new GlyphTableBuilder(), cls, digitSets: [], shikiIdx: sh.shikiIdx, images: sh.images,
+		fonts: sh.fonts, union: sh.union, extra: new GlyphTableBuilder(), cls: wc, digitSets: [], shikiIdx: sh.shikiIdx, images: sh.images,
 		strings: new StringSink(), text: new TextSink(), slug: p.slug, missing: sh.missing,
-		kp: { justify: true, hyphenator: hyphFor(side.hyphenExceptions) }
+		kp: { justify: false, hyphenator: hyphFor(side.hyphenExceptions) }
 	};
-	resetFigureSerial();
 	const figFile = path.join(dir, 'figures.ts');
 	const figures = fs.existsSync(figFile) ? await loadFigures(figFile, env) : new Map<string, FigureArt>();
-	const want = (l: 'distilled' | 'full') => !o.layers || o.layers.includes(l);
-	const spreads: SpreadContent[] = [];
-	const v: Voice = { hue: voice.hue, wdth: voice.wdth, wght: voice.wght };
-	if (want('distilled')) {
-		const useDistill = !!p.distill && (state === 'reviewed' || (state === 'unreviewed' && o.preview));
-		if (useDistill) {
-			const d = { ...p.distill!, ...(o.template ? { template: o.template as never } : {}) };
-			for (const id of d.figures) if (!figures.has(id)) throw new Error(`${p.file}: distill figure "${id}" is not in figures.ts`);
-			spreads.push(planDistilled(env, { distill: d, figures, palette, voice: v, title: p.meta.title, dek: p.meta.dek, date: p.meta.date, slug: p.slug }));
-		} else {
-			// auto distill: title, dek and the first paragraph
-			const lede = (p.blocks.find((b) => b.t === 'para') as Extract<Block, { t: 'para' }> | undefined)?.runs ?? null;
-			spreads.push(planOpener(env, { palette, voice: v, title: p.meta.title, dek: p.meta.dek, date: p.meta.date, slug: p.slug, lede }));
-		}
-	}
-	if (want('full')) {
-		for (const b of p.blocks) if (b.t === 'fig' && !figures.has(b.id)) throw new Error(`${p.file}:${b.line}: ::fig id "${b.id}" is not in figures.ts`);
-		spreads.push(...planFullText(env, p, figures, { slug: p.slug, title: p.meta.title, dek: p.meta.dek, date: p.meta.date, voice: v }));
-	}
-	const chans = spreads.reduce((n, s) => n + ((s.frag as { chans?: unknown[] }).chans?.length ?? 0), 0);
-	if (chans > MAX_CHANNELS) throw new Error(`${p.file} [${cls.name}]: ${chans} animation channels, the runtime table holds ${MAX_CHANNELS}`);
-	return { spreads, env, palette, state };
+	const flow = flowArticle({
+		p, env, cfg, figures, display: sh.fonts.display(voice.wdth, voice.wght), neighbours,
+		ctx: { extra: env.extra, union: env.union, strings: env.strings.bytes(), palette, digitSets: env.digitSets } as never
+	});
+	const text = env.text.bytes();
+	flow.finish(text);
+	const ctx: EmitContext = { extra: env.extra, union: env.union, text, strings: env.strings.bytes(), palette, digitSets: env.digitSets };
+	const r = emitReading(flow.store, flow.parts, ctx, `${p.file} [${cls.name}]`);
+	return { ...r, words: flow.words, hasBrief: !!p.distill, docH: flow.parts.docH };
 }
 
-function emitOne(laid: Laid, cls: MagClass, where: string) {
-	const { env, spreads, palette } = laid;
-	const ctx: EmitContext = {
-		widthClass: cls.id, sheetW: cls.sheetW, marginOuter: cls.marginX, marginSpine: cls.marginX - 1, gutter: 1.2, extra: env.extra, union: env.union,
-		text: env.text.bytes(), strings: env.strings.bytes(), palette, digitSets: env.digitSets
-	};
-	return { ...emitMagazine(spreads, ctx, where), text: ctx.text };
-}
-
-async function prepare(files: string[], errors: string[], preview: boolean, log: (...a: unknown[]) => void) {
+async function prepare(files: string[], errors: string[], log: (...a: unknown[]) => void) {
 	const parsed: Parsed[] = [];
 	for (const f of files) {
 		try { parsed.push(await parseArticle(f)); } catch (e) { errors.push((e as Error).message); }
 	}
-	if (errors.length) throw new Error(`magazine build: ${errors.length} article(s) failed to parse:\n  ${errors.join('\n  ')}`);
-	const states = new Map<string, DistillState>();
+	if (errors.length) throw new Error(`reading build: ${errors.length} article(s) failed to parse:\n  ${errors.join('\n  ')}`);
 	for (const p of parsed) {
 		try {
-			const st = gateDistill(p);
-			states.set(p.slug, st);
-			if (st === 'unreviewed' && !preview) log(`magazine: ${p.slug}: distill block is unreviewed, production build uses the auto opener`);
 			if (p.distill) {
 				const post = parsePost(p.source, p.file);
 				const ids = fs.existsSync(path.join(path.dirname(p.file), 'figures.ts')) ? undefined : [];
 				const lint = lintDistill({ captions: [], synth: [], ...p.distill } as unknown as LintBlock, post, ids ? { figureIds: ids } : {});
-				for (const w of lint.warnings) log(`magazine: ${p.slug}: distill warning ${w.path}: ${w.message}`);
+				for (const w of lint.warnings) log(`reading: ${p.slug}: distill warning ${w.path}: ${w.message}`);
 				if (!lint.ok) errors.push(`${p.file}: distill lint:\n    ${lint.errors.map((e) => `${e.path}: ${e.message}`).join('\n    ')}`);
 			}
 		} catch (e) { errors.push((e as Error).message); }
 	}
-	if (errors.length) throw new Error(`magazine build failed:\n  ${errors.join('\n  ')}`);
+	if (errors.length) throw new Error(`reading build failed:\n  ${errors.join('\n  ')}`);
 	const images = new ImageStore();
 	for (const p of parsed) for (const src of collectImageSrcs(p.blocks)) await images.add(src, p.file);
 	const pairs = new Map<string, number>();
 	for (const p of parsed) for (const [k, v] of p.shikiPairs) pairs.set(k, (pairs.get(k) ?? 0) + v);
 	const { syntax, idx: shikiIdx } = quantiseSyntax(pairs);
 	const sh: Shared = { fonts: new FontSet(), union: new GlyphTableBuilder(), missing: new Set(), images, shikiIdx, syntax };
-	return { parsed, states, sh };
+	return { parsed, sh };
 }
 
 const fontsBin = (sh: Shared) => {
@@ -216,20 +163,13 @@ const fontsBin = (sh: Shared) => {
 	return packFontsBin(table, sh.fonts.fonts.map((f) => f.info), Uint32Array.from(sh.union.tag.map((t) => Number(t[0]))), Uint32Array.from(sh.union.tag.map((t) => Number(t[1]))));
 };
 
-export interface BuildReq { slug: string; cls: 'wide' | 'narrow'; template?: string; layer: 'distilled' | 'full' }
-
-/** The preview server's entry point (watch.ts): one article, one class, one layer, unreviewed distill blocks allowed. */
-export async function buildForPreview(req: BuildReq): Promise<{ fonts: Uint8Array; article: Uint8Array }> {
-	const file = path.join(THOUGHTS, req.slug, '+page.svx');
-	if (!fs.existsSync(file)) throw new Error(`no article "${req.slug}"`);
-	const errors: string[] = [];
-	const { parsed, states, sh } = await prepare([file], errors, true, () => {});
-	const cls = MAG_CLASSES.find((c) => c.name === req.cls)!;
-	const laid = await layOut(sh, parsed[0], cls, states.get(parsed[0].slug) ?? 'none', { preview: true, layers: [req.layer], template: req.template });
-	if (!laid.spreads.length) throw new Error(`${req.slug}: no ${req.layer} layer`);
-	const r = emitOne(laid, cls, `${file} [${cls.name}]`);
-	if (sh.missing.size) throw new Error(`characters with no glyph: ${[...sh.missing].join(' ')}`);
-	return { fonts: fontsBin(sh), article: r.bytes };
+/** Visible articles newest first; prev = the next newer one, next = the next older one. */
+export function neighboursOf(parsed: Parsed[]): Map<string, { prev?: Neighbour; next?: Neighbour }> {
+	const vis = parsed.filter((p) => p.meta.visible).sort((a, b) => String(b.meta.date).localeCompare(String(a.meta.date)) || (a.slug < b.slug ? -1 : 1));
+	const out = new Map<string, { prev?: Neighbour; next?: Neighbour }>();
+	const nb = (p?: Parsed): Neighbour | undefined => (p ? { slug: p.slug, title: p.meta.title } : undefined);
+	vis.forEach((p, i) => out.set(p.slug, { prev: nb(vis[i - 1]), next: nb(vis[i + 1]) }));
+	return out;
 }
 
 export function inputsHash(thoughts = THOUGHTS): string {
@@ -262,32 +202,32 @@ export async function buildMagazine(opts: BuildOpts = {}): Promise<BuildResult> 
 	const outDir = opts.outDir ?? OUT_DIR;
 	fs.mkdirSync(outDir, { recursive: true });
 	const stampFile = path.join(outDir, 'index.json');
-	const stamp = opts.only ? '' : `${inputsHash(thoughts)}${opts.preview ? '+preview' : ''}`;
+	const stamp = opts.only ? '' : inputsHash(thoughts);
 	if (!opts.force && stamp && fs.existsSync(stampFile)) {
 		const prev = JSON.parse(fs.readFileSync(stampFile, 'utf8'));
-		const ok = prev.stamp === stamp && [prev.fonts, ...prev.articles.flatMap((a: any) => Object.values(a.bins).map((b: any) => b.file))].every((f: string) => fs.existsSync(path.join(outDir, f)));
+		const ok = prev.version === 3 && prev.stamp === stamp && [prev.fonts, ...prev.articles.flatMap((a: any) => Object.values(a.bins).map((b: any) => b.file))].every((f: string) => fs.existsSync(path.join(outDir, f)));
 		if (ok) return { skipped: true, index: prev, files: [], ms: performance.now() - t0 };
 	}
-	const files = fs.readdirSync(thoughts).sort().map((d) => path.join(thoughts, d, '+page.svx')).filter((f) => fs.existsSync(f) && (!opts.only || f.includes(`/${opts.only}/`)));
+	const all = fs.readdirSync(thoughts).sort().map((d) => path.join(thoughts, d, '+page.svx')).filter((f) => fs.existsSync(f));
 	const errors: string[] = [];
-	const { parsed, states, sh } = await prepare(files, errors, !!opts.preview, log);
-	const { union, fonts, missing, images } = sh;
+	// neighbours need every article's meta, so the whole set is parsed even for --only
+	const { parsed: everything, sh } = await prepare(all, errors, log);
+	const parsed = everything.filter((p) => !opts.only || p.slug === opts.only);
+	const nbs = neighboursOf(everything);
+	const { union, missing, images } = sh;
 
-	type Built = { p: Parsed; cls: MagClass; bytes: Uint8Array; spreadLayers: number[]; words: number; distilled: DistillState; templates: number[] };
+	type Built = { p: Parsed; cls: MagClass; bytes: Uint8Array; words: number; hasBrief: boolean; docH: number };
 	const built: Built[] = [];
 	for (const p of parsed) {
-		const state = states.get(p.slug) ?? 'none';
 		for (const cls of MAG_CLASSES) {
 			try {
-				const laid = await layOut(sh, p, cls, state, { preview: !!opts.preview });
-				const r = emitOne(laid, cls, `${p.file} [${cls.name}]`);
-				const useDistilled = laid.spreads.some((s) => s.meta.layer === 0);
-				built.push({ p, cls, bytes: r.bytes, spreadLayers: r.spreadLayers, words: wordCount(p.blocks), distilled: useDistilled ? state : 'none', templates: laid.spreads.map((s) => s.meta.template) });
-			} catch (e) { errors.push(`${p.file}: ${(e as Error).stack?.split('\n').slice(0, 4).join('\n    ') ?? (e as Error).message}`); }
+				const r = await layOut(sh, p, cls, nbs.get(p.slug) ?? {});
+				built.push({ p, cls, bytes: r.bytes, words: r.words, hasBrief: r.hasBrief, docH: r.docH });
+			} catch (e) { errors.push(`${p.file} [${cls.name}]: ${(e as Error).stack?.split('\n').slice(0, 5).join('\n    ') ?? (e as Error).message}`); }
 		}
 	}
 	if (missing.size) errors.push(`characters with no glyph in the chosen font (the build fails closed):\n    ${[...missing].join('\n    ')}`);
-	if (errors.length) throw new Error(`magazine build failed:\n  ${errors.join('\n  ')}`);
+	if (errors.length) throw new Error(`reading build failed:\n  ${errors.join('\n  ')}`);
 
 	const outFiles: BuildResult['files'] = [];
 	const write = (name: string, bytes: Uint8Array) => {
@@ -302,22 +242,21 @@ export async function buildMagazine(opts: BuildOpts = {}): Promise<BuildResult> 
 	const articles: any[] = [];
 	for (const p of parsed) {
 		const bins: Record<string, any> = {};
-		const spreads: Record<string, any> = {};
-		let distilled: DistillState = 'none';
 		for (const cls of MAG_CLASSES) {
 			const b = built.find((x) => x.p === p && x.cls.id === cls.id)!;
 			const name = `${p.slug}.${cls.name}.${sha1(b.bytes)}.bin`;
 			const e = write(name, b.bytes);
-			bins[cls.name] = { file: name, bytes: e.bytes, brotli: e.brotli };
-			spreads[cls.name] = { count: b.spreadLayers.length, layers: b.spreadLayers, templates: b.templates };
-			distilled = b.distilled;
+			bins[cls.name] = { file: name, bytes: e.bytes, brotli: e.brotli, docH: b.docH };
 		}
 		const b0 = built.find((x) => x.p === p)!;
-		articles.push({ slug: p.slug, title: p.meta.title, dek: p.meta.dek, date: p.meta.date, hidden: !p.meta.visible, distilled, opensFull: distilled === 'none' && voiceOf(p.slug, sidecar(path.dirname(p.file))).template === null, fullWords: b0.words, spreads, bins });
+		articles.push({
+			slug: p.slug, title: p.meta.title, dek: p.meta.dek, date: p.meta.date, hidden: !p.meta.visible, hasBrief: b0.hasBrief, words: b0.words,
+			hue: voiceOf(p.slug, sidecar(path.dirname(p.file))).hue, refs: p.refs, neighbours: nbs.get(p.slug) ?? {}, bins
+		});
 	}
 	const index = {
-		version: 2, magic: 'RDR2', stamp, preview: !!opts.preview, stubs: [] as string[], fonts: fontsName, fontsBytes: fe.bytes, fontsBrotli: fe.brotli, glyphs: union.count,
-		templates: TEMPLATE_IDS, classes: MAG_CLASSES.map((c) => ({ id: c.id, name: c.name, sheetW: c.sheetW, sheetH: c.sheetH })), articles, images: images.byId
+		version: 3, magic: 'RDR3', stamp, preview: false, stubs: [] as string[], fonts: fontsName, fontsBytes: fe.bytes, fontsBrotli: fe.brotli, glyphs: union.count,
+		classes: MAG_CLASSES.map((c, i) => ({ id: c.id, name: c.name, minPx: WIDTH_CLASSES[i].minPx, col: WIDTH_CLASSES[i].col })), articles, images: images.byId
 	};
 	if (!opts.only) {
 		const keep = new Set([fontsName, 'index.json', ...articles.flatMap((a) => Object.values(a.bins).map((b: any) => b.file))]);
@@ -325,7 +264,7 @@ export async function buildMagazine(opts: BuildOpts = {}): Promise<BuildResult> 
 		fs.writeFileSync(stampFile, JSON.stringify(index, null, '\t'));
 	} else fs.writeFileSync(path.join(outDir, 'index.partial.json'), JSON.stringify(index, null, '\t'));
 	const ms = performance.now() - t0;
-	log(`magazine: ${articles.length} articles, ${union.count} union glyphs, ${(ms / 1000).toFixed(1)} s`);
+	log(`reading: ${articles.length} articles, ${union.count} union glyphs, ${(ms / 1000).toFixed(1)} s`);
 	for (const f of outFiles) log(`  ${f.name.padEnd(48)} ${String(f.bytes).padStart(8)} B  brotli ${String(f.brotli).padStart(7)} B`);
 	return { skipped: false, index, files: outFiles, ms };
 }
@@ -333,7 +272,7 @@ export async function buildMagazine(opts: BuildOpts = {}): Promise<BuildResult> 
 if (process.argv[1] && /scripts\/magazine\/build\.ts$/.test(process.argv[1])) {
 	const a = process.argv.slice(2);
 	const val = (k: string) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : undefined; };
-	buildMagazine({ force: a.includes('--force'), only: val('--only'), preview: a.includes('--preview') })
-		.then((r) => { if (r.skipped) console.log('magazine: up to date (use --force to rebuild)'); })
+	buildMagazine({ force: a.includes('--force'), only: val('--only') })
+		.then((r) => { if (r.skipped) console.log('reading: up to date (use --force to rebuild)'); })
 		.catch((e) => { console.error(e.message); process.exit(1); });
 }

@@ -6,9 +6,9 @@ export type Rgb = readonly [number, number, number]; // sRGB 0..1, gamma encoded
 export type Oklch = readonly [number, number, number]; // L 0..1, C, h degrees
 
 /** Slots the type lane adds beyond PAL2 (PAL2 is owned by the contract lane): text colour on a `field` block. */
-export const PAL_EXT = { fieldInk: 18 } as const;
+export const PAL_EXT = { fieldInk: 18, ink3: 19 } as const;
 /** First slot free for the compile lane's quantised syntax colours. */
-export const PAL_SYNTAX_START = 19;
+export const PAL_SYNTAX_START = 20;
 
 // ---- OKLab (Ottosson 2020, public domain reference) ----------------------------------------------------
 
@@ -76,7 +76,7 @@ const ok = (L: number, C: number, h: number): Rgb => toRgb([L, fitChroma(L, C, h
 
 /** The palette for article hue `h`: the one look is dark (section 3.2 numbers, dark column). */
 export function paletteEntries(h: number): PaletteEntries {
-	const paper = ok(0.2, 0.012, h);
+	const paper = ok(0.165, 0.012, h);
 	const ink = ok(0.93, 0.008, h);
 	const accent = ok(0.76, 0.15, h);
 	const accent2 = ok(0.76, 0.12, wrap(h + 40));
@@ -84,15 +84,17 @@ export function paletteEntries(h: number): PaletteEntries {
 	const field = ok(0.3, 0.1, h);
 	const neutral = [0.45, 0.3, 0.15];
 	return {
-		ink, link: accent, muted: over(ink, paper, 0.88), heading: ink, rule: over(ink, paper, 0.18),
-		selection: over(accent, paper, 0.28), codeBg: ok(0.25, 0.012, h), quoteBar: accent,
+		ink, link: accent, muted: ok(0.76, 0.008, h), heading: ink, rule: over(ink, paper, 0.18),
+		selection: over(accent, paper, 0.28), codeBg: ok(0.205, 0.012, h), quoteBar: accent,
 		accent, accent2, accentTint,
 		// text on an accent fill (an accent fill is L 0.76): deep ink
 		accentInk: ok(0.2, 0.01, h),
 		neutral1: ok(neutral[0], 0.01, h), neutral2: ok(neutral[1], 0.01, h), neutral3: ok(neutral[2], 0.01, h),
-		panel: ok(0.25, 0.012, h), field, paper,
+		panel: ok(0.205, 0.012, h), field, paper,
 		// text on a `field` block (L 0.30)
-		fieldInk: ink
+		fieldInk: ink,
+		// tertiary text (captions' labels, meta): ink-3
+		ink3: ok(0.62, 0.008, h)
 	};
 }
 
@@ -107,6 +109,7 @@ export function checkPalette(h: number, p: PaletteEntries = paletteEntries(h)): 
 	need('ink on paper', p.ink, p.paper, 9);
 	need('muted on paper', p.muted, p.paper, 4.5);
 	need('link on paper', p.link, p.paper, 4.5);
+	need('ink3 on paper', p.ink3, p.paper, 4.5);
 	need('ink on panel', p.ink, p.panel, 9);
 	need('accent graphics on paper', p.accent, p.paper, 3);
 	need('accent2 graphics on paper', p.accent2, p.paper, 3);

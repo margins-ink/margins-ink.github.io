@@ -16,9 +16,9 @@ export const CLASSES: WidthClass[] = [
 	{ id: 0, sheetW: 40, sheetH: 56, measure: 30, marginX: 5, marginY: 5 },
 	{ id: 1, sheetW: 28, sheetH: 56, measure: 21, marginX: 3.5, marginY: 5 }
 ];
-export const LINE_H = 1.6;
-const CODE_SIZE = 0.85;
-const CODE_LH = 1.3;
+export const LINE_H = 1.62;
+export const CODE_SIZE = 0.875;
+export const CODE_LH = 1.4;
 
 // ---- sinks ---------------------------------------------------------------------------------------
 
@@ -80,8 +80,8 @@ export interface Env {
 // ---- placed content ------------------------------------------------------------------------------
 
 export interface PG { x: number; y: number; glyphId: number; size: number; colour: number; flags: number; off: number }
-export interface Ln { yTop: number; yBot: number; x0: number; x1: number; base: number; glyphs: PG[]; off: number; canBreakBefore: boolean }
-export interface BRect { x0: number; y0: number; x1: number; y1: number; colour: number; kind: number }
+export interface Ln { yTop: number; yBot: number; x0: number; x1: number; base: number; glyphs: PG[]; off: number; canBreakBefore: boolean; /** bytes of hung marker text ('- ', '[3] ') that precede `off` in the text sink but are not part of the line's DOM text */ markerLen?: number }
+export interface BRect { x0: number; y0: number; x1: number; y1: number; colour: number; kind: number; radius?: number }
 export interface BImage { x0: number; y0: number; x1: number; y1: number; imageId: number; radius: number; alt: string }
 export interface BLink { x0: number; y0: number; x1: number; y1: number; kind: number; target: string }
 export interface Blk {
@@ -291,7 +291,8 @@ function layoutParaKP(env: Env, runs: Run[], o: ParaOpts, where: string, textPre
 	const opts: BreakOpts = { ...env.kp!, justify: o.align === 'left' ? false : env.kp!.justify, indent: o.indent ?? 0 };
 	let y = 0;
 	for (const tl of breakSegs(env, segs, o.width, opts, o.bs)) {
-		const base = y + o.lh - 0.4;
+		const fi = env.fonts.fonts[o.font].info;
+		const base = y + (o.lh - (fi.ascender - fi.descender) * o.bs) / 2 + fi.ascender * o.bs;
 		const x0 = o.x0 + tl.x0;
 		const ln: Ln = { yTop: y, yBot: y + o.lh, x0, x1: o.x0 + tl.width, base, glyphs: tl.glyphs.map((g) => ({ ...g, x: o.x0 + g.x, y: base + g.y })), off: tl.off, canBreakBefore: false };
 		for (const r of tl.rects) b.rects.push({ x0: o.x0 + r.x0, x1: o.x0 + r.x1, y0: base + r.y0, y1: base + r.y1, colour: r.colour, kind: r.kind });
@@ -306,7 +307,7 @@ function layoutParaKP(env: Env, runs: Run[], o: ParaOpts, where: string, textPre
 }
 
 export function layoutPara(env: Env, runs: Run[], o: ParaOpts, where: string, textPrefix = ''): Blk {
-	if (env.kp && Math.abs(o.lh / LINE_H - Math.round(o.lh / LINE_H)) < 1e-6) return layoutParaKP(env, runs, o, where, textPrefix);
+	if (env.kp) return layoutParaKP(env, runs, o, where, textPrefix);
 	const b = emptyBlk();
 	const segs = makeSegs(env, runs, o.bs, where, textPrefix).map((s) => splitLong(s, o.width));
 	const fi = env.fonts.fonts[o.font].info;
@@ -488,7 +489,7 @@ export function layoutBlocks(env: Env, blocks: Block[], ctx: Ctx, where: string)
 }
 
 /** Hang a marker left of a block's first line. The caller appends `marker + ' '` to the text sink before laying out the block (mOff). */
-function withMarker(env: Env, b: Blk, marker: string, mOff: number, x0: number, indent: number, anchors: { id: string; y: number }[] = []): Blk {
+export function withMarker(env: Env, b: Blk, marker: string, mOff: number, x0: number, indent: number, anchors: { id: string; y: number }[] = []): Blk {
 	const font = env.fonts.fonts[F.sans];
 	const size = 0.8;
 	const pgs: PG[] = [];
@@ -499,6 +500,7 @@ function withMarker(env: Env, b: Blk, marker: string, mOff: number, x0: number, 
 		w += g.xAdvance * size;
 	}
 	let first = b.lines[0];
+	const hadText = !!first && first.off >= 0;
 	if (!first) {
 		first = { yTop: 0, yBot: LINE_H, x0, x1: x0, base: 1.1, glyphs: [], off: -1, canBreakBefore: false };
 		b.lines.push(first);
@@ -508,6 +510,7 @@ function withMarker(env: Env, b: Blk, marker: string, mOff: number, x0: number, 
 	first.glyphs = [...pgs.map((g) => ({ ...g, x: x + g.x, y: first.base })), ...first.glyphs];
 	first.x0 = Math.min(first.x0, x);
 	if (first.off < 0 && first.glyphs.length) first.off = first.glyphs[0].off;
+	else if (hadText) first.markerLen = Buffer.byteLength(marker) + 1;
 	for (const a of anchors) b.anchors.push(a);
 	return b;
 }
@@ -527,7 +530,7 @@ function layoutList(env: Env, bl: Extract<Block, { t: 'list' }>, ctx: Ctx, where
 	return b;
 }
 
-function layoutCode(env: Env, bl: Extract<Block, { t: 'code' }>, ctx: Ctx): Blk {
+export function layoutCode(env: Env, bl: Extract<Block, { t: 'code' }>, ctx: Ctx): Blk {
 	const b = emptyBlk();
 	const padX = 0.8, padY = 0.8;
 	const font = env.fonts.fonts[F.code];
@@ -566,7 +569,7 @@ function layoutCode(env: Env, bl: Extract<Block, { t: 'code' }>, ctx: Ctx): Blk 
 		void li;
 	});
 	b.h = y + padY;
-	b.rects.push({ x0: ctx.x0, x1: ctx.x0 + ctx.width, y0: 0, y1: b.h, colour: Pal.codeBg, kind: RectKind.codeBg });
+	b.rects.push({ x0: ctx.x0, x1: ctx.x0 + ctx.width, y0: 0, y1: b.h, colour: Pal.codeBg, kind: RectKind.codeBg, radius: 0.5 });
 	const n = b.lines.length;
 	b.lines.forEach((l, k) => (l.canBreakBefore = k >= 2 && n - k >= 2));
 	b.before = 0.5; b.after = 1.2;

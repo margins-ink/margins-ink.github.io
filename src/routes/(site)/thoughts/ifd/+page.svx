@@ -4,7 +4,6 @@ dek: "The case against import-from-derivation is a case against CppNix's evaluat
 date: 2026-05-13
 username: andrewgazelka
 distill:
-  template: duo
   headline: "IFD is fine"
   definition: "Import From Derivation: during evaluation, the Nix language asks for a path whose bytes depend on a derivation's output."
   deck: "The case against import-from-derivation is a case against CppNix's evaluator, not against the idea."

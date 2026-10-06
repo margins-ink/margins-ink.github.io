@@ -17,12 +17,8 @@ import remarkMath from 'remark-math';
 
 // ---- types (local; the `contract` lane owns the shared `Distill` type in src/lib/magazine/types.ts) ----
 
-export const DISTILL_TEMPLATES = ['duo', 'solo', 'compare', 'numerals'] as const;
-export type DistillTemplate = (typeof DISTILL_TEMPLATES)[number];
-
 export interface DistillReview { by: string; at: string; post_sha: string }
 export interface DistillBlock {
-	template: DistillTemplate;
 	headline: string;
 	definition?: string;
 	deck?: string;
@@ -129,7 +125,7 @@ export function parsePost(source: string, file = '<memory>'): Post {
 
 // ---- parsing the block -------------------------------------------------------------------------
 
-const BLOCK_KEYS = new Set(['template', 'headline', 'definition', 'deck', 'figures', 'quote', 'captions', 'synth', 'review']);
+const BLOCK_KEYS = new Set(['headline', 'definition', 'deck', 'figures', 'quote', 'captions', 'synth', 'review']);
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -145,8 +141,6 @@ export function parseDistill(meta: Record<string, unknown>, file = '<memory>'): 
 		if (typeof v !== 'string' || !normalise(v)) return bad(p, 'must be a non-empty string');
 		return v;
 	};
-	const template = str(raw.template, 'template', true) as DistillTemplate;
-	if (!(DISTILL_TEMPLATES as readonly string[]).includes(template)) bad('template', `"${template}" is not one of ${DISTILL_TEMPLATES.join(' | ')}`);
 	const headline = str(raw.headline, 'headline', true)!;
 	const list = (v: unknown, p: string): unknown[] => {
 		if (v === undefined || v === null) return [];
@@ -175,7 +169,7 @@ export function parseDistill(meta: Record<string, unknown>, file = '<memory>'): 
 		const at = r.at instanceof Date ? r.at.toISOString().slice(0, 10) : str(r.at, 'review.at', true)!;
 		review = { by: str(r.by, 'review.by', true)!, at, post_sha: str(r.post_sha, 'review.post_sha', true)! };
 	}
-	return { template, headline, definition: str(raw.definition, 'definition', false), deck: str(raw.deck, 'deck', false), figures, quote, captions, synth, review };
+	return { headline, definition: str(raw.definition, 'definition', false), deck: str(raw.deck, 'deck', false), figures, quote, captions, synth, review };
 }
 
 // ---- the lint ----------------------------------------------------------------------------------

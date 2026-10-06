@@ -105,7 +105,6 @@ export function directiveFromComment(html: string, events: Map<number, Directive
 
 /** Structural copy of the frontmatter block; the `contract` lane's `Distill` type in types.ts replaces it. */
 export interface DistillBlock {
-	template: 'duo' | 'solo' | 'compare' | 'numerals';
 	headline: string;
 	definition?: string;
 	deck?: string;
@@ -117,15 +116,12 @@ export interface DistillBlock {
 	review?: { by?: string; at?: string; post_sha?: string } | null;
 }
 
-const TEMPLATES = ['duo', 'solo', 'compare', 'numerals'];
-
 /** Validate the shape only (strings, counts); the substring lint belongs to scripts/magazine/distill.ts. */
 export function parseDistill(raw: unknown, file: string): DistillBlock | undefined {
 	if (raw === undefined || raw === null) return undefined;
 	const bad = (m: string) => new DirectiveError(`${file}: frontmatter distill: ${m}`);
 	if (typeof raw !== 'object' || Array.isArray(raw)) throw bad('must be a mapping');
 	const d = raw as Record<string, any>;
-	if (!TEMPLATES.includes(d.template)) throw bad(`template must be one of ${TEMPLATES.join(' | ')}`);
 	if (typeof d.headline !== 'string' || !d.headline.trim()) throw bad('headline is required');
 	if (!Array.isArray(d.figures) || d.figures.length > 2 || d.figures.some((f: unknown) => typeof f !== 'string')) throw bad('figures must be a list of at most 2 ids');
 	if (d.captions !== undefined && (!Array.isArray(d.captions) || d.captions.length > 3)) throw bad('at most 3 captions');
@@ -133,7 +129,7 @@ export function parseDistill(raw: unknown, file: string): DistillBlock | undefin
 	if (d.quote !== undefined && typeof d.quote?.text !== 'string') throw bad('quote needs text');
 	for (const k of ['definition', 'deck']) if (d[k] !== undefined && typeof d[k] !== 'string') throw bad(`${k} must be a string`);
 	return {
-		template: d.template, headline: d.headline, definition: d.definition, deck: d.deck, figures: d.figures ?? [],
+		headline: d.headline, definition: d.definition, deck: d.deck, figures: d.figures ?? [],
 		quote: d.quote, captions: d.captions ?? [], numerals: d.numerals, synth: d.synth ?? [], review: d.review ?? null
 	};
 }
