@@ -22,3 +22,6 @@ The room is declared in Flecs script and packed by `world/src/export.rs`; `bun r
 
 ## Look
 - Only boxes and spheres exist (no meshes). Organic props (plant) = many thin tilted boxes with `Euler`; spheres blobbing above a pot looked wrong.
+
+## Flat objects
+- `Flat` rotates so local y is horizontal and local z is vertical: a sheet lying on a desk needs `Half: {w, depth, thickness}` (thickness last). Putting the thin half on y made the notes stand upright through the desk.

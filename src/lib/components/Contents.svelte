@@ -34,10 +34,9 @@
 </script>
 
 <div class="page" class:live={ws.live}>
-	{#if ws.live}
-		<!-- scroll length of the elevator: the persistent World canvas (site layout) maps this to the floor -->
-		<div id="world-spacer" style:height="{Math.max(ws.floors.length, 1) * 90 + 10}svh"></div>
-	{/if}
+	<!-- scroll length of the elevator: the persistent World canvas (site layout) maps this to the floor.
+	     Present from the first paint on WebGPU browsers (html[data-gpu], set in app.html) so nothing is laid out twice. -->
+	<div id="world-spacer" style:height="{Math.max(ws.floors.length, 4) * 90 + 10}svh"></div>
 
 	<div class="body" class:hidden={ws.live}>
 		<aside class="rail-col"><EraRail items={thoughts} {active} side="left" onselect={jump} /></aside>
@@ -83,6 +82,23 @@
 	}
 	.body.hidden {
 		display: none;
+	}
+	#world-spacer {
+		display: none;
+	}
+	/* WebGPU browsers: the room is the page. The HTML list stays only as a screen-reader and search copy. */
+	:global(html[data-gpu]) #world-spacer {
+		display: block;
+	}
+	:global(html[data-gpu]) .body,
+	:global(html[data-gpu]) .body.hidden {
+		display: block;
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 	.body {
 		display: grid;

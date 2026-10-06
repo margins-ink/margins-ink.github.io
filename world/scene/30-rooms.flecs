@@ -63,7 +63,7 @@ prefab Furnished : Room {
       Material: {0.1, 0}
       Rests }
     notes : Solid { Center: {0.3, 0, 0.25}
-      Half: {0.12, 0.01, 0.17}
+      Half: {0.12, 0.17, 0.01}
       Albedo: {0.1, 0.12, 0.3}
       Flat: {theta: 0.3, per_floor: 1}
       Rests }
