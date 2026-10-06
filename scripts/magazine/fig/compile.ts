@@ -36,6 +36,7 @@ export interface LintItem {
 	fontSize: number;
 	poster: Rect; // geometry at the poster time
 	swept: Rect; // union over the whole timeline
+	base: Rect; // geometry with every track property at its static value, groups ignored (the emitter's reference for swept margins)
 	labelRect?: Rect; // estimated label box at poster (shape labels)
 	opacityAtPoster: number;
 	trimAtPoster: [number, number] | null;
@@ -107,7 +108,7 @@ function rectAt(n: FigNode | PathSpec, paths: Map<string, Rect>, get: Get): Rect
 			case 'arrow': {
 				const b = pathBounds(n.path, `arrow ${n.id}`);
 				const dx = get('x', 0), dy = get('y', 0);
-				r = pad({ x0: b.x0 + dx, y0: b.y0 + dy, x1: b.x1 + dx, y1: b.y1 + dy }, strokeW(n, get) / 2 + (n.head ? n.stroke.w * 2.5 : 0));
+				r = pad({ x0: b.x0 + dx, y0: b.y0 + dy, x1: b.x1 + dx, y1: b.y1 + dy }, strokeW(n, get) / 2 + (n.head ? n.stroke.w * 5 : 0));
 				break;
 			}
 			case 'dots': {
@@ -254,18 +255,19 @@ export function compileFigure(id: string, spec: FigureSpec): CompiledFigureX {
 		for (const t of times) swept = union(swept, groupApply(rectAt(n, pathRects, getter(n.id, t)), gid, t));
 		const gp = getter(n.id, poster);
 		const posterRect = groupApply(rectAt(n, pathRects, gp), gid, poster);
-		const text = kind === 'text' ? (n as { text: string }).text : n.label;
+		const nodeLabel = 'label' in n ? n.label : undefined;
+		const text = kind === 'text' ? (n as { text: string }).text : nodeLabel;
 		const fontSize = kind === 'text' ? (n as { size: number }).size : 0.78;
 		let labelRect: Rect | undefined;
-		if (kind !== 'text' && n.label && 'kind' in n) {
+		if (kind !== 'text' && nodeLabel && 'kind' in n) {
 			const cx = (posterRect.x0 + posterRect.x1) / 2, cy = (posterRect.y0 + posterRect.y1) / 2;
-			const w = [...n.label].length * fontSize * CHAR_W;
+			const w = [...nodeLabel].length * fontSize * CHAR_W;
 			labelRect = { x0: cx - w / 2, y0: cy - fontSize * 0.5, x1: cx + w / 2, y1: cy + fontSize * 0.5 };
 		}
 		const hasTrim = kind === 'arrow' || (kind === 'path' && !!(n as PathSpec).stroke);
 		items.push({
 			id: n.id, kind, text, glyphs: text ? [...text].length : 0, fontSize,
-			poster: posterRect, swept, labelRect,
+			poster: posterRect, swept, base: rectAt(n, pathRects, (_p, d) => d), labelRect,
 			opacityAtPoster: gp('opacity', 1) * groupOpacity(gid, poster),
 			trimAtPoster: hasTrim ? [gp('trim.t0', 0), gp('trim.t1', 1)] : null
 		});

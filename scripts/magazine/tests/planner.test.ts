@@ -123,19 +123,21 @@ describe('frames', () => {
 
 const rng = (seed: number) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = Math.imul(a ^ (a >>> 15), a | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
 
+const codes = new Map<string, number>();
 function article(seed: number, n: number, withCode: boolean): { blocks: FlowBlock[]; chars: Map<string, number> } {
 	const r = rng(seed);
 	const blocks: FlowBlock[] = [];
 	const chars = new Map<string, number>();
 	for (let i = 0; i < n; i++) {
 		if (i % 7 === 0) { const id = `h${i}`; blocks.push({ id, kind: 'heading' }); chars.set(id, 40); continue; }
-		if (withCode && i % 9 === 4) { blocks.push({ id: `c${i}`, kind: 'code', lines: 6 + Math.floor(r() * 20) }); continue; }
+		if (withCode && i % 9 === 4) { const id = `c${i}`; blocks.push({ id, kind: 'code' }); codes.set(id, 6 + Math.floor(r() * 20)); continue; }
 		if (i % 11 === 5) { blocks.push({ id: `f${i}`, kind: 'figure', place: i % 2 ? 'wide' : 'column', w: 36, h: 20, captionLines: 2, ref: i - 1 }); continue; }
 		const id = `p${i}`; blocks.push({ id, kind: 'para' }); chars.set(id, 200 + Math.floor(r() * 900));
 	}
 	return { blocks, chars };
 }
 const measurer = (chars: Map<string, number>): Measurer => (b, w, o) => {
+	if (b.kind === 'code') return codes.get(b.id) ?? 6;
 	const c = chars.get(b.id) ?? 100;
 	return Math.max(1, Math.ceil((c * (1 + o.tracking)) / (w * 2.1)) + o.looseness);
 };

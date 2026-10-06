@@ -123,7 +123,7 @@ export function appendFragment(s: Store, f: Fragment, spread: number): Bases {
 	for (const x of all(f.shapes)) {
 		s.shapes.push({
 			...x, group: g(x.group), chan: c(x.chan), mixChan: c(x.mixChan),
-			aux: x.kind === ShapeKind.dot ? x.aux + b.stroke : x.aux
+			aux: x.kind === ShapeKind.dot || x.kind === ShapeKind.arrowHead ? x.aux + b.stroke : x.aux
 		} as ShapeInst);
 	}
 	for (const x of all(f.paths)) s.paths.push({ ...x, group: g(x.group) } as PathInst);
@@ -168,8 +168,8 @@ export function concatFragments(parts: Fragment[]): Fragment {
  * coordinate rewrite): existing root groups are parented to it and ungrouped items join it. Bounds
  * overrides move with it. Returns a fresh Fragment; the input is not modified.
  */
-export function placeFigure(art: Fragment, dx: number, dy: number): Fragment {
-	const root: GroupRec = { parent: -1, txChan: NO_CHAN, tyChan: NO_CHAN, rotChan: NO_CHAN, scaleChan: NO_CHAN, opacityChan: NO_CHAN, tx: dx, ty: dy, rot: 0, scale: 1, opacity: 1, pivotX: 0, pivotY: 0 };
+export function placeFigure(art: Fragment, dx: number, dy: number, scale = 1): Fragment {
+	const root: GroupRec = { parent: -1, txChan: NO_CHAN, tyChan: NO_CHAN, rotChan: NO_CHAN, scaleChan: NO_CHAN, opacityChan: NO_CHAN, tx: dx, ty: dy, rot: 0, scale, opacity: 1, pivotX: 0, pivotY: 0 };
 	const shiftG = (v: number | undefined) => (v === undefined || v === NONE16 ? 0 : v + 1);
 	const out: Fragment = {
 		...art,
@@ -180,12 +180,12 @@ export function placeFigure(art: Fragment, dx: number, dy: number): Fragment {
 		paths: all(art.paths).map((x) => ({ ...x, group: shiftG(x.group) })),
 		strokes: all(art.strokes).map((x) => ({ ...x, group: shiftG(x.group) })),
 		numerals: all(art.numerals).map((x) => ({ ...x, group: shiftG(x.group) })),
-		figures: all(art.figures).map((x) => ({ ...x, x0: (x.x0 ?? 0) + dx, x1: (x.x1 ?? 0) + dx, y0: (x.y0 ?? 0) + dy, y1: (x.y1 ?? 0) + dy })),
+		figures: all(art.figures).map((x) => ({ ...x, x0: (x.x0 ?? 0) * scale + dx, x1: (x.x1 ?? 0) * scale + dx, y0: (x.y0 ?? 0) * scale + dy, y1: (x.y1 ?? 0) * scale + dy })),
 		items: art.items.map((it) => ({
 			...it,
 			// the new root group is group 0, so group items shift by one; they are listed only for completeness
 			index: it.type === ItemType.group ? it.index + 1 : it.index,
-			bounds: it.bounds ? { x0: it.bounds.x0 + dx, x1: it.bounds.x1 + dx, y0: it.bounds.y0 + dy, y1: it.bounds.y1 + dy } : undefined
+			bounds: it.bounds ? { x0: it.bounds.x0 * scale + dx, x1: it.bounds.x1 * scale + dx, y0: it.bounds.y0 * scale + dy, y1: it.bounds.y1 * scale + dy } : undefined
 		}))
 	};
 	return out;
@@ -202,21 +202,41 @@ function itemBounds(s: Store, it: FItem, ctx: EmitContext): { box: Box; animated
 	const rec = table[it.index];
 	if (!rec) throw new Error(`emit: item ${tableName}[${it.index}] does not exist`);
 	const hasGroup = 'group' in rec && rec.group !== NONE16;
-	const animated = hasGroup || it.bounds !== undefined;
-	if (it.bounds) return { box: it.bounds, animated };
-	if (hasGroup) throw new Error(`emit: ${tableName}[${it.index}] is in an animated group and needs explicit swept bounds`);
+	if (it.bounds) return { box: it.bounds, animated: true };
+	// a group chain with no channels and no rotation (the figure placement root) is a fixed affine map: the item is static
+	// and its bound is the raw bound mapped through the chain. Anything else needs explicit swept bounds.
+	const chain: GroupRec[] = [];
+	if (hasGroup) {
+		for (let g = rec.group; g >= 0 && g !== NONE16; g = s.groups[g].parent) {
+			const gr = s.groups[g];
+			const fixed = [gr.txChan, gr.tyChan, gr.rotChan, gr.scaleChan, gr.opacityChan].every((c) => c === NO_CHAN) && gr.rot === 0;
+			if (!fixed) throw new Error(`emit: ${tableName}[${it.index}] is in an animated group and needs explicit swept bounds`);
+			chain.push(gr);
+		}
+	}
+	const raw = rawBounds(s, it, ctx, rec);
+	let box = raw;
+	for (const gr of chain) {
+		const f = (x: number, y: number): [number, number] => [gr.pivotX + gr.scale * (x - gr.pivotX) + gr.tx, gr.pivotY + gr.scale * (y - gr.pivotY) + gr.ty];
+		const [ax, ay] = f(box.x0, box.y0), [bx, by] = f(box.x1, box.y1);
+		box = { x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by) };
+	}
+	return { box, animated: false };
+}
+
+function rawBounds(s: Store, it: FItem, ctx: EmitContext, rec: Record<string, number>): Box {
 	switch (it.type) {
 		case ItemType.glyph: {
 			const gid = rec.glyphId;
 			const [bx0, by0, bx1, by1] = gid & EXTRA_BIT ? ctx.extra.boxes[(gid & ~EXTRA_BIT) >>> 0] : ctx.union.boxes[gid];
-			return { box: { x0: rec.x + bx0 * rec.size, x1: rec.x + bx1 * rec.size, y0: rec.y - by1 * rec.size, y1: rec.y - by0 * rec.size }, animated };
+			return ({ x0: rec.x + bx0 * rec.size, x1: rec.x + bx1 * rec.size, y0: rec.y - by1 * rec.size, y1: rec.y - by0 * rec.size });
 		}
 		case ItemType.rect:
 		case ItemType.image:
-		case ItemType.shape: return { box: { x0: rec.x0, y0: rec.y0, x1: rec.x1, y1: rec.y1 }, animated };
+		case ItemType.shape: return ({ x0: rec.x0, y0: rec.y0, x1: rec.x1, y1: rec.y1 });
 		case ItemType.path: {
 			const [bx0, by0, bx1, by1] = ctx.extra.boxes[rec.glyphIdx];
-			return { box: { x0: rec.x + bx0 * rec.scale, x1: rec.x + bx1 * rec.scale, y0: rec.y - by1 * rec.scale, y1: rec.y - by0 * rec.scale }, animated };
+			return ({ x0: rec.x + bx0 * rec.scale, x1: rec.x + bx1 * rec.scale, y0: rec.y - by1 * rec.scale, y1: rec.y - by0 * rec.scale });
 		}
 		case ItemType.stroke: {
 			let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -225,11 +245,11 @@ function itemBounds(s: Store, it: FItem, ctx: EmitContext): { box: Box; animated
 				for (const [x, y] of [[g.x0, g.y0], [g.x1, g.y1], [g.x2, g.y2]]) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
 			}
 			const h = rec.width / 2;
-			return { box: { x0: x0 - h, y0: y0 - h, x1: x1 + h, y1: y1 + h }, animated };
+			return ({ x0: x0 - h, y0: y0 - h, x1: x1 + h, y1: y1 + h });
 		}
 		case ItemType.numeral: {
 			const w = rec.cellW * rec.digits;
-			return { box: { x0: rec.x, x1: rec.x + w, y0: rec.y - rec.size, y1: rec.y + rec.size * 0.25 }, animated };
+			return ({ x0: rec.x, x1: rec.x + w, y0: rec.y - rec.size, y1: rec.y + rec.size * 0.25 });
 		}
 		default: throw new Error(`emit: no bounds for item type ${it.type}`);
 	}
@@ -261,6 +281,7 @@ export function buildGrid(s: Store, items: FItem[], w: number, h: number, ctx: E
 			if (animated) animatedHere++;
 		}
 		if (animatedHere > MAX_CELL_ITEMS) {
+			if (process.env.MAG_DEBUG) for (const { it, box, animated } of boxes) if (animated && !(box.x1 + GRID_PAD < x0 || box.x0 - GRID_PAD > x1 || box.y1 + GRID_PAD < y0 || box.y0 - GRID_PAD > y1)) console.error(it.type, it.index, JSON.stringify(box));
 			throw new Error(`${where}: grid cell (${cx},${cy}) holds ${animatedHere} animated items (limit ${MAX_CELL_ITEMS}); split or reduce the figure`);
 		}
 		cells.push({ start, count: list.length - start });

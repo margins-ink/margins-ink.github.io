@@ -1,0 +1,11 @@
+{
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"types": ["bun"],
+		"skipLibCheck": true,
+		"allowImportingTsExtensions": true,
+		"paths": { "$lib": ["../src/lib"], "$lib/*": ["../src/lib/*"] }
+	},
+	"include": ["./**/*.ts", "../src/lib/magazine/**/*.ts", "../src/lib/reader/format.ts"]
+}

@@ -2,7 +2,7 @@
 // `figures.ts` against these; the `fig` lane compiles the result (scripts/magazine/fig/) to the RDR2
 // item kinds. Builders only normalise and validate shape; they do no geometry.
 
-import type { CompiledFigure, EaseName, FigureTime, PaletteName, Vec2 } from './types';
+import type { EaseName, FigureTime, PaletteName, Vec2 } from './types';
 
 export type { PaletteName };
 
@@ -113,14 +113,8 @@ export function rng(seed: number): () => number {
 	};
 }
 
-// ---- compiler stubs (implemented by the `fig` lane in scripts/magazine/fig/) ----------------------
-
-/** Compile one figure to its channel tables and swept bounds. Wave 1 `fig` lane replaces this body. */
-export function compileFigure(_id: string, _spec: FigureSpec): CompiledFigure {
-	throw new Error('compileFigure: not implemented (fig lane)');
-}
-
-/** Lint a compiled figure (text inside bounds, poster readability, contrast, <= MAX_CELL_ITEMS per cell). Returns messages, empty when clean. */
-export function lintFigure(_f: CompiledFigure): string[] {
-	throw new Error('lintFigure: not implemented (fig lane)');
-}
+// ---- compiler (scripts/magazine/fig/) ------------------------------------------------------------
+// Re-exported so `$lib/magazine/dsl` is the one import figures.ts and tests need. Node-side only: the browser never
+// imports this file (figures.ts is read by the build).
+export { compileFigure } from '../../../scripts/magazine/fig/compile';
+export { lintFigure } from '../../../scripts/magazine/fig/lint';

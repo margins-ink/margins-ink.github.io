@@ -15,15 +15,17 @@ export const KEEP_NEXT = 2; // lines of the next block that must follow a headin
 export type FlowBlock =
 	| { id: string; kind: 'para' }
 	| { id: string; kind: 'heading' }
-	/** code: fixed line count, never wrapped */
-	| { id: string; kind: 'code'; lines: number }
+	/** code: wrapped by the measurer at the frame width (code is set on the code thread when the template has one) */
+	| { id: string; kind: 'code' }
+	/** composite block (list, quote, note, table, math, rule, refs): a stack of lines laid out by the composer, splittable between lines */
+	| { id: string; kind: 'box' }
 	/** figure: natural size in em, caption lines, `ref` = index of the first block that mentions it */
 	| { id: string; kind: 'figure'; place: 'column' | 'wide'; w: number; h: number; captionLines: number; ref?: number };
 
 export interface FitOpts { tracking: number; looseness: number }
 export const NEUTRAL: FitOpts = { tracking: 0, looseness: 0 };
 
-/** Number of lines `block` (para or heading) takes at `widthEm`. */
+/** Number of lines `block` (para, heading, code or box) takes at `widthEm`. */
 export type Measurer = (block: FlowBlock, widthEm: number, opts: FitOpts) => number;
 
 export interface PlanOpts {
@@ -72,8 +74,8 @@ export interface Plan {
 
 // ---- helpers -------------------------------------------------------------------------------------
 
-const GAP_BEFORE: Record<FlowBlock['kind'], number> = { para: 0, heading: 1, code: 1, figure: 1 };
-const GAP_AFTER: Record<FlowBlock['kind'], number> = { para: 0, heading: 0, code: 1, figure: 1 };
+const GAP_BEFORE: Record<FlowBlock['kind'], number> = { para: 0, heading: 1, code: 1, figure: 1, box: 1 };
+const GAP_AFTER: Record<FlowBlock['kind'], number> = { para: 0, heading: 0, code: 1, figure: 1, box: 1 };
 
 interface ThreadState { frames: GridFrame[]; used: number[]; fi: number }
 
@@ -89,16 +91,24 @@ function figureLines(b: Extract<FlowBlock, { kind: 'figure' }>, width: number, m
 	return Math.max(1, Math.min(l, maxLines));
 }
 
+/** Width of the code thread of the `text-code` template (code is wrapped at this width wherever the block lands on a code frame). */
+export function codeWidth(cls: SheetClass): number {
+	const fr = threads(buildFrames(solveTemplate(TEMPLATES['text-code'], cls))).get(1);
+	if (!fr?.length) throw new Error('planner: text-code has no code thread');
+	return fr[0].width;
+}
+
 /** Pick the template for the next spread from the blocks that will probably land on it. */
 function chooseTemplate(queue: Work[], cls: SheetClass, measure: Measurer, fit: FitOpts, pendingWide: boolean): TemplateId {
 	if (pendingWide) return 'text';
 	const text = solveTemplate(TEMPLATES.text, cls);
 	const cap = buildFrames(text).reduce((n, f) => n + f.lines, 0);
 	const w = buildFrames(text)[0].width;
+	const cw = codeWidth(cls);
 	let acc = 0;
 	for (const q of queue) {
-		if (q.block.kind === 'code' && q.block.lines - q.done >= 4) return 'text-code';
-		acc += q.block.kind === 'code' ? q.block.lines : q.block.kind === 'figure' ? 8 : measure(q.block, w, fit) + 1;
+		if (q.block.kind === 'code' && measure(q.block, cw, fit) - q.done >= 4) return 'text-code';
+		acc += q.block.kind === 'figure' ? 8 : measure(q.block, w, fit) + 1;
 		if (acc > cap) break;
 	}
 	return 'text';
@@ -232,7 +242,7 @@ export function planFullText(blocks: FlowBlock[], o: PlanOpts): Plan {
 			let t: ThreadState = proseT;
 			if (b.kind === 'code') {
 				if (codeT) t = codeT;
-				else if (b.lines - w.done >= 4) break; // needs a text-code spread
+				else if (measure(b, codeWidth(o.cls), fit) - w.done >= 4) break; // needs a text-code spread
 			}
 			if (t.fi >= t.frames.length) break;
 			if (spread.placements.length === 0 && t.used[t.fi] === 0) flushPending(t);
@@ -244,7 +254,7 @@ export function planFullText(blocks: FlowBlock[], o: PlanOpts): Plan {
 				continue;
 			}
 			const width = t.frames[t.fi].width;
-			const total = b.kind === 'code' ? b.lines : measure(b, width, fit);
+			const total = measure(b, width, fit);
 			if (w.total === null) w.total = total;
 			const rest = w.total - w.done;
 			const before = w.done;
