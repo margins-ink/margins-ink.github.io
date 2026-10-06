@@ -278,18 +278,10 @@
 <style>
 	:global(html[data-gpu]) {
 		background: #1a1612;
-		scrollbar-width: thin;
-		scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+		scrollbar-width: none;
 	}
 	:global(html[data-gpu]::-webkit-scrollbar) {
-		width: 5px;
-	}
-	:global(html[data-gpu]::-webkit-scrollbar-track) {
-		background: transparent;
-	}
-	:global(html[data-gpu]::-webkit-scrollbar-thumb) {
-		background: rgba(255, 255, 255, 0.28);
-		border-radius: 3px;
+		display: none;
 	}
 	.stage {
 		position: fixed;
