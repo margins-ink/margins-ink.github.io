@@ -16,7 +16,7 @@ import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { packFontsBin } from '../../src/lib/reader/format';
 import { PALETTE2_SIZE } from '../../src/lib/magazine/format';
-import { FontSet, GlyphTableBuilder, ROOT, FONT_SPECS } from '../reader/fonts';
+import { FontSet, GlyphTableBuilder, ROOT, FONT_SPECS, fontPath } from '../reader/fonts';
 import { parseArticle, type Block, type Parsed, type Run } from '../reader/parse';
 import { CLASSES, StringSink, TextSink, type Env, type WidthClass } from './typeset';
 import { collectImageSrcs, ImageStore } from '../reader/images';
@@ -251,7 +251,7 @@ export function inputsHash(thoughts = THOUGHTS): string {
 	walk(HERE);
 	for (const f of fs.readdirSync(path.join(ROOT, 'scripts/reader')).sort()) if (f.endsWith('.ts')) add(path.join(ROOT, 'scripts/reader', f));
 	add(path.join(ROOT, 'src/lib/magazine/format.ts'));
-	for (const s of FONT_SPECS) add(path.join(ROOT, 'docs/upstream/reader/fonts', s.file));
+	for (const s of FONT_SPECS) add(fontPath(s.file));
 	return h.digest('hex').slice(0, 16);
 }
 

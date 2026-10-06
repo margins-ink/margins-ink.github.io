@@ -312,7 +312,7 @@ export function planOpener(env: Env, input: Omit<DistilledInput, 'distill' | 'fi
 	}
 	const fa = solved.areas.f, ga = solved.areas.g;
 	folioLine(w, input.title, fa, 'left', folioBase(fa, false));
-	folioLine(w, input.date ?? '', ga, 'right', folioBase(ga, false));
+	if (ga) folioLine(w, input.date ?? '', ga, 'right', folioBase(ga, false));
 	return { meta: { layer: 0, template: templateId('duo'), w: solved.geom.w, h: solved.geom.h, materialMask: Material.matte, accentIdx: PAL2.accent }, frag: w.fragment() };
 }
 
