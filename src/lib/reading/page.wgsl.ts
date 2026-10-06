@@ -758,11 +758,20 @@ struct TOut {
   return o;
 }
 
+// device px shift that puts the glyph origin (pen x, baseline y) on whole device pixels: stems and baselines then
+// cover whole pixels at rest instead of straddling two (soft edges). Glyphs inside a transform group are left alone.
+fn mg_snap(ix: u32, dydx: vec2f) -> vec2f {
+  let r = reader[MH_GLYPHS] + ix * SZ_GLYPH;
+  if (${g('glyph', 'group')} != MG_NONE16) { return vec2f(0.0); }
+  let o = vec2f(fu.v1.x + ${g('glyph', 'x')} * fu.v0.w - dydx.y, fu.v1.y + ${g('glyph', 'y')} * fu.v0.w + dydx.x) * fu.v0.z;
+  return round(o) - o;
+}
+
 @fragment fn fs_text(in: TOut) -> @location(0) vec4f {
   let p = pg_doc(in.pos.xy, in.ad.y, in.ad.z);
   let fw = fu.v2.x;
   var c = vec4f(0.0);
-  if (in.it.x == 0u) { c = mg_glyph(in.it.y, p, fw); }
+  if (in.it.x == 0u) { c = mg_glyph(in.it.y, p - mg_snap(in.it.y, in.ad.yz) * fw, fw); }
   else if (in.it.x == 1u) { c = mg_rect(in.it.y, p, fw); }
   else { c = mg_image(in.it.y, p, fw); }
   let a = c.a * in.ad.x * pg_fold(p.y);
@@ -928,7 +937,8 @@ struct UOut {
   let g0 = uitext[3u * in.ui];
   let col = uitext[3u * in.ui + 1u];
   let k = uitext[3u * in.ui + 2u];
-  let css = in.pos.xy / fu.v0.z;
+  let o = g0.xy * fu.v0.z;
+  let css = (in.pos.xy - (round(o) - o)) / fu.v0.z; // glyph origin on whole device px (crisp baseline and stems)
   let rc = vec2f((css.x - g0.x) / g0.z, (g0.y - css.y) / g0.z);
   let cov = slug_cov(u32(g0.w), rc, g0.z * fu.v0.z, false);
   let a = cov * col.a;
