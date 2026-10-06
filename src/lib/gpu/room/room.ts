@@ -6,6 +6,7 @@ import { TRACE } from './shader';
 import { loadWorld, RS, type Floor } from './world';
 import { BOW, EM, GUTTER, Magazine, linkAt, pickSpread, writeRd, type Article, type LinkHit, type MagazineUniforms } from './magazine';
 import { createMagazine, MagState, type MagazineExports } from '$lib/ecs/magazine';
+import { onText, selectionRects } from '$lib/magazine/select';
 import { MagazineInput, WHEEL_IDLE_MS, type KeyIn, type Outcome, type PointerIn, type WheelIn } from '$lib/magazine/input';
 import { overviewAt, overviewLayout, scrubbable, type FigureRec, type LinkRec } from '$lib/magazine/hit';
 import { evalPacked, figureTime } from '$lib/magazine/chan';
@@ -43,7 +44,10 @@ export interface Room {
 	pointerUp(p: BookPointer, cancel?: boolean): Outcome;
 	keyIn(k: Omit<KeyIn, 't'>): Outcome;
 	/** Link under a screen point (ndc, y up) for the pointer cursor; null when off the book. */
-	hoverAt(nx: number, ny: number): { spread: number; link: LinkHit | null; scrub?: boolean } | null;
+	hoverAt(nx: number, ny: number): { spread: number; link: LinkHit | null; scrub?: boolean; text?: boolean } | null;
+	/** Exact plain text of the current text selection ('' when none); Cmd/Ctrl+C copies this. */
+	selectedText(): string;
+	clearSelection(): void;
 	/** True when the point is on the open book. */
 	onBook(nx: number, ny: number): boolean;
 	/** Deep link: `#full`, `#full/s3`, `#s3`. */
@@ -326,7 +330,12 @@ export async function createRoom(
 		follow: (l) => followLink({ kind: l.kind, target: l.target, spread: l.spread, rect: [l.x0, l.y0, l.x1, l.y1] }),
 		resetZoom: () => api.resetView(),
 		panBy: (dx, dy) => api.panBy(dx, dy),
-		setHash: (h) => hashCb(h)
+		setHash: (h) => hashCb(h),
+		text: () => mag.article?.text ?? null,
+		select: (s) => {
+			mag.writeSelection(s?.spread ?? 0, s && mag.article ? selectionRects(mag.article.text, s) : []);
+			touch();
+		}
 	});
 	const input = new MagazineInput(book.sink, book.view);
 
@@ -786,7 +795,7 @@ export async function createRoom(
 			// figures hold their poster until the fly-in is done (first paint is a finished frame), then play
 			if (ev.kind === 'opened') exportsOf.book_settled(1);
 			if (ev.kind === 'closed') exportsOf.book_settled(0);
-			if (ev.kind === 'spread' || ev.kind === 'layerOpened' || ev.kind === 'layerClosed') book.syncHash();
+			if (ev.kind === 'spread' || ev.kind === 'layerOpened' || ev.kind === 'layerClosed') (book.syncHash(), input.clearSelection());
 			readCb({ kind: ev.kind, arg: ev.arg });
 		}
 		if (rs[RS.phase] > 0) {
@@ -1031,8 +1040,11 @@ export async function createRoom(
 			// a scrubbable figure under the pointer (the cursor becomes ew-resize)
 			const f = sp && !link ? figRecs.find((r) => r.spread === sp.spread && sp.x >= r.x0 && sp.x <= r.x1 && sp.y >= r.y0 && sp.y <= r.y1) : undefined;
 			const scrub = !!f && scrubbable(f);
-			return hover ? { ...hover, scrub } : sp && scrub ? { spread: sp.spread, link: null, scrub } : null;
+			const text = !!sp && !!mag.article && !f && onText(mag.article.text, sp.spread, sp.x, sp.y);
+			return hover ? { ...hover, scrub, text } : sp && (scrub || text) ? { spread: sp.spread, link: null, scrub, text } : null;
 		},
+		selectedText: () => input.selectedText(),
+		clearSelection: () => input.clearSelection(),
 		onBook: (nx, ny) => spreadPointAt(nx, ny) !== null,
 		applyHash: (h) => book.applyHash(h),
 		onFollow(cb) {

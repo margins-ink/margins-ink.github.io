@@ -47,7 +47,11 @@ export const CHAN_FLOATS = 256;
 /** word index of the channel table (a per-frame writeBuffer subrange) */
 export const CHAN_BASE = MH_WORDS;
 /** first word after header and channel table: sections start here */
-export const DATA_BASE = MH_WORDS + CHAN_FLOATS;
+/** word index of the selection highlight table: [count, spread + 1, then SEL_RECTS x (x0 y0 x1 y1) f32], a writeBuffer subrange */
+export const SEL_BASE = MH_WORDS + CHAN_FLOATS;
+export const SEL_RECTS = 160;
+export const SEL_WORDS = 2 + 4 * SEL_RECTS;
+export const DATA_BASE = SEL_BASE + SEL_WORDS;
 export const MAGIC_MAG = 0x4d414732; // 'MAG2'
 
 type Rec = keyof typeof SCHEMA;
@@ -72,6 +76,7 @@ export const MAGAZINE_EVAL_WGSL = /* wgsl */ `
 ${headerConsts}
 ${sizeConsts}
 const MG_CHAN_BASE = ${CHAN_BASE}u;
+const MG_SEL_BASE = ${SEL_BASE}u;
 const MG_NONE16 = 0xffffu;
 const PAL_PAPER = 17u;
 
@@ -723,6 +728,20 @@ fn spread_albedo(si: u32, p: vec2f, fw: f32) -> MgOut {
   let icount = reader[cell + 1u] & 0xffffu;
   let hov = mg_hov_spread == si + 1u && p.x >= mg_hov_rect.x && p.x <= mg_hov_rect.z && p.y >= mg_hov_rect.y && p.y <= mg_hov_rect.w;
   let hovline = mg_hov_kind < 0.5 && mg_hov_spread == si + 1u && p.x >= mg_hov_rect.x && p.x <= mg_hov_rect.z && p.y >= mg_hov_rect.w - 0.2 && p.y <= mg_hov_rect.w - 0.1;
+  // text selection: highlight plates, laid over the paper and plates and under the glyphs (applied once, before the first glyph item
+  // of the cell); the palette selection colour as an opaque mix, so there is no HDR overshoot and ink keeps its contrast
+  var selA = 0.0;
+  if (reader[MG_SEL_BASE + 1u] == si + 1u) {
+    let nsel = min(reader[MG_SEL_BASE], ${SEL_RECTS}u);
+    for (var k = 0u; k < nsel; k++) {
+      let b = MG_SEL_BASE + 2u + 4u * k;
+      let r = vec4f(mg_f(b), mg_f(b + 1u), mg_f(b + 2u), mg_f(b + 3u));
+      let inx = saturate(min(p.x - r.x, r.z - p.x) / fw + 0.5);
+      let iny = saturate(min(p.y - r.y, r.w - p.y) / fw + 0.5);
+      selA = max(selA, inx * iny);
+    }
+  }
+  var selDone = selA <= 0.0;
   let coatOn = f32((mask >> 1u) & 1u);
   var coat = 0.0;
   for (var i = 0u; i < icount; i++) {
@@ -731,6 +750,7 @@ fn spread_albedo(si: u32, p: vec2f, fw: f32) -> MgOut {
     let ix = it & 0x0fffffffu;
     var c = vec4f(0.0);
     var painted = true;
+    if (ty == 0u && !selDone) { col = mix(col, mg_pal(5u).rgb, selA * keep); selDone = true; }
     if (ty == 0u) { c = mg_glyph(ix, p, fw, hov); painted = false; }
     else if (ty == 1u) { c = mg_rect(ix, p, fw); painted = false; }
     else if (ty == 2u) { c = mg_image(ix, p, fw); }
@@ -744,6 +764,7 @@ fn spread_albedo(si: u32, p: vec2f, fw: f32) -> MgOut {
       if (painted) { coat = max(coat, al * coatOn); }
     }
   }
+  if (!selDone) { col = mix(col, mg_pal(5u).rgb, selA * keep); }
   if (hovline) { col = mix(col, mg_pal(1u).rgb, 0.9); }
   if (hov && mg_hov_kind > 0.5) {
     // a hovered figure: a link-coloured frame 0.2 em wide and a faint wash

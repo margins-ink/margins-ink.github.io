@@ -192,7 +192,7 @@
 					const [nx, ny] = ndc(e);
 					room.pointerMove(rec(e));
 					const h = room.hoverAt(nx, ny);
-					el.style.cursor = h?.link ? 'pointer' : h?.scrub ? 'ew-resize' : '';
+					el.style.cursor = h?.link ? 'pointer' : h?.scrub ? 'ew-resize' : h?.text ? 'text' : '';
 				}
 				return;
 			}
@@ -209,7 +209,8 @@
 				dist = d;
 			} else {
 				if (reading) room.pointerMove(rec(e));
-				if (room.zoom > 1.01 && e.pointerType === 'mouse') room.panBy((dx / r.width) * 2, -(dy / r.height) * 2);
+				// a mouse drag never pans (it selects text, scrubs figures, grabs the book); touch and pen pan, as do wheel and trackpad
+					if (room.zoom > 1.01 && e.pointerType !== 'mouse') room.panBy((dx / r.width) * 2, -(dy / r.height) * 2);
 			}
 		};
 		const up = (e: PointerEvent) => {
@@ -221,7 +222,14 @@
 			pts.delete(e.pointerId);
 			dist = 0;
 		};
-		const dbl = () => room?.resetView();
+		const dbl = (e: MouseEvent) => {
+				// a double click on text selected a word: it must not also reset the zoom
+				if (reading && room) {
+					const [nx, ny] = ndc(e);
+					if (room.hoverAt(nx, ny)?.text) return;
+				}
+				room?.resetView();
+			};
 		el.addEventListener('wheel', onwheel, { passive: false });
 		el.addEventListener('gesturestart', gs);
 		el.addEventListener('gesturechange', gc);
@@ -243,6 +251,15 @@
 	});
 
 	function onkeydown(e: KeyboardEvent) {
+		// Cmd/Ctrl+C copies the exact plain text of the GPU selection through the clipboard API
+		if (reading && room && (e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'c') {
+			const text = room.selectedText();
+			if (text) {
+				e.preventDefault();
+				void navigator.clipboard.writeText(text);
+			}
+			return;
+		}
 		if (!reading || !room || e.metaKey || e.ctrlKey || e.altKey) return;
 		const t = e.target as HTMLElement | null;
 		if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;

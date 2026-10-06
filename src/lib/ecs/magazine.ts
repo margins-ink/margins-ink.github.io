@@ -99,6 +99,9 @@ export interface MagazineHost {
 	panBy(dx: number, dy: number): void;
 	/** reflect the place into the URL (history.replaceState), called on SpreadChanged and layer changes */
 	setHash?(hash: string): void;
+	/** laid-out text for selection, and the highlight sink */
+	text?(): import('../magazine/select').TextModel | null;
+	select?(s: import('../magazine/select').Sel | null): void;
 }
 
 export interface Magazine {
@@ -142,7 +145,8 @@ export function createMagazine(x: MagazineExports, host: MagazineHost): Magazine
 		overview: (on) => x.overview_set(on ? 1 : 0),
 		follow: (l) => host.follow(l),
 		resetZoom: () => host.resetZoom(),
-		panBy: (dx, dy) => host.panBy(dx, dy)
+		panBy: (dx, dy) => host.panBy(dx, dy),
+		select: (s) => host.select?.(s)
 	};
 
 	const view = (): BookView => {
@@ -158,6 +162,7 @@ export function createMagazine(x: MagazineExports, host: MagazineHost): Magazine
 			pxPerEm: host.pxPerEm(),
 			links: host.links(),
 			figures: host.figures(),
+			text: host.text?.() ?? null,
 			overviewAt: host.overviewAt,
 			figureTime: (id) => fig()[id] ?? 0
 		};

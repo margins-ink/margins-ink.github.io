@@ -10,7 +10,8 @@ import {
 	type Container, type FigureRec
 } from '../../magazine/format';
 import { Sec as FSec, LinkKind } from '../../reader/format';
-import { CHAN_BASE, CHAN_FLOATS, DATA_BASE, MAGIC_MAG, MH, MH_WORDS } from './magazine.wgsl';
+import { CHAN_BASE, CHAN_FLOATS, DATA_BASE, MAGIC_MAG, MH, MH_WORDS, SEL_BASE, SEL_RECTS } from './magazine.wgsl';
+import { buildTextModel, type TextModel } from '../../magazine/select';
 
 /** metres per layout em: a 40 em sheet is 0.62 m wide, a little larger than a shelf magazine. */
 export const EM = 0.0155;
@@ -62,6 +63,8 @@ export interface Article {
 	/** packed channel and key tables (format.ts records) for the figure evaluator */
 	chans: { firstKey: number; keyCount: number }[];
 	keys: { t: number; v: number; ease: number }[];
+	/** laid-out lines, glyph boundaries and plain text, for text selection */
+	text: TextModel;
 }
 
 /** Everything the book geometry and the shader depend on; written into the scene uniform with writeRd. */
@@ -297,7 +300,8 @@ export class Magazine {
 		this.article = {
 			slug, cls, single, sheetW: m.sheetW, spreadW: m.spreadW, spreadH: m.spreadH, spreadCount: m.spreads.length,
 			layers, links, anchors, figures, imageIds: asm.imageIds, opensFull: !!a.opensFull,
-			chans: m.chans as unknown as Article['chans'], keys: m.keys as unknown as Article['keys']
+			chans: m.chans as unknown as Article['chans'], keys: m.keys as unknown as Article['keys'],
+			text: buildTextModel(m.lines, m.glyphs, m.text, m.spreads)
 		};
 		void this.loadImages(asm.imageIds, asm.imageIds.map((id) => tierFor(id)), my);
 		return this.article;
@@ -335,6 +339,16 @@ export class Magazine {
 	writeChannels(values: Float32Array) {
 		const n = Math.min(values.length, CHAN_FLOATS);
 		this.device.queue.writeBuffer(this.buffer, CHAN_BASE * 4, values.buffer, values.byteOffset, n * 4);
+	}
+
+	/** Highlight rects (spread em, x0 y0 x1 y1 each) of the text selection on `spread`; an empty list clears it. */
+	writeSelection(spread: number, rects: readonly number[]) {
+		const n = Math.min(rects.length >> 2, SEL_RECTS);
+		const w = new Uint32Array(2 + 4 * n);
+		w[0] = n;
+		w[1] = n ? spread + 1 : 0;
+		new Float32Array(w.buffer, 8, 4 * n).set(rects.slice(0, 4 * n));
+		this.device.queue.writeBuffer(this.buffer, SEL_BASE * 4, w);
 	}
 
 	/** Drop the resident article (its data stays in the buffer until the next load; the shader sees zero spreads). */

@@ -6,6 +6,7 @@ import {
 	edgeAt, figureAt, folioAt, geom, linkAt, marginSide, peelFrac, scrubbable, tabAt, PEEL_OPEN,
 	type FigureRec, type Geom, type LinkRec
 } from './hit';
+import { caretAt, extend, lineRange, textOf, wordRange, type Sel, type SelDrag, type TextModel } from './select';
 
 export const FLICK = 1.2; // spreads/s
 export const WHEEL_PX = 900; // px of vertical wheel per spread
@@ -30,6 +31,8 @@ export interface BookView {
 	pxPerEm: number;
 	links: readonly LinkRec[];
 	figures: readonly FigureRec[];
+	/** laid-out text of the resident article (selection), or null */
+	text?: TextModel | null;
 	/** overview cell under a viewport point (0..1, y down), or null */
 	overviewAt(nx: number, ny: number): number | null;
 	/** current time of a figure (for stepping) */
@@ -58,6 +61,7 @@ export interface BookSink {
 	follow(link: LinkRec): void; // external url, anchor, ref or article
 	resetZoom(): void;
 	panBy(dx: number, dy: number): void; // normalised device units, as Room.panBy
+	select?(s: Sel | null): void; // highlight range of the text selection (null clears)
 }
 
 /** Result of an event: what the host should still do. */
@@ -129,6 +133,7 @@ type Gesture =
 	| { k: 'peel'; startX: number; frac: number }
 	| { k: 'scrub'; side: -1 | 1; x0: number; y0: number; f0: number; df: number; samples: { t: number; f: number }[] }
 	| { k: 'figure'; id: number; w: number; dur: number; lastX: number; t: number; started: boolean; samples: { t: number; f: number }[] }
+	| { k: 'select'; drag: SelDrag; started: boolean; n: number }
 	| { k: 'tap' };
 
 /** One controller per canvas. */
@@ -140,6 +145,9 @@ export class MagazineInput {
 	private lastClick = { t: -1e9, x: 0, y: 0 };
 	private hovered: number | null = null;
 	private hoverFig: number | null = null;
+	/** the text selection (also held by the room for drawing) and the last press, for double and triple click */
+	private sel: Sel | null = null;
+	private press = { t: -1e9, x: 0, y: 0, n: 0 };
 
 	constructor(private sink: BookSink, private view: () => BookView) {}
 
@@ -201,6 +209,9 @@ export class MagazineInput {
 		this.down = { id: p.id, x: p.x, y: p.y, moved: 0, pt: p.spreadPoint };
 		const sp = p.spreadPoint;
 		this.g = { k: 'tap' };
+		this.setSel(null);
+		const near = p.t - this.press.t < 320 && Math.hypot(p.x - this.press.x, p.y - this.press.y) < 10;
+		this.press = { t: p.t, x: p.x, y: p.y, n: near ? Math.min(3, this.press.n + 1) : 1 };
 		if (!sp || v.overview || v.zoom > ZOOM_PAN) return 'ignore';
 		const g = geom(v.narrow);
 		if (v.layer === 0 && tabAt(g, sp.x, sp.y)) {
@@ -219,7 +230,40 @@ export class MagazineInput {
 				this.g = { k: 'scrub', side: side as -1 | 1, x0: sp.x, y0: sp.y, f0: v.f, df: 0, samples: [{ t: p.t, f: v.f }] };
 			}
 		}
+		// a mouse or pen press on text starts a selection (a touch press keeps panning and turning); a plain click still follows links
+		if (this.g.k === 'tap' && p.type !== 'touch' && v.text && v.focus === null) {
+			const c = caretAt(v.text, sp.spread, sp.x, sp.y, 0.05);
+			if (c) {
+				const n = this.press.n;
+				const [a0, a1] = n >= 3 ? lineRange(c.line) : n === 2 ? wordRange(v.text, c.offset) : [c.offset, c.offset];
+				const drag: SelDrag = { spread: sp.spread, unit: n >= 3 ? 'line' : n === 2 ? 'word' : 'char', a0, a1 };
+				this.g = { k: 'select', drag, started: n >= 2, n };
+				if (n >= 2) this.setSel({ spread: sp.spread, lo: a0, hi: a1 });
+				return 'handled';
+			}
+		}
 		return 'ignore';
+	}
+
+	private setSel(s: Sel | null) {
+		if (!s && !this.sel) return;
+		this.sel = s && s.hi > s.lo ? s : null;
+		this.sink.select?.(this.sel);
+	}
+
+	/** Drop the selection (a turn, Escape, a click elsewhere). */
+	clearSelection() {
+		this.setSel(null);
+	}
+
+	/** Exact plain text of the selection ('' when none). */
+	selectedText(): string {
+		const m = this.view().text;
+		return this.sel && m ? textOf(m, this.sel.lo, this.sel.hi) : '';
+	}
+
+	get selection(): Sel | null {
+		return this.sel;
 	}
 
 	pointerMove(p: PointerIn): Outcome {
@@ -237,6 +281,17 @@ export class MagazineInput {
 		d.x = p.x;
 		d.y = p.y;
 		const g = geom(v.narrow);
+		if (this.g.k === 'select') {
+			const s = this.g;
+			if (!s.started && d.moved <= CLICK_PX) return 'handled';
+			s.started = true;
+			if (sp && sp.spread === s.drag.spread && v.text) {
+				// while dragging the nearest line wins, so the pointer may leave the text and the selection follows
+				const c = caretAt(v.text, sp.spread, sp.x, sp.y);
+				if (c) this.setSel(extend(v.text, s.drag, c.offset, c.line));
+			}
+			return 'handled';
+		}
 		if (this.g.k === 'figure') {
 			const s = this.g;
 			if (!sp || (!s.started && d.moved <= CLICK_PX)) return 'handled';
@@ -281,6 +336,12 @@ export class MagazineInput {
 		if (!d || d.id !== p.id) return 'ignore';
 		const sp = p.spreadPoint;
 		const click = !cancel && d.moved <= CLICK_PX;
+		if (g.k === 'select') {
+			if (g.started || cancel) return 'handled';
+			// a click without a drag: the selection was cleared on press; links and the rest resolve as clicks
+			if (!sp) return 'ignore';
+			return this.click(v, sp, p.t, p.x, p.y);
+		}
 		if (g.k === 'figure' && g.started) {
 			this.sink.figureScrubEnd(g.id, cancel ? 0 : velocity(g.samples));
 			return 'handled';
@@ -355,6 +416,7 @@ export class MagazineInput {
 
 	keyIn(k: KeyIn): Outcome {
 		const v = this.view();
+		if (k.key === 'Escape' && this.sel) return (this.setSel(null), 'handled');
 		const a = keyAction(k, v);
 		switch (a.a) {
 			case 'openFull': this.sink.openFull(1); break;
