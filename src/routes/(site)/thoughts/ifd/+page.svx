@@ -3,6 +3,24 @@ title: "IFD is fine"
 dek: "The case against import-from-derivation is a case against CppNix's evaluator, not against the idea."
 date: 2026-05-13
 username: andrewgazelka
+distill:
+  template: duo
+  headline: "IFD is fine"
+  definition: "Import From Derivation: during evaluation, the Nix language asks for a path whose bytes depend on a derivation's output."
+  deck: "The case against import-from-derivation is a case against CppNix's evaluator, not against the idea."
+  figures: [eval-timeline, eval-graph]
+  quote:
+    text: 'The IFD ban was a polite way to say "the reference evaluator cannot handle this yet." The phrasing outlived the constraint.'
+    from: "The frame is the evaluator"
+  captions:
+    - fig: eval-timeline
+      text: "When a thunk demands the contents of ${drv}/foo, the evaluator stops, calls out to the daemon, waits for the build, resumes."
+    - fig: eval-graph
+      text: "Eval and build are nodes in one graph. The graph grows as eval discovers more of it. A thunk that needs a build emits a request and yields."
+    - fig: eval-graph
+      text: "A thunk nobody forces is a derivation nobody builds."
+  synth: []
+  # review: { by: andrewgazelka, at: <date>, post_sha: <bun scripts/magazine/distill.ts sha ifd> } is written by Andrew at review
 ---
 
 <script lang="ts" context="module">
