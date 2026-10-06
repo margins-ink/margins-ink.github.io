@@ -8,6 +8,7 @@ use serde::Deserialize;
 const SCRIPTS: &[(&str, &str)] = &[
     ("building", include_str!("../scene/00-building.flecs")),
     ("prefabs", include_str!("../scene/10-prefabs.flecs")),
+    ("decor", include_str!("../scene/12-decor.flecs")),
     ("palettes", include_str!("../scene/20-palettes.flecs")),
     ("rooms", include_str!("../scene/30-rooms.flecs")),
     ("reader", include_str!("../scene/40-reader.flecs")),

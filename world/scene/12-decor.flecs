@@ -1,0 +1,649 @@
+// Decor prefab library (design: docs/DECOR.md). Loaded after 10-prefabs and before 30-rooms.
+//
+// Rules this file follows (docs/DECOR.md "Conventions"):
+// - A prop's ROOT is the lowest part that touches its support, so `Rests` on an instance lands the whole prop on a surface.
+//   Parts stacked on the root are children with `Rests`; everything else is a child with a Center relative to the root.
+// - Parts that must change colour with a variant are small geometry prefabs (SeatBack, SofaArm, ...) so a variant only
+//   restates `Albedo` on them. Neutral parts (plinths, cushions, handles, cords) are never recoloured.
+// - Surfaces (tables, wall shelves, rugs) and floor props state their own Center.y in the prefab; an instance copies it.
+//   Exporter spec S3 (docs/DECOR.md) would make floor props rest automatically.
+// - The shader has one lamp (kind 9) and one accent (kind 3) per floor in the lighting tables: NO decor part is kind 9.
+//   Kind 3 pieces (neon) all share their floor's colour. Lamp shades are bright warm albedo, not emitters (spec S2).
+
+// ---- relation vocabulary (plain entities used as relation or target; ignored by today's exporter) ----------------
+Hangs {}
+Lights {}
+Near {}
+Pairs {}
+Tint {}
+BackWall {}
+Interior {}
+Upholstery {}
+Paint {}
+
+// ---- materials ------------------------------------------------------------------------------------------------
+prefab Fabric : Solid { Material: {0.95, 0} }
+prefab Metal : Solid { Albedo: {0.16, 0.16, 0.17}
+  Material: {0.3, 0.9} }
+prefab Gloss : Solid { Material: {0.12, 0} }
+prefab Shade : Solid { Albedo: {1.0, 0.8, 0.5}
+  Material: {0.9, 0} }
+prefab Ball : Leaf { Material: {0.4, 0} }
+prefab Plank : Wood { Albedo: {0.32, 0.2, 0.1} }
+
+// ---- neon: kind 3, glows with the floor's accent colour, LampColour is the HDR tube colour ---------------------
+prefab Neon : Object { Kind: {3}
+  (Lights, Interior) }
+prefab NeonPink : Neon { LampColour: {6, 0.8, 3.2} }
+prefab NeonCyan : Neon { LampColour: {0.6, 4.2, 6} }
+prefab NeonLime : Neon { LampColour: {1.4, 6, 0.8} }
+prefab NeonAmber : Neon { LampColour: {6, 2.2, 0.4} }
+
+// A wall sign: dark board with tube bars (half thickness 0.011) 0.012 in front of it. Instances: Center {x, y, 0.011}.
+prefab NeonSign : Solid {
+  (Hangs, BackWall)
+  Albedo: {0.04, 0.04, 0.05}
+  Material: {0.6, 0}
+}
+// "hi!" (2026, pink)
+prefab SignHi : NeonSign {
+  Half: {0.3, 0.26, 0.006}
+  h_stem : NeonPink { Center: {-0.22, 0.025, 0.012}
+    Half: {0.011, 0.175, 0.01} }
+  h_bar : NeonPink { Center: {-0.14, 0.02, 0.012}
+    Half: {0.092, 0.011, 0.01} }
+  h_leg : NeonPink { Center: {-0.06, -0.065, 0.012}
+    Half: {0.011, 0.085, 0.01} }
+  i_stem : NeonPink { Center: {0.06, -0.065, 0.012}
+    Half: {0.011, 0.085, 0.01} }
+  i_dot : NeonPink { Center: {0.06, 0.15, 0.012}
+    Half: {0.014, 0.014, 0.01} }
+  bang_stem : NeonPink { Center: {0.17, 0.08, 0.012}
+    Half: {0.011, 0.12, 0.01} }
+  bang_dot : NeonPink { Center: {0.17, -0.15, 0.012}
+    Half: {0.014, 0.014, 0.01} }
+}
+// "up" (2024, cyan)
+prefab SignUp : NeonSign {
+  Half: {0.33, 0.2, 0.006}
+  u_l : NeonCyan { Center: {-0.23, 0.05, 0.012}
+    Half: {0.011, 0.085, 0.01} }
+  u_r : NeonCyan { Center: {-0.05, 0.05, 0.012}
+    Half: {0.011, 0.085, 0.01} }
+  u_b : NeonCyan { Center: {-0.14, -0.035, 0.012}
+    Half: {0.09, 0.011, 0.01} }
+  p_stem : NeonCyan { Center: {0.07, 0, 0.012}
+    Half: {0.011, 0.135, 0.01} }
+  p_top : NeonCyan { Center: {0.15, 0.135, 0.012}
+    Half: {0.09, 0.011, 0.01} }
+  p_bot : NeonCyan { Center: {0.15, 0.015, 0.012}
+    Half: {0.09, 0.011, 0.01} }
+  p_r : NeonCyan { Center: {0.23, 0.075, 0.012}
+    Half: {0.011, 0.06, 0.01} }
+}
+// "on" (2023, lime). Axis-aligned bars only: the exporter's accent rectangle is axis-aligned.
+prefab SignOn : NeonSign {
+  Half: {0.33, 0.16, 0.006}
+  o_l : NeonLime { Center: {-0.23, 0, 0.012}
+    Half: {0.011, 0.085, 0.01} }
+  o_r : NeonLime { Center: {-0.05, 0, 0.012}
+    Half: {0.011, 0.085, 0.01} }
+  o_t : NeonLime { Center: {-0.14, 0.085, 0.012}
+    Half: {0.09, 0.011, 0.01} }
+  o_b : NeonLime { Center: {-0.14, -0.085, 0.012}
+    Half: {0.09, 0.011, 0.01} }
+  n_l : NeonLime { Center: {0.07, 0, 0.012}
+    Half: {0.011, 0.085, 0.01} }
+  n_r : NeonLime { Center: {0.23, 0, 0.012}
+    Half: {0.011, 0.085, 0.01} }
+  n_t : NeonLime { Center: {0.15, 0.085, 0.012}
+    Half: {0.09, 0.011, 0.01} }
+}
+// "old" (Archive, amber)
+prefab SignOld : NeonSign {
+  Half: {0.38, 0.26, 0.006}
+  o_l : NeonAmber { Center: {-0.3, -0.065, 0.012}
+    Half: {0.011, 0.085, 0.01} }
+  o_r : NeonAmber { Center: {-0.12, -0.065, 0.012}
+    Half: {0.011, 0.085, 0.01} }
+  o_t : NeonAmber { Center: {-0.21, 0.02, 0.012}
+    Half: {0.09, 0.011, 0.01} }
+  o_b : NeonAmber { Center: {-0.21, -0.15, 0.012}
+    Half: {0.09, 0.011, 0.01} }
+  l_stem : NeonAmber { Center: {0, 0.025, 0.012}
+    Half: {0.011, 0.175, 0.01} }
+  d_l : NeonAmber { Center: {0.12, -0.065, 0.012}
+    Half: {0.011, 0.085, 0.01} }
+  d_r : NeonAmber { Center: {0.3, 0.025, 0.012}
+    Half: {0.011, 0.175, 0.01} }
+  d_t : NeonAmber { Center: {0.21, 0.02, 0.012}
+    Half: {0.09, 0.011, 0.01} }
+  d_b : NeonAmber { Center: {0.21, -0.15, 0.012}
+    Half: {0.09, 0.011, 0.01} }
+}
+
+// ---- lamps (Lamp: tag base for everything that lights the room by intent) -------------------------------------
+prefab Lamp : Solid {
+  (Lights, Interior)
+}
+// Floor lamp: the shade is the root (variants recolour it); pole and base hang below it. Floor prop: Center.y 1.62.
+prefab FloorLamp : Lamp {
+  (Tint, Paint)
+  Albedo: {0.95, 0.85, 0.65}
+  Material: {0.9, 0}
+  Center: {0, 1.62, 0}
+  Half: {0.17, 0.09, 0.17}
+  cap : Shade { Center: {0, 0, 0}
+    Half: {0.11, 0.03, 0.11}
+    Rests }
+  pole : Metal { Center: {0, -0.84, 0}
+    Half: {0.012, 0.75, 0.012} }
+  base : Metal { Center: {0, -1.605, 0}
+    Half: {0.11, 0.015, 0.11} }
+}
+prefab FloorLampRose : FloorLamp { Albedo: {1.0, 0.6, 0.65} }
+prefab FloorLampAmber : FloorLamp { Albedo: {1.0, 0.65, 0.25} }
+// Table lamp: ceramic base is the root (stands on a surface with Rests), neck and shade stack on it.
+prefab TableLamp : Lamp {
+  Albedo: {0.1, 0.35, 0.4}
+  Material: {0.12, 0}
+  Half: {0.06, 0.05, 0.06}
+  neck : Metal { Center: {0, 0, 0}
+    Half: {0.01, 0.09, 0.01}
+    Rests
+    shade : Shade { Center: {0, 0, 0}
+      Half: {0.11, 0.08, 0.11}
+      Rests } }
+}
+// Pendant: shade is the root at Center.y 2.5, cord and canopy stack upward to the 3.2 ceiling, bulb disc below.
+prefab Pendant : Lamp {
+  (Tint, Paint)
+  Albedo: {0.8, 0.75, 0.6}
+  Material: {0.35, 0}
+  Center: {0, 2.5, 0}
+  Half: {0.17, 0.09, 0.17}
+  cord : Metal { Center: {0, 0, 0}
+    Half: {0.005, 0.3, 0.005}
+    Rests
+    canopy : Metal { Center: {0, 0, 0}
+      Half: {0.04, 0.01, 0.04}
+      Rests } }
+  bulb : Shade { Center: {0, -0.095, 0}
+    Half: {0.06, 0.008, 0.06}
+    Albedo: {1.0, 0.95, 0.8} }
+}
+prefab PendantRed : Pendant { Albedo: {0.72, 0.12, 0.1} }
+prefab PendantBlack : Pendant { Albedo: {0.08, 0.08, 0.1} }
+prefab PendantBrass : Pendant { Albedo: {0.75, 0.55, 0.2}
+  Material: {0.3, 0.8} }
+
+// ---- seating (Furniture > Seat > Armchair*, Furniture > Sofa > Sofa*) -----------------------------------------
+prefab Furniture : Fabric { Albedo: {0.5, 0.35, 0.25} }
+
+prefab SeatBack : Fabric {
+  (Tint, Upholstery)
+  Center: {0, 0.26, -0.2}
+  Half: {0.26, 0.2, 0.05}
+}
+prefab SeatArm : Fabric {
+  (Tint, Upholstery)
+  Center: {-0.3, 0.1, 0.02}
+  Half: {0.04, 0.1, 0.22}
+}
+// Armchair body (root, Center.y 0.22); the upholstered back and arms come with the colour variants.
+prefab Seat : Furniture {
+  (Tint, Upholstery)
+  Center: {0, 0.22, 0}
+  Half: {0.26, 0.14, 0.26}
+  plinth : Wood { Center: {0, -0.18, 0}
+    Half: {0.22, 0.04, 0.22}
+    Albedo: {0.2, 0.12, 0.07} }
+  cushion : Fabric { Center: {0, 0, 0.03}
+    Half: {0.22, 0.045, 0.2}
+    Albedo: {0.7, 0.65, 0.58}
+    Rests }
+}
+prefab ArmchairMustard : Seat { Albedo: {0.78, 0.55, 0.12}
+  back : SeatBack { Albedo: {0.78, 0.55, 0.12} }
+  arm_l : SeatArm { Albedo: {0.78, 0.55, 0.12} }
+  arm_r : SeatArm { Center: {0.3, 0.1, 0.02}
+    Albedo: {0.78, 0.55, 0.12} }
+}
+prefab ArmchairForest : Seat { Albedo: {0.12, 0.32, 0.2}
+  back : SeatBack { Albedo: {0.12, 0.32, 0.2} }
+  arm_l : SeatArm { Albedo: {0.12, 0.32, 0.2} }
+  arm_r : SeatArm { Center: {0.3, 0.1, 0.02}
+    Albedo: {0.12, 0.32, 0.2} }
+}
+prefab ArmchairLeather : Seat { Albedo: {0.35, 0.18, 0.08}
+  Material: {0.45, 0}
+  back : SeatBack { Albedo: {0.35, 0.18, 0.08}
+    Material: {0.45, 0} }
+  arm_l : SeatArm { Albedo: {0.35, 0.18, 0.08}
+    Material: {0.45, 0} }
+  arm_r : SeatArm { Center: {0.3, 0.1, 0.02}
+    Albedo: {0.35, 0.18, 0.08}
+    Material: {0.45, 0} }
+}
+
+prefab SofaBack : Fabric {
+  (Tint, Upholstery)
+  Center: {0, 0.28, -0.24}
+  Half: {0.7, 0.24, 0.06}
+}
+prefab SofaArm : Fabric {
+  (Tint, Upholstery)
+  Center: {-0.77, 0.1, 0.03}
+  Half: {0.07, 0.1, 0.27}
+}
+// Throw pillow: leans back against whatever it rests on.
+prefab Pillow : Fabric {
+  Albedo: {0.85, 0.7, 0.35}
+  Half: {0.11, 0.11, 0.04}
+  Lean: {angle: 0.3}
+}
+// Sofa body (root, Center.y 0.22): plinth, two seat cushions with a throw pillow each, two paired back cushions.
+prefab Sofa : Furniture {
+  (Tint, Upholstery)
+  Center: {0, 0.22, 0}
+  Half: {0.7, 0.14, 0.3}
+  plinth : Wood { Center: {0, -0.18, 0}
+    Half: {0.64, 0.04, 0.26}
+    Albedo: {0.2, 0.12, 0.07} }
+  seat_l : Fabric { Center: {-0.335, 0, 0.03}
+    Half: {0.33, 0.055, 0.27}
+    Albedo: {0.7, 0.65, 0.58}
+    Rests
+    tp_l : Pillow { Center: {-0.12, 0, -0.14}
+      Rests } }
+  seat_r : Fabric { Center: {0.335, 0, 0.03}
+    Half: {0.33, 0.055, 0.27}
+    Albedo: {0.7, 0.65, 0.58}
+    Rests
+    tp_r : Pillow { Center: {0.12, 0, -0.14}
+      Albedo: {0.25, 0.4, 0.55}
+      Rests } }
+  bc_l : Fabric { Center: {-0.35, 0, -0.2}
+    Half: {0.31, 0.17, 0.05}
+    Lean: {angle: 0.18}
+    Albedo: {0.7, 0.65, 0.58}
+    Rests }
+  bc_r : Fabric { Center: {0.35, 0, -0.2}
+    Half: {0.31, 0.17, 0.05}
+    Lean: {angle: 0.18}
+    Albedo: {0.7, 0.65, 0.58}
+    (Pairs, bc_l)
+    Rests }
+}
+prefab SofaTeal : Sofa { Albedo: {0.1, 0.42, 0.45}
+  back : SofaBack { Albedo: {0.1, 0.42, 0.45} }
+  arm_l : SofaArm { Albedo: {0.1, 0.42, 0.45} }
+  arm_r : SofaArm { Center: {0.77, 0.1, 0.03}
+    Albedo: {0.1, 0.42, 0.45} }
+}
+// Beanbag: a sphere (Half y is the radius so Rests works).
+prefab Beanbag : Ball {
+  Albedo: {0.85, 0.35, 0.1}
+  Material: {0.95, 0}
+  Half: {0.27, 0.27, 0.27}
+}
+
+// ---- rugs: border is the root (variants recolour it), inner field is a fixed cream; a floor-level surface -------
+prefab DecorRug : Fabric {
+  (Tint, Upholstery)
+  Albedo: {0.62, 0.24, 0.14}
+  Material: {1, 0}
+  Half: {1.6, 0.004, 0.75}
+  inner : Fabric { Center: {0, 0, 0}
+    Half: {1.45, 0.002, 0.62}
+    Albedo: {0.85, 0.8, 0.68}
+    Material: {1, 0}
+    Rests }
+}
+prefab RugTerracotta : DecorRug {}
+prefab RugNavy : DecorRug { Albedo: {0.1, 0.14, 0.3} }
+prefab RugForest : DecorRug { Albedo: {0.1, 0.28, 0.18} }
+prefab RugOchre : DecorRug { Albedo: {0.5, 0.36, 0.16} }
+
+// ---- surfaces -------------------------------------------------------------------------------------------------
+// Coffee table: top is the root (surface, Center.y 0.4), legs hang below it.
+prefab TableLeg : Wood {
+  Albedo: {0.3, 0.18, 0.1}
+  Half: {0.025, 0.19, 0.025}
+}
+prefab CoffeeTable : Wood {
+  Albedo: {0.45, 0.28, 0.14}
+  Center: {0, 0.4, 0}
+  Half: {0.5, 0.025, 0.3}
+  leg_a : TableLeg { Center: {-0.44, -0.215, -0.24} }
+  leg_b : TableLeg { Center: {0.44, -0.215, -0.24} }
+  leg_c : TableLeg { Center: {-0.44, -0.215, 0.24} }
+  leg_d : TableLeg { Center: {0.44, -0.215, 0.24} }
+}
+// Side table: top is the root (Center.y 0.5), stem and foot below.
+prefab SideTable : Wood {
+  Albedo: {0.4, 0.25, 0.13}
+  Center: {0, 0.5, 0}
+  Half: {0.2, 0.02, 0.2}
+  stem : Wood { Center: {0, -0.25, 0}
+    Half: {0.025, 0.23, 0.025}
+    Albedo: {0.3, 0.18, 0.1} }
+  foot : Metal { Center: {0, -0.49, 0}
+    Half: {0.14, 0.01, 0.14} }
+}
+// Wall shelf: plank is the root (hung at Center.y, z 0.1), two brackets below; props rest on it.
+prefab WallShelf : Wood {
+  (Hangs, BackWall)
+  Albedo: {0.4, 0.25, 0.13}
+  Half: {0.45, 0.015, 0.1}
+  br_l : Metal { Center: {-0.38, -0.06, -0.015}
+    Half: {0.012, 0.045, 0.08} }
+  br_r : Metal { Center: {0.38, -0.06, -0.015}
+    Half: {0.012, 0.045, 0.08} }
+}
+
+// ---- small props ----------------------------------------------------------------------------------------------
+prefab Cup : Gloss {
+  (Tint, Paint)
+  Albedo: {0.88, 0.86, 0.8}
+  Half: {0.04, 0.05, 0.04}
+  handle : Gloss { Center: {0.05, 0, 0}
+    Half: {0.012, 0.028, 0.01}
+    Albedo: {0.88, 0.86, 0.8} }
+  coffee : Solid { Center: {0, 0, 0}
+    Half: {0.034, 0.002, 0.034}
+    Albedo: {0.09, 0.05, 0.03}
+    Rests }
+}
+prefab MugYellow : Cup { Albedo: {0.9, 0.7, 0.1} }
+prefab MugRed : Cup { Albedo: {0.75, 0.12, 0.1} }
+prefab MugBlue : Cup { Albedo: {0.15, 0.3, 0.7} }
+
+// Three books stacked untidily: each rests on the one below.
+prefab BookStack : Solid {
+  Albedo: {0.6, 0.15, 0.12}
+  Half: {0.12, 0.018, 0.09}
+  book_b : Solid { Center: {0.01, 0, -0.005}
+    Half: {0.105, 0.015, 0.08}
+    Euler: {0, 0.12, 0}
+    Albedo: {0.15, 0.3, 0.5}
+    Rests
+    book_c : Solid { Center: {-0.01, 0, 0.01}
+      Half: {0.1, 0.014, 0.075}
+      Euler: {0, -0.2, 0}
+      Albedo: {0.85, 0.7, 0.3}
+      Rests } }
+}
+// Four upright books, the last one leaning on its neighbour; stands on a shelf with Rests.
+prefab BookRow : Solid {
+  Albedo: {0.6, 0.15, 0.12}
+  Half: {0.02, 0.15, 0.07}
+  b1 : Solid { Center: {0.05, -0.02, 0}
+    Half: {0.02, 0.13, 0.07}
+    Albedo: {0.15, 0.3, 0.5} }
+  b2 : Solid { Center: {0.1, 0.01, 0}
+    Half: {0.025, 0.16, 0.075}
+    Albedo: {0.85, 0.7, 0.3} }
+  b3 : Solid { Center: {0.155, -0.0295, 0}
+    Half: {0.02, 0.12, 0.07}
+    Euler: {0, 0, 0.3}
+    Albedo: {0.2, 0.45, 0.3} }
+}
+// Little figurine: body sphere is the root, head sphere and two ears stack on it.
+prefab Figurine : Ball {
+  Albedo: {0.85, 0.4, 0.3}
+  Half: {0.05, 0.05, 0.05}
+  head : Ball { Center: {0, 0, 0}
+    Half: {0.035, 0.035, 0.035}
+    Albedo: {0.92, 0.88, 0.78}
+    Rests
+    ear_l : Solid { Center: {-0.022, 0, 0}
+      Half: {0.01, 0.02, 0.01}
+      Albedo: {0.92, 0.88, 0.78}
+      Rests }
+    ear_r : Solid { Center: {0.022, 0, 0}
+      Half: {0.01, 0.02, 0.01}
+      Albedo: {0.92, 0.88, 0.78}
+      Rests } }
+}
+prefab FigurineTeal : Figurine { Albedo: {0.15, 0.55, 0.5} }
+// Cactus in a pot: trunk on the pot, two arms (elbow stub + upright), a flower on top.
+prefab Cactus : Gloss {
+  (Tint, Paint)
+  Albedo: {0.6, 0.3, 0.2}
+  Half: {0.05, 0.04, 0.05}
+  trunk : Solid { Center: {0, 0, 0}
+    Half: {0.028, 0.1, 0.028}
+    Albedo: {0.08, 0.3, 0.12}
+    Material: {0.4, 0}
+    Rests
+    arm_l_h : Solid { Center: {-0.053, 0.02, 0}
+      Half: {0.025, 0.012, 0.012}
+      Albedo: {0.08, 0.3, 0.12}
+      Material: {0.4, 0}
+      arm_l_v : Solid { Center: {-0.013, 0, 0}
+        Half: {0.012, 0.04, 0.012}
+        Albedo: {0.08, 0.3, 0.12}
+        Material: {0.4, 0}
+        Rests } }
+    arm_r_h : Solid { Center: {0.053, 0.0, 0}
+      Half: {0.025, 0.012, 0.012}
+      Albedo: {0.08, 0.3, 0.12}
+      Material: {0.4, 0}
+      arm_r_v : Solid { Center: {0.013, 0, 0}
+        Half: {0.012, 0.03, 0.012}
+        Albedo: {0.08, 0.3, 0.12}
+        Material: {0.4, 0}
+        Rests } }
+    flower : Ball { Center: {0, 0, 0}
+      Half: {0.018, 0.018, 0.018}
+      Albedo: {0.9, 0.3, 0.5}
+      Rests } }
+}
+prefab CactusWhite : Cactus { Albedo: {0.85, 0.85, 0.82} }
+
+// Black cat loafing: body is the root (Rests on a rug or floor), head, ears and tail relative to it.
+prefab Cat : Fabric {
+  Albedo: {0.06, 0.06, 0.07}
+  Half: {0.14, 0.07, 0.075}
+  head : Ball { Center: {0.15, 0.045, 0}
+    Half: {0.065, 0.065, 0.065}
+    Albedo: {0.06, 0.06, 0.07}
+    Material: {0.95, 0}
+    ear_l : Solid { Center: {-0.03, 0.065, 0}
+      Half: {0.016, 0.026, 0.01}
+      Euler: {0, 0, 0.25}
+      Albedo: {0.06, 0.06, 0.07}
+      Material: {0.95, 0} }
+    ear_r : Solid { Center: {0.03, 0.065, 0}
+      Half: {0.016, 0.026, 0.01}
+      Euler: {0, 0, -0.25}
+      Albedo: {0.06, 0.06, 0.07}
+      Material: {0.95, 0} } }
+  tail : Solid { Center: {-0.2, 0.05, 0}
+    Half: {0.07, 0.014, 0.014}
+    Euler: {0, 0, -0.5}
+    Albedo: {0.06, 0.06, 0.07}
+    Material: {0.95, 0} }
+}
+
+// Record player: plinth is the root (desk or table), platter > record > label stack on it, tonearm post > arm, power knob.
+prefab RecordPlayer : Wood {
+  (Tint, Paint)
+  Albedo: {0.3, 0.17, 0.09}
+  Half: {0.22, 0.035, 0.17}
+  platter : Metal { Center: {-0.03, 0, 0.01}
+    Half: {0.14, 0.006, 0.14}
+    Rests
+    record : Solid { Center: {0, 0, 0}
+      Half: {0.13, 0.002, 0.13}
+      Albedo: {0.03, 0.03, 0.035}
+      Material: {0.25, 0}
+      Rests
+      label : Solid { Center: {0, 0, 0}
+        Half: {0.04, 0.0015, 0.04}
+        Albedo: {0.7, 0.1, 0.1}
+        Rests } } }
+  post : Metal { Center: {0.17, 0, -0.11}
+    Half: {0.01, 0.025, 0.01}
+    Rests
+    arm : Metal { Center: {-0.069, 0, 0.041}
+      Half: {0.08, 0.004, 0.004}
+      Euler: {0, 0.53, 0}
+      Rests } }
+  knob : Ball { Center: {0.17, 0, 0.1}
+    Half: {0.012, 0.012, 0.012}
+    Albedo: {0.85, 0.8, 0.7}
+    Rests }
+}
+prefab RecordPlayerWhite : RecordPlayer { Albedo: {0.85, 0.85, 0.8} }
+
+// Table radio: body is the root, grille, two dial knobs and a tilted antenna.
+prefab Radio : Wood {
+  Albedo: {0.28, 0.16, 0.08}
+  Half: {0.13, 0.075, 0.05}
+  grille : Solid { Center: {-0.05, 0, 0.052}
+    Half: {0.06, 0.05, 0.003}
+    Albedo: {0.75, 0.65, 0.4} }
+  dial_a : Ball { Center: {0.08, 0.025, 0.056}
+    Half: {0.018, 0.018, 0.018}
+    Albedo: {0.85, 0.8, 0.7} }
+  dial_b : Ball { Center: {0.08, -0.03, 0.056}
+    Half: {0.014, 0.014, 0.014}
+    Albedo: {0.85, 0.8, 0.7} }
+  antenna : Metal { Center: {0.1, 0, -0.03}
+    Half: {0.004, 0.1, 0.004}
+    Euler: {0, 0, -0.4}
+    Rests }
+}
+
+// Mini fridge: body is the root (floor prop, Center.y 0.42), door seam and two handles on the front.
+prefab Fridge : Gloss {
+  (Tint, Paint)
+  Albedo: {0.9, 0.9, 0.86}
+  Center: {0, 0.42, 0}
+  Half: {0.25, 0.42, 0.24}
+  seam : Solid { Center: {0, 0.14, 0.242}
+    Half: {0.248, 0.004, 0.003}
+    Albedo: {0.2, 0.2, 0.2} }
+  handle_up : Metal { Center: {0.2, 0.3, 0.255}
+    Half: {0.011, 0.07, 0.014}
+    Albedo: {0.7, 0.7, 0.72} }
+  handle_dn : Metal { Center: {0.2, -0.05, 0.255}
+    Half: {0.011, 0.1, 0.014}
+    Albedo: {0.7, 0.7, 0.72} }
+}
+prefab FridgeMint : Fridge { Albedo: {0.62, 0.8, 0.7} }
+
+// Low bookcase: back panel is the root (floor prop, Center.y 0.55, z 0.012 against the wall), sides, three boards, two book rows.
+prefab Bookcase : Plank {
+  Center: {0, 0.55, 0.012}
+  Half: {0.34, 0.55, 0.012}
+  side_l : Plank { Center: {-0.352, 0, 0.115}
+    Half: {0.012, 0.55, 0.115} }
+  side_r : Plank { Center: {0.352, 0, 0.115}
+    Half: {0.012, 0.55, 0.115} }
+  board_0 : Plank { Center: {0, -0.49, 0.115}
+    Half: {0.34, 0.012, 0.115}
+    row_a : BookRow { Center: {-0.15, 0, 0}
+      Rests } }
+  board_1 : Plank { Center: {0, 0.03, 0.115}
+    Half: {0.34, 0.012, 0.115}
+    row_b : BookRow { Center: {0.08, 0, 0}
+      Rests } }
+  board_2 : Plank { Center: {0, 0.53, 0.115}
+    Half: {0.34, 0.012, 0.115} }
+}
+
+// ---- wall pieces (z is the half depth plus a hair: instances use Center {x, y, 0.02}) ---------------------------
+prefab Frame : Solid {
+  (Hangs, BackWall)
+}
+// art is the root, variants recolour it; moulding behind and a cream motif are fixed.
+prefab FramePortrait : Frame {
+  Albedo: {0.8, 0.4, 0.2}
+  Half: {0.2, 0.26, 0.004}
+  mould : Wood { Center: {0, 0, -0.006}
+    Half: {0.23, 0.29, 0.006}
+    Albedo: {0.12, 0.08, 0.05} }
+  motif : Solid { Center: {0, 0.04, 0.005}
+    Half: {0.09, 0.09, 0.003}
+    Euler: {0, 0, 0.785}
+    Albedo: {0.95, 0.9, 0.78} }
+}
+prefab FrameSmall : Frame {
+  Albedo: {0.9, 0.55, 0.15}
+  Half: {0.1, 0.12, 0.004}
+  mould : Wood { Center: {0, 0, -0.006}
+    Half: {0.115, 0.135, 0.006}
+    Albedo: {0.12, 0.08, 0.05} }
+  motif : Solid { Center: {0, 0.02, 0.005}
+    Half: {0.05, 0.05, 0.003}
+    Euler: {0, 0, 0.785}
+    Albedo: {0.95, 0.9, 0.78} }
+}
+prefab PosterSun : FrameSmall {}
+prefab PosterSea : FrameSmall { Albedo: {0.15, 0.45, 0.6} }
+prefab PosterRose : FrameSmall { Albedo: {0.8, 0.3, 0.4} }
+prefab FrameWide : Frame {
+  Albedo: {0.5, 0.25, 0.5}
+  Half: {0.3, 0.19, 0.004}
+  mould : Wood { Center: {0, 0, -0.006}
+    Half: {0.33, 0.22, 0.006}
+    Albedo: {0.12, 0.08, 0.05} }
+  sun : Solid { Center: {0.1, 0.05, 0.005}
+    Half: {0.08, 0.08, 0.003}
+    Euler: {0, 0, 0.785}
+    Albedo: {0.95, 0.8, 0.4} }
+  hills : Solid { Center: {0, -0.13, 0.005}
+    Half: {0.28, 0.04, 0.003}
+    Albedo: {0.12, 0.1, 0.2} }
+}
+prefab WideDusk : FrameWide {}
+prefab WideSea : FrameWide { Albedo: {0.15, 0.4, 0.5} }
+
+// Wall clock: dark rim is the root, cream face, two hands at 10:10 pointing like a pleased moustache, red pivot.
+prefab Clock : Solid {
+  (Hangs, BackWall)
+  Albedo: {0.12, 0.1, 0.08}
+  Half: {0.17, 0.17, 0.01}
+  face : Solid { Center: {0, 0, 0.011}
+    Half: {0.145, 0.145, 0.004}
+    Albedo: {0.92, 0.9, 0.82} }
+  hour : Solid { Center: {-0.035, 0.028, 0.019}
+    Half: {0.008, 0.045, 0.004}
+    Euler: {0, 0, 0.9}
+    Albedo: {0.08, 0.08, 0.08} }
+  minute : Solid { Center: {0.056, 0.032, 0.023}
+    Half: {0.005, 0.065, 0.004}
+    Euler: {0, 0, -1.05}
+    Albedo: {0.08, 0.08, 0.08} }
+  pivot : Ball { Center: {0, 0, 0.024}
+    Half: {0.011, 0.011, 0.011}
+    Albedo: {0.7, 0.1, 0.1} }
+}
+
+// Curtain rail (instance Center {2.0, 2.92, 0.12}) and curtain panels (Center {1.2 | 2.8, 1.97, 0.12}).
+prefab CurtainRod : Metal {
+  (Hangs, BackWall)
+  Half: {0.95, 0.012, 0.012}
+  fin_l : Ball { Center: {-0.97, 0, 0}
+    Half: {0.028, 0.028, 0.028}
+    Albedo: {0.16, 0.16, 0.17}
+    Material: {0.3, 0.9} }
+  fin_r : Ball { Center: {0.97, 0, 0}
+    Half: {0.028, 0.028, 0.028}
+    Albedo: {0.16, 0.16, 0.17}
+    Material: {0.3, 0.9} }
+}
+prefab Curtain : Fabric {
+  (Hangs, BackWall)
+  (Tint, Upholstery)
+  Albedo: {0.88, 0.8, 0.6}
+  Half: {0.13, 0.88, 0.015}
+  fold : Fabric { Center: {0.03, 0, 0.017}
+    Half: {0.01, 0.86, 0.006}
+    Albedo: {0.25, 0.2, 0.18} }
+}
+prefab CurtainViolet : Curtain { Albedo: {0.28, 0.14, 0.4} }
+prefab CurtainMustard : Curtain { Albedo: {0.7, 0.5, 0.12} }

@@ -25,3 +25,14 @@ The room is declared in Flecs script and packed by `world/src/export.rs`; `bun r
 
 ## Flat objects
 - `Flat` rotates so local y is horizontal and local z is vertical: a sheet lying on a desk needs `Half: {w, depth, thickness}` (thickness last). Putting the thin half on y made the notes stand upright through the desk.
+
+## Decor prefabs (docs/DECOR.md, scene/12-decor.flecs)
+- Load order: `12-decor.flecs` must sit between `prefabs` and `rooms` in `scene.rs` `SCRIPTS`; the rooms script uses its prefabs.
+- Build compound props as an IsA tree: base (`Lamp`, `Seat`, `Frame`, `NeonSign`) > variants that restate only what differs (`ArmchairMustard : Seat { Albedo }`, `MugRed : Cup { Albedo }`). Parts are `ChildOf` children with a Center relative to the root.
+- The root is the lowest part touching its support; stack the rest with `Rests` (child of child works, y chains). Surfaces and floor props carry their own Center.y in the prefab, and an instance repeats it because `Center: {x, y, z}` replaces the whole component.
+- You cannot override a child of a prefab from a variant or add children to an inherited child. Variants recolour via small geometry prefabs (`SeatBack`) re-declared with an `Albedo`; neutral parts are never recoloured. Add per-floor props to an instance's own root (`desk : FurnishedDesk { ... }`), never to an inherited part.
+- Rotation does not propagate to children (only the entity's own box rotates): compound props face +z, nothing mounts on side walls.
+- Spheres (`Ball`, kind 8) need `Half {r, r, r}` to work with `Rests` (extent_y reads Half.y); the shader uses Half.x as the radius.
+- Relations as intent: declare plain entities (`Hangs {}`, `Lights {}`, `Near {}`, `Pairs {}`, `Tint {}`) at the top of the script, then use `(Hangs, BackWall)` on its own line. The exporter ignores them until it reads them; a target must be declared earlier (siblings: `(Pairs, bc_l)`).
+- Lighting limits today: one kind 9 (lamp) and one kind 3 (accent) are read per floor (the last by entity id). Extra kind 9 objects move the floor's light: use none. Kind 3 objects all glow with the floor's one accent colour: give every neon bar the same LampColour and keep them axis aligned.
+- Cost: `intersect` is linear in objects per level; stay under about 90 decor objects per floor and measure.

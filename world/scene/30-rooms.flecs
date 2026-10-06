@@ -42,7 +42,27 @@ prefab Room {
     Material: {1, 0} }
 }
 
-// A floor with daylight and a lived-in desk.
+// The lived-in desk (tray, cup, notes). Each floor declares `desk : FurnishedDesk { ... }` and adds its own props
+// as children of that instance (children of an inherited prefab child cannot be extended).
+prefab FurnishedDesk : DeskSurface {
+  tray  : Solid { Center: {-1.0, 0, -0.1}
+    Half: {0.22, 0.012, 0.15}
+    Albedo: {0.55, 0.55, 0.58}
+    Material: {0.22, 1}
+    Rests }
+  cup   : Solid { Center: {-0.3, 0, 0.1}
+    Half: {0.04, 0.05, 0.04}
+    Albedo: {0.85, 0.85, 0.8}
+    Material: {0.1, 0}
+    Rests }
+  notes : Solid { Center: {0.3, 0, 0.25}
+    Half: {0.12, 0.17, 0.01}
+    Albedo: {0.1, 0.12, 0.3}
+    Flat: {theta: 0.3, per_floor: 1}
+    Rests }
+}
+
+// A floor with daylight (the desk comes with each floor, see FurnishedDesk).
 prefab Furnished : Room {
   window : Window { Center: {2.0, 1.95, 0.04} }
   shelf  : ShelfSurface {
@@ -51,25 +71,11 @@ prefab Furnished : Room {
     lamp  : DeskLamp { Center: {-1.6, 0, 0.03}
       Rests }
   }
-  desk   : DeskSurface {
-    tray  : Solid { Center: {-1.0, 0, -0.1}
-      Half: {0.22, 0.012, 0.15}
-      Albedo: {0.55, 0.55, 0.58}
-      Material: {0.22, 1}
-      Rests }
-    cup   : Solid { Center: {-0.3, 0, 0.1}
-      Half: {0.04, 0.05, 0.04}
-      Albedo: {0.85, 0.85, 0.8}
-      Material: {0.1, 0}
-      Rests }
-    notes : Solid { Center: {0.3, 0, 0.25}
-      Half: {0.12, 0.17, 0.01}
-      Albedo: {0.1, 0.12, 0.3}
-      Flat: {theta: 0.3, per_floor: 1}
-      Rests }
-  }
 }
 
+// ---- Decor (docs/DECOR.md). Names are d_*; every y that is written is a surface or floor-prop height from 12-decor.
+
+// 2026: sunlit living room. Pink neon "hi!", mustard armchair, terracotta rug, black cat.
 prefab Lobby : Furnished {
   (Uses, palette0)
   map_frame : Solid { Center: {-1.5, 2.4, 0.045}
@@ -78,15 +84,129 @@ prefab Lobby : Furnished {
   map       : Card  { Center: {-1.5, 2.4, 0.095}
     Half: {0.9, 0.6328, 0.006}
     TexMap }
+  desk : FurnishedDesk {
+    d_rp : RecordPlayer { Center: {1.7, 0, -0.25}
+      Rests }
+    d_fig : FigurineTeal { Center: {0.95, 0, 0.3}
+      Rests }
+    d_cactus : Cactus { Center: {-1.9, 0, 0.2}
+      Rests }
+    d_mug : MugRed { Center: {-0.7, 0, 0.3}
+      Rests }
+  }
+  d_neon : SignHi { Center: {0.45, 2.72, 0.011} }
+  d_strip : NeonPink { Center: {-0.3, 0.955, 0.45}
+    Half: {1.8, 0.008, 0.008} }
+  d_rod : CurtainRod { Center: {2.0, 2.92, 0.12} }
+  d_curtain_l : Curtain { Center: {1.2, 1.97, 0.12} }
+  d_curtain_r : Curtain { Center: {2.8, 1.97, 0.12}
+    (Pairs, d_curtain_l) }
+  d_art_a : PosterSun { Center: {-0.1, 1.84, 0.02} }
+  d_art_b : PosterSea { Center: {0.2, 1.84, 0.02} }
+  d_art_c : PosterRose { Center: {0.5, 1.84, 0.02} }
+  d_rug : RugTerracotta { Center: {0, 0.02, 3.0}
+    d_cat : Cat { Center: {-1.0, 0, 0.25}
+      Rests }
+  }
+  d_table : CoffeeTable { Center: {0.2, 0.4, 3.4}
+    d_mug : MugYellow { Center: {-0.25, 0, 0.05}
+      Rests }
+    d_books : BookStack { Center: {0.2, 0, -0.05}
+      Rests }
+  }
+  d_armchair : ArmchairMustard { Center: {2.93, 0.22, 1.4} }
+  d_lamp : FloorLamp { Center: {-3.0, 1.62, 1.1} }
+  d_pendant : PendantRed { Center: {-1.6, 2.5, 1.2} }
 }
-prefab Upper : Furnished { (Uses, palette1) }
-prefab Lower : Furnished { (Uses, palette2) }
 
-// No window: crates and a hanging bulb.
+// 2024: night studio. Cyan neon "up", teal sofa and side table, violet curtains, beanbag, wall shelf of curios.
+prefab Upper : Furnished {
+  (Uses, palette1)
+  desk : FurnishedDesk {
+    d_rp : RecordPlayerWhite { Center: {1.7, 0, -0.25}
+      Rests }
+  }
+  d_neon : SignUp { Center: {-1.6, 2.4, 0.011} }
+  d_strip : NeonCyan { Center: {-0.3, 0.955, 0.45}
+    Half: {1.8, 0.008, 0.008} }
+  d_rod : CurtainRod { Center: {2.0, 2.92, 0.12} }
+  d_curtain_l : CurtainViolet { Center: {1.2, 1.97, 0.12} }
+  d_curtain_r : CurtainViolet { Center: {2.8, 1.97, 0.12}
+    (Pairs, d_curtain_l) }
+  d_clock : Clock { Center: {0.2, 2.75, 0.012} }
+  d_wshelf : WallShelf { Center: {-2.75, 1.72, 0.1}
+    d_books : BookStack { Center: {-0.25, 0, 0}
+      Rests }
+    d_fig : Figurine { Center: {0.05, 0, 0}
+      Rests }
+    d_cactus : CactusWhite { Center: {0.3, 0, 0}
+      Rests }
+  }
+  d_rug : RugNavy { Center: {0, 0.02, 3.0}
+    d_bean : Beanbag { Center: {1.1, 0, 0.1}
+      Rests }
+  }
+  d_sofa : SofaTeal { Center: {-0.9, 0.22, 2.75} }
+  d_table : CoffeeTable { Center: {-0.9, 0.4, 3.5}
+    d_mug : MugBlue { Center: {-0.2, 0, 0.05}
+      Rests }
+    d_books : BookStack { Center: {0.2, 0, -0.05}
+      Rests }
+  }
+  d_side : SideTable { Center: {-2.2, 0.5, 2.75}
+    (Near, d_sofa)
+    d_tlamp : TableLamp { Center: {0, 0, 0}
+      Rests }
+  }
+  d_pendant : PendantBlack { Center: {1.0, 2.5, 1.5} }
+}
+
+// 2023: reading room. Lime neon "on", bookcase, forest armchair, mustard curtains, a cat on the rug.
+prefab Lower : Furnished {
+  (Uses, palette2)
+  desk : FurnishedDesk {
+    d_rp : RecordPlayer { Center: {1.7, 0, -0.25}
+      Rests }
+    d_books : BookStack { Center: {-1.9, 0, 0.15}
+      Rests }
+  }
+  d_neon : SignOn { Center: {-1.6, 2.4, 0.011} }
+  d_strip : NeonLime { Center: {-0.3, 0.955, 0.45}
+    Half: {1.8, 0.008, 0.008} }
+  d_rod : CurtainRod { Center: {2.0, 2.92, 0.12} }
+  d_curtain_l : CurtainMustard { Center: {1.2, 1.97, 0.12} }
+  d_curtain_r : CurtainMustard { Center: {2.8, 1.97, 0.12}
+    (Pairs, d_curtain_l) }
+  d_art_a : PosterSea { Center: {0.1, 1.84, 0.02} }
+  d_art_b : PosterRose { Center: {0.4, 1.84, 0.02} }
+  d_bookcase : Bookcase { Center: {-2.85, 0.55, 0.012} }
+  d_armchair : ArmchairForest { Center: {2.93, 0.22, 1.4} }
+  d_rug : RugForest { Center: {0, 0.02, 3.0}
+    d_cat : Cat { Center: {1.1, 0, -0.15}
+      Rests }
+  }
+  d_table : CoffeeTable { Center: {-0.3, 0.4, 3.4}
+    d_mug : MugBlue { Center: {-0.25, 0, 0.05}
+      Rests }
+    d_books : BookStack { Center: {0.2, 0, -0.05}
+      Rests }
+  }
+  d_lamp : FloorLampAmber { Center: {-3.0, 1.62, 2.8} }
+  d_pendant : PendantBrass { Center: {0.5, 2.5, 1.4} }
+}
+
+// Archive, no window: crates and a hanging bulb, now a dusty listening room. Amber neon "old".
 prefab Basement : Room {
   (Uses, palette3)
   shelf : ShelfSurface {}
-  desk  : DeskSurface {}
+  desk  : DeskSurface {
+    d_rp : RecordPlayer { Center: {1.7, 0, -0.25}
+      Rests }
+    d_radio : Radio { Center: {-1.7, 0, -0.2}
+      Rests }
+    d_mug : MugYellow { Center: {0.5, 0, 0.3}
+      Rests }
+  }
   crate_a : Wood { Center: {-2.2, 0.4, 2.4}
     Half: {0.4, 0.4, 0.4}
     Albedo: {0.45, 0.33, 0.2} }
@@ -99,4 +219,19 @@ prefab Basement : Room {
   bulb    : Bulb { Center: {0, 2.7, 1.4}
     Half: {0.1, 0, 0}
     LampColour: {3.5, 2.2, 1.0} }
+  d_neon : SignOld { Center: {1.9, 2.2, 0.011} }
+  d_strip : NeonAmber { Center: {-0.3, 0.955, 0.45}
+    Half: {1.8, 0.008, 0.008} }
+  d_bookcase : Bookcase { Center: {-2.85, 0.55, 0.012} }
+  d_fridge : FridgeMint { Center: {-2.95, 0.42, 3.5} }
+  d_armchair : ArmchairLeather { Center: {2.93, 0.22, 1.4} }
+  d_rug : RugOchre { Center: {0, 0.02, 3.0}
+    d_cat : Cat { Center: {0.9, 0, -0.2}
+      Rests }
+  }
+  d_pendant : PendantRed { Center: {-0.8, 2.5, 1.6} }
+  d_clock : Clock { Center: {-1.6, 2.5, 0.012} }
+  d_art_a : WideDusk { Center: {-2.6, 1.95, 0.02} }
+  d_art_b : WideSea { Center: {2.7, 1.9, 0.02} }
+  d_lamp : FloorLampAmber { Center: {3.0, 1.62, 3.0} }
 }
