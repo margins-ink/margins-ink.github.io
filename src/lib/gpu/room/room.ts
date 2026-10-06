@@ -90,6 +90,7 @@ export async function createRoom(
 	const atrous = pipe('atrous');
 	const viewPipe = pipe('cs_view');
 	const bakeLmPipe = pipe('bake_lightmap');
+	const denoiseLmPipe = pipe('denoise_lightmap');
 	const stepBufs = [1, 2, 4, 8].map((st) => {
 		const b = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 		device.queue.writeBuffer(b, 0, new Float32Array([st, 0, 0, 0]));
@@ -126,6 +127,10 @@ export async function createRoom(
 	device.queue.writeBuffer(lmMetaBuf, 0, lmLayout.meta);
 	const lmBuf = storage(lmLayout.texels * 8);
 	let lmAcc: GPUBuffer | null = null;
+	// raw progressive mean and the two a-trous ping-pong buffers; they live only during the bake
+	let lmRaw: GPUBuffer | null = null;
+	let lmTmp: GPUBuffer[] = [];
+	let bindD: GPUBindGroup[] = [];
 	const lmGroups = Math.ceil(lmLayout.texels / 64);
 	const lmGroupsX = Math.min(lmGroups, 4096);
 	console.debug('room: lightmap texels', lmLayout.texels);
@@ -392,6 +397,8 @@ export async function createRoom(
 		lmPass = 0;
 		lmT0 = performance.now();
 		lmAcc ??= storage(lmLayout.texels * 16);
+		lmRaw ??= storage(lmLayout.texels * 8);
+		if (!lmTmp.length) lmTmp = [storage(lmLayout.texels * 8), storage(lmLayout.texels * 8)];
 		bindL = device!.createBindGroup({
 			layout: bakeLmPipe.getBindGroupLayout(0),
 			entries: [
@@ -403,9 +410,29 @@ export async function createRoom(
 				{ binding: 7, resource: { buffer: lvlBuf } },
 				{ binding: 14, resource: { buffer: lmMetaBuf } },
 				{ binding: 15, resource: { buffer: lmAcc } },
-				{ binding: 16, resource: { buffer: lmBuf } }
+				{ binding: 16, resource: { buffer: lmRaw } }
 			]
 		});
+		// a-trous chain raw -> A -> B -> A -> lm with steps 1, 2, 4, 8
+		const chain: [GPUBuffer, GPUBuffer][] = [
+			[lmRaw, lmTmp[0]],
+			[lmTmp[0], lmTmp[1]],
+			[lmTmp[1], lmTmp[0]],
+			[lmTmp[0], lmBuf]
+		];
+		bindD = chain.map(([i, o], k) =>
+			device!.createBindGroup({
+				layout: denoiseLmPipe.getBindGroupLayout(0),
+				entries: [
+					{ binding: 0, resource: { buffer: sceneBuf } },
+					{ binding: 1, resource: { buffer: objBuf } },
+					{ binding: 13, resource: { buffer: stepBufs[k] } },
+					{ binding: 14, resource: { buffer: lmMetaBuf } },
+					{ binding: 20, resource: { buffer: i } },
+					{ binding: 21, resource: { buffer: o } }
+				]
+			})
+		);
 	}
 
 	/** One progressive lightmap pass over every texel; the sample count adapts to keep a pass near LM_BUDGET_MS. */
@@ -420,6 +447,11 @@ export async function createRoom(
 		cp.setPipeline(bakeLmPipe);
 		cp.setBindGroup(0, bindL);
 		cp.dispatchWorkgroups(lmGroupsX, Math.ceil(lmGroups / lmGroupsX));
+		cp.setPipeline(denoiseLmPipe);
+		for (const bg of bindD) {
+			cp.setBindGroup(0, bg);
+			cp.dispatchWorkgroups(lmGroupsX, Math.ceil(lmGroups / lmGroupsX));
+		}
 		cp.end();
 		device!.queue.submit([enc.finish()]);
 		lmN += lmSpp;
@@ -557,7 +589,7 @@ export async function createRoom(
 			cancelAnimationFrame(raf);
 			ro.disconnect();
 			mq.removeEventListener('change', restart);
-			for (const b of [accum, gbuf, bufB, bufC, volBuf, lmMetaBuf, lmBuf, lmAcc]) b?.destroy();
+			for (const b of [accum, gbuf, bufB, bufC, volBuf, lmMetaBuf, lmBuf, lmAcc, lmRaw, ...lmTmp]) b?.destroy();
 			atlasTex.destroy();
 		}
 	};
