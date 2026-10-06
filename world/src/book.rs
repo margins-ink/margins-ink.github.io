@@ -81,7 +81,7 @@ impl Default for Ch {
     }
 }
 impl Ch {
-    fn new(omega: f32, zeta: f32) -> Self {
+    pub(crate) fn new(omega: f32, zeta: f32) -> Self {
         Ch { omega, zeta, ..Default::default() }
     }
     fn bounded(self, lo: f32, hi: f32, rest: f32) -> Self {
@@ -94,13 +94,13 @@ impl Ch {
 
 /// Impact speeds of the last step (0 = no contact): at the upper and the lower stop.
 #[derive(Clone, Copy, Default)]
-struct Contact {
+pub(crate) struct Contact {
     hi: f32,
     lo: f32,
 }
 
 /// Exact step of x'' = -2 zeta omega x' - omega^2 (x - to), any dt, then the stops.
-fn step(c: &mut Ch, dt: f32) -> Contact {
+pub(crate) fn step(c: &mut Ch, dt: f32) -> Contact {
     let d = c.x - c.to;
     let w = c.omega;
     if c.zeta >= 0.999 {
@@ -184,6 +184,9 @@ pub struct Shelf {
     pub obj: f32,
     pub lean: f32,
     pub row: [f32; 28],
+    /// the page block behind the cover (hover.rs): object index (-1 none) and its shelf row
+    pub pages_obj: f32,
+    pub pages: [f32; 28],
 }
 /// A part of the book. kind 0 cover front, 1 cover back, 2 spine, 3 page block, 4 flutter sheet; thick in metres; share: fraction of the
 /// cover's hinge it follows; flutter: peak extra angle (hinge units) mid-swing; slot: index into the flutter slots of the state buffer.
@@ -415,6 +418,7 @@ impl Module for BookModule {
         let spring_ph = world.entity_named("BookSpringPhase").add(flecs::pipeline::Phase).depends_on(select_ph);
         let pack_ph = world.entity_named("BookPackPhase").add(flecs::pipeline::Phase).depends_on(spring_ph);
         systems(world, select_ph, spring_ph, pack_ph);
+        crate::hover::install(world, spring_ph, pack_ph);
         observers(world);
     }
 }
@@ -427,7 +431,7 @@ pub fn setup(world: &World, articles: &[u64], out: &Output) {
     for (i, &id) in articles.iter().enumerate() {
         let a = world.entity_from_id(id);
         let obj = out.links.get(i).copied().unwrap_or(u32::MAX);
-        let mut shelf = Shelf { obj: -1.0, ..Default::default() };
+        let mut shelf = Shelf { obj: -1.0, pages_obj: -1.0, ..Default::default() };
         if obj != u32::MAX {
             let o = obj as usize * 28;
             shelf.row.copy_from_slice(&out.objs[o..o + 28]);
@@ -435,7 +439,9 @@ pub fn setup(world: &World, articles: &[u64], out: &Output) {
             // rot row 2 of lean(a) is [0, sin a, cos a]
             shelf.lean = shelf.row[17].atan2(shelf.row[18]);
         }
+        set_pages(&mut shelf, out, i);
         a.set(p).set(h).set(r).set(b).set(BookClock::default()).set(shelf);
+        crate::hover::attach(world, id);
         a.add((world.component_id::<BookPhase>(), Ph::OnShelf.entity(world)));
     }
 }
@@ -455,7 +461,21 @@ pub fn relink(world: &World, articles: &[u64], out: &Output) {
             shelf.obj = obj as f32;
             shelf.lean = shelf.row[17].atan2(shelf.row[18]);
         }
+        set_pages(&mut shelf, out, i);
         a.set(shelf);
+        crate::hover::resend(world, id);
+    }
+}
+
+/// Copy the page block row of article `i` into its shelf record.
+fn set_pages(shelf: &mut Shelf, out: &Output, i: usize) {
+    let p = out.pages.get(i).copied().unwrap_or(u32::MAX);
+    if p == u32::MAX {
+        shelf.pages_obj = -1.0;
+    } else {
+        let o = p as usize * 28;
+        shelf.pages.copy_from_slice(&out.objs[o..o + 28]);
+        shelf.pages_obj = p as f32;
     }
 }
 
@@ -657,7 +677,8 @@ fn systems(world: &World, select_ph: EntityView, spring_ph: EntityView, pack_ph:
             let card_light = smoothstep(0.0, 1.0, c);
             let bank = (-rig.bank_gain * pose.carry.v).clamp(-rig.bank_max, rig.bank_max);
             let curl = (rig.curl_gain * hinge.a.v).clamp(-rig.curl_max, rig.curl_max);
-            let row28 = card_row(&rig, &rp, shelf, pose, bank);
+            let hov = e.try_cloned::<&crate::hover::Hover>().map(|h| (h.amount.x, h.crack.x, crate::hover::tune_of(&w)));
+            let row28 = card_row(&rig, &rp, shelf, pose, bank, hov);
             crate::reader::with_state(|st| {
                 st[S_T] = t;
                 st[S_WANT] = if want { 1.0 } else { 0.0 };
@@ -689,7 +710,7 @@ fn systems(world: &World, select_ph: EntityView, spring_ph: EntityView, pack_ph:
     });
 }
 
-fn mul3(a: [[f32; 3]; 3], b: [[f32; 3]; 3]) -> [[f32; 3]; 3] {
+pub(crate) fn mul3(a: [[f32; 3]; 3], b: [[f32; 3]; 3]) -> [[f32; 3]; 3] {
     let mut o = [[0.0; 3]; 3];
     for i in 0..3 {
         for j in 0..3 {
@@ -701,7 +722,7 @@ fn mul3(a: [[f32; 3]; 3], b: [[f32; 3]; 3]) -> [[f32; 3]; 3] {
 
 /// The cover board object as a 28-float shader row. Rows of the rotation are the transpose of the object's world rotation (the
 /// exporter's convention: lean(a) is Rx(a) rows, which is a physical Rx(-a): the top leans back toward the wall).
-fn card_row(rig: &BookRig, rp: &ReadPose, shelf: &Shelf, pose: &BookPose, bank: f32) -> [f32; 28] {
+fn card_row(rig: &BookRig, rp: &ReadPose, shelf: &Shelf, pose: &BookPose, bank: f32, hov: Option<(f32, f32, crate::components::HoverTune)>) -> [f32; 28] {
     let row = &shelf.row;
     let l = pose.lift.x;
     let c = pose.carry.x.clamp(0.0, 1.0);
@@ -709,7 +730,14 @@ fn card_row(rig: &BookRig, rp: &ReadPose, shelf: &Shelf, pose: &BookPose, bank: 
     // the pose at the end of the carry is the reading pose the page renderer starts from: centred on the right sheet, square to the camera
     let hz = 0.006;
     let end = [rp.cx, rp.cy, rp.cz];
-    let p0 = [row[0], row[1] + rig.lift_y * l, row[2] + rig.lift_z * l];
+    // the hover pose (hover.rs) is the shelf pose the lift starts from; it fades out over the carry, so a click on a hovered book is continuous
+    let (ha, hc, ht) = hov.map_or((0.0, 0.0, Default::default()), |(a, k, t)| (a.clamp(0.0, 1.2) * (1.0 - c), k * (1.0 - c), t));
+    let ht: crate::components::HoverTune = ht;
+    // the hover tilt pivots on the bottom edge (as in hover.rs), so the centre moves by the rotated half height
+    let dl = ht.tilt_deg.to_radians() * ha;
+    let (uy, uz) = (row[5] * shelf.lean.cos(), -row[5] * shelf.lean.sin());
+    let piv = [uy * (dl.cos() - 1.0) - uz * dl.sin(), uy * dl.sin() + uz * (dl.cos() - 1.0)];
+    let p0 = [row[0], row[1] + rig.lift_y * l + ht.lift_y * ha + piv[0], row[2] + rig.lift_z * l + ht.lift_z * ha + piv[1]];
     let arc = (std::f32::consts::PI * c).sin();
     let pos = [
         lerp(p0[0], end[0], c),
@@ -717,7 +745,7 @@ fn card_row(rig: &BookRig, rp: &ReadPose, shelf: &Shelf, pose: &BookPose, bank: 
         lerp(p0[2], end[2], c) + rig.bulge_z * arc,
     ];
     // physical rotation Q = Ry(yaw) Rx(pitch) Rz(roll): pitch is minus the lean (top back), the lift tilts the top out, face squares it up
-    let lean = (shelf.lean - rig.tilt * l) * (1.0 - f);
+    let lean = (shelf.lean - rig.tilt * l - ht.tilt_deg.to_radians() * ha) * (1.0 - f);
     let (sp, cp) = (-lean).sin_cos();
     let (sy, cy) = (0.0f32, 1.0f32);
     let (sr, cr) = bank.sin_cos();
@@ -725,6 +753,17 @@ fn card_row(rig: &BookRig, rp: &ReadPose, shelf: &Shelf, pose: &BookPose, bank: 
     let rx = [[1.0, 0.0, 0.0], [0.0, cp, -sp], [0.0, sp, cp]];
     let rz = [[cr, -sr, 0.0], [sr, cr, 0.0], [0.0, 0.0, 1.0]];
     let q = mul3(mul3(ry, rx), rz);
+    // the cover cracks about the spine (the left edge): the free edge swings toward the viewer, the centre follows
+    let yaw = -hc;
+    let (sy2, cy2) = yaw.sin_cos();
+    let hx = lerp(row[4], rp.hw, c);
+    let shift = [hx * (cy2 - 1.0), 0.0, -hx * sy2];
+    let pos = [
+        pos[0] + q[0][0] * shift[0] + q[0][2] * shift[2],
+        pos[1] + q[1][0] * shift[0] + q[1][2] * shift[2],
+        pos[2] + q[2][0] * shift[0] + q[2][2] * shift[2],
+    ];
+    let q = mul3(q, [[cy2, 0.0, sy2], [0.0, 1.0, 0.0], [-sy2, 0.0, cy2]]);
     let mut o = *row;
     o[0..3].copy_from_slice(&pos);
     o[4] = lerp(row[4], rp.hw, c);
@@ -736,6 +775,11 @@ fn card_row(rig: &BookRig, rp: &ReadPose, shelf: &Shelf, pose: &BookPose, bank: 
         o[9 + 4 * i] = q[1][i];
         o[10 + 4 * i] = q[2][i];
         o[11 + 4 * i] = 0.0;
+    }
+    if ha > 0.0 {
+        // the rim glow of the hover (shader: kind 2, alb.w = amount, r2.w = intensity)
+        o[19] = ht.rim;
+        o[23] = ha.min(1.0);
     }
     o
 }

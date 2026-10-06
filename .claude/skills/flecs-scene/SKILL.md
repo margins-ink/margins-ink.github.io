@@ -115,3 +115,22 @@ The room is declared in Flecs script and packed by `world/src/export.rs`; `bun r
 - `new Uint8Array(memory.buffer, wasmCall(), n)` evaluates `memory.buffer` before the call; if the call grows memory the buffer is detached. Call first, then build the view. Vite swallows a rejected `hot.on` listener promise: catch and log inside it.
 - Tests that edit scene files run their own dev server on a copy (`SCENE_DIR`), never the shared tree: a half-written script breaks the home page for everyone.
 - The first scroll after load teleports the cab to that floor (`room.setProgress`), later scrolls ride; tests consume the first one.
+
+## Museum build
+
+Traps from the RDR4 / exhibit build side (scripts/magazine/exhibit.ts, docs/MUSEUM.md "Built contract").
+
+- **`exhibit_inspect` is the only source of exhibit metadata.** The build never regexes a `.flecs` for Claim, Frame or controls: it boots the committed `src/lib/gpu/room/world.wasm` under bun (`wasiImports`, as `scripts/scene-reload.test.ts`) and reads JSON (`Inspect` in exhibit.ts). A stale wasm without the export makes the build fail with "rebuild: bun run build:world", and the wasm-dependent tests skip with a console warning; a green run with that warning proves nothing about script exhibits.
+- **The lint is a pure function over `Inspect`** (`lintExhibit`): test every rule with a synthetic Inspect fixture that fails exactly one rule plus a clean control, so the rules are covered without the wasm. Only `Random`/`Clock` is also checked on the script text (comments stripped).
+- **One id namespace**: `exhibits/<id>.flecs` and `exhibits/art.ts` entries share it; both, unknown, or two `::exhibit` for one id fail the build. `::fig` is gone (unknown directive).
+- **Timeline blocks are art + 2.4 em strip** (`TIMELINE_STRIP`): Frame h = art h + 2.4 (static mode: no strip), the cell grid covers the art only, the record's x0..y1 cover the whole block. Script exhibits have no items and an empty grid (`gridCols 0`).
+- **inputsHash must include `exhibits/*`**, or an edited `.flecs` is skipped as "up to date".
+- **dev HMR**: a `.flecs` edit with an unchanged Frame goes out as `exhibit:reload {slug,id,src}` with no bin rebuild (the bin catches up after 5 s of quiet); a Frame change or the first edit of a session is a full rebuild and `{reload:true}`. The Frame is read by `bun scripts/magazine/exhibit.ts --check <file>`.
+- **bun tests that build a temp thoughts dir**: `art.ts` imports `$lib/...`, which only resolves inside the repo; rewrite the import to the absolute `src/lib` path when copying it (see tests/exhibit.test.ts).
+
+## Hover affordance (world/src/hover.rs, 2026-10-06, verified headless DSF 2)
+
+- Tunables are `HoverTune` on the `Magazine` prefab (10-prefabs.flecs), read every frame: save the file to retune. Never name a system like a Rust component (`HoverTune` system would collide; it is `HoverFrame`).
+- Shelf rows are rewritten into the GPU object buffer from `hover_state_ptr` (entries: cover obj, page-block obj, mask, rows); while `busy` the room uses the moving (view) path, because the progressive accumulation would ghost a moving book. The rim is shader-side: kind 2 `alb.w` = amount, `r2.w` = intensity, both 0 on every other card; the same edit is in `cs_view` and `radiance`.
+- Another lane's half-edited files can break SSR (`page.wgsl.ts` SCHEMA) on the shared tree. Test from `git worktree add --detach /Volumes/Projects/tmp/<x> HEAD`, copy your files in, symlink `node_modules` and `static/magazine`, and add `server.fs.allow` for the real tree in the worktree's vite.config. `pkill -f` on a port can miss your old server: check `lsof -iTCP:<port>` and kill by PID.
+- Hover tilt pivots on the bottom edge (never sinks into the shelf); `book::card_row` includes the hover pose so a click on a hovered book is continuous.

@@ -13,6 +13,14 @@
 	let room = $state.raw<Room | null>(null);
 	/** keyboard-selected shelf book (index into ws.spots), -1 none */
 	let kbSpot = -1;
+	/** the shelf book the Flecs hover spring is on (slug), pointer first, keyboard selection when the pointer is on no book */
+	let hoverId: string | null = null;
+	function setHover(id: string | null) {
+		if (id === hoverId) return;
+		hoverId = id;
+		room?.setHover(id);
+	}
+	const kbId = () => (kbSpot >= 0 ? (ws.spots[Math.min(kbSpot, ws.spots.length - 1)]?.id ?? null) : null);
 
 	// The URL is the source of truth: /thoughts/<slug> is the reading state, everything else is the shelf.
 	const slug = $derived.by(() => {
@@ -22,6 +30,7 @@
 	const reading = $derived(slug !== null);
 	$effect(() => {
 		ws.reading = slug;
+		if (slug !== null) setHover(null);
 	});
 
 	const hrefOf = (id: string) => thoughts.find((t) => t.slug === id)?.route ?? '/';
@@ -81,6 +90,33 @@
 		r.hold(s !== null);
 		cold = false;
 		if (s === null) void restoreShelf();
+	});
+	// Touch has no hover: once per session, 2 s after the landing page settles, the newest book opens and closes its cover once, slowly.
+	// Any input (pointer, key, wheel, touch, scroll) cancels it. Desktop dev can force it with ?nudge.
+	$effect(() => {
+		const r = room;
+		if (!r || reading || sessionStorage.getItem('nudged')) return;
+		if (!matchMedia('(hover: none)').matches && !(import.meta.env.DEV && new URLSearchParams(location.search).has('nudge'))) return;
+		let started = false;
+		let timer = 0;
+		const stop = () => {
+			clearTimeout(timer);
+			if (started) r.nudge(null);
+			for (const t of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'scroll'] as const) removeEventListener(t, stop, true);
+		};
+		// the shelf's hit regions appear once the cab doors are open: poll for them for up to 12 s after the 2 s idle
+		const t0 = performance.now();
+		const fire = () => {
+			const newest = [...thoughts].sort((a, b) => b.date.localeCompare(a.date)).find((t) => ws.spots.some((s) => s.id === t.slug));
+			if (newest && ws.progress <= 0.02) {
+				started = true;
+				sessionStorage.setItem('nudged', '1');
+				r.nudge(newest.slug);
+			} else if (performance.now() - t0 < 14000 && ws.progress <= 0.02) timer = window.setTimeout(fire, 300);
+		};
+		timer = window.setTimeout(fire, 2000);
+		for (const t of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'scroll'] as const) addEventListener(t, stop, { capture: true, passive: true });
+		return stop;
 	});
 	/** the book finished opening: the page (Reader, same scene dimmed behind it) takes over */
 	let bookOpen = $state(false);
@@ -257,7 +293,9 @@
 			if (s) void goto(hrefOf(s.id));
 		};
 		const hover = (e: PointerEvent) => {
-			el.style.cursor = e.pointerType === 'mouse' && spotAt(e) ? 'pointer' : '';
+			const s = e.pointerType === 'mouse' ? spotAt(e) : undefined;
+			el.style.cursor = s ? 'pointer' : '';
+			if (e.pointerType === 'mouse') setHover(s?.id ?? kbId());
 		};
 		const key = (e: KeyboardEvent) => {
 			if (reading || !ws.spots.length || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -266,6 +304,7 @@
 			else if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey && kbSpot > 0)) kbSpot = Math.max(0, kbSpot - 1);
 			else if (e.key === 'Enter' && kbSpot >= 0) void goto(hrefOf(ws.spots[Math.min(kbSpot, n - 1)].id));
 			else return;
+			setHover(kbId());
 			e.preventDefault();
 		};
 		// - and = pull the camera out of the cab and back in (no button, no hover target)
@@ -280,7 +319,10 @@
 		el.addEventListener('click', click);
 		el.addEventListener('pointermove', hover);
 		el.addEventListener('keydown', key);
-		el.addEventListener('blur', () => (kbSpot = -1));
+		el.addEventListener('blur', () => {
+			kbSpot = -1;
+			setHover(null);
+		});
 		el.addEventListener('wheel', onwheel, { passive: false });
 		el.addEventListener('gesturestart', gs);
 		el.addEventListener('gesturechange', gc);
@@ -288,7 +330,10 @@
 		el.addEventListener('pointermove', move);
 		el.addEventListener('pointerup', up);
 		el.addEventListener('pointercancel', up);
-		el.addEventListener('pointerleave', () => room?.rail.hover(null));
+		el.addEventListener('pointerleave', () => {
+			room?.rail.hover(null);
+			setHover(kbId());
+		});
 		el.addEventListener('dblclick', () => room?.resetView());
 		return () => {
 			window.removeEventListener('keydown', zoomKey);

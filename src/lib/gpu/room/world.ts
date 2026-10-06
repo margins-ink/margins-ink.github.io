@@ -1,6 +1,6 @@
 import type { Thought } from '$lib/thoughts';
 import { createReading } from '../../ecs/reading';
-import type { Reading, ReadingExports, ScrollExports } from '../../reading/abi';
+import type { ExhibitExports, Reading, ReadingExports, ScrollExports } from '../../reading/abi';
 import { ATLAS, MAP, SIGN, signRect, tileRect } from './atlas';
 import wasmUrl from './world.wasm?url';
 import { instantiateWasi } from '../../wasi';
@@ -59,6 +59,10 @@ export const RS = {
 	phase: 40, carry: 41, face: 42, hinge: 43, reveal: 44, dim: 45, cardOn: 46, pagesOn: 47, cardLight: 48, curl: 49, bank: 50
 } as const;
 
+/** `hoverState()` layout (world/src/hover.rs): [count, busy, 0, 0], then `count` entries of `entry` floats:
+ * cover object, page-block object, mask (1 cover row, 2 page row), 0, cover row (28), page row (28). */
+export const HOVER = { head: 4, entry: 60, len: 4 + 32 * 60 } as const;
+
 export interface ReaderApi {
 	tick(dtMs: number): void;
 	/** Open a book: it lifts off the shelf, or snaps open (cold deep link). The page itself is loaded through `World.reading`. */
@@ -67,6 +71,12 @@ export interface ReaderApi {
 	/** A click on a book: it starts lifting at once, before the article has loaded. */
 	begin(index: number): void;
 	setReadingPose(cx: number, cy: number, cz: number, halfW: number, halfH: number): void;
+	/** The hovered shelf book (article index, -1 none): the pointer's hit region or the keyboard selection (world/src/hover.rs). */
+	hover(index: number): void;
+	/** The touch invitation: one slow open and close of the cover of article `index`, -1 cancels. */
+	nudge(index: number): void;
+	/** Rows of the books whose hover springs moved this tick (layout: HOVER in this file), a live view of wasm memory. */
+	hoverState(): Float32Array;
 	poll(): ReaderEvent | null;
 	/** 64 floats, a live view onto wasm memory (valid until the next call into wasm that may grow it). */
 	state(): Float32Array;
@@ -75,7 +85,7 @@ export interface ReaderApi {
 
 const rect = (r: { x: number; y: number; w: number; h: number }) => [r.x, r.y, r.w, r.h];
 
-interface Exports extends ReadingExports, ScrollExports {
+interface Exports extends ReadingExports, ScrollExports, ExhibitExports {
 	world_input(len: number): number;
 	world_build(): number;
 	scene_buf(len: number): number;
@@ -87,6 +97,9 @@ interface Exports extends ReadingExports, ScrollExports {
 	article_open(index: number, snap: number): number;
 	article_close(snap: number): void;
 	book_begin(index: number): void;
+	hover_set(index: number): void;
+	hover_nudge(index: number): void;
+	hover_state_ptr(): number;
 	set_reading_pose(cx: number, cy: number, cz: number, hw: number, hh: number): void;
 	event_poll(): number;
 	reader_state_ptr(): number;
@@ -110,6 +123,9 @@ function readerApi(x: Exports): ReaderApi {
 		close: (snap) => x.article_close(snap ? 1 : 0),
 		begin: (i) => x.book_begin(i),
 		setReadingPose: (a, b, c, d, e) => x.set_reading_pose(a, b, c, d, e),
+		hover: (i) => x.hover_set(i),
+		nudge: (i) => x.hover_nudge(i),
+		hoverState: () => new Float32Array(x.memory.buffer, x.hover_state_ptr(), HOVER.len),
 		poll,
 		// re-derived on every call: a grown memory detaches old views
 		state: () => new Float32Array(x.memory.buffer, x.reader_state_ptr(), 64),

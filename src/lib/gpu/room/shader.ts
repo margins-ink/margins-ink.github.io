@@ -246,6 +246,14 @@ fn albedo_of(ob: Obj, hit: Hit, wp: vec3f, fw: f32) -> vec3f {
   return ob.alb.rgb;
 }
 
+// Hover affordance (world/src/hover.rs): a shelf book under the pointer (or keyboard selection) glows amber along its free edge,
+// the one accent. On a kind 2 object alb.w is the amount (0 at rest, so every other card is untouched) and r2.w the HDR intensity.
+const RIM_COL = vec3f(1.0, 0.6, 0.26);
+fn rim_of(ob: Obj, h: Hit) -> f32 {
+  if (ob.c.w != 2.0 || ob.alb.w <= 0.0) { return 0.0; }
+  return ob.alb.w * smoothstep(0.78, 0.99, h.lp.x / ob.h.x);
+}
+
 fn onb(n: vec3f) -> mat3x3f {
   let up = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(n.y) < 0.99);
   let tx = normalize(cross(up, n));
@@ -505,6 +513,8 @@ fn radiance(o_in: vec3f, d_in: vec3f, level: u32, cam: bool) -> PathOut {
   var thr = vec3f(1.0);
   var lobe = 0;          // lobe taken at the first vertex: 1 diffuse, 2 specular (or the glass reflection)
   var prev_pdf = -1.0;   // BSDF density of the last sampled direction, for MIS; < 0: none (camera ray, mirror)
+  var rim = 0.0;         // hover rim of the first hit (rim_of)
+  var rim_i = 0.0;
   for (var b = 0; b < 4; b++) {
     let h = intersect(o, d, select(1e5, prim_tmax, b == 0 && cam), false, level);
     if (h.t < 0.0) { break; }
@@ -555,7 +565,7 @@ fn radiance(o_in: vec3f, d_in: vec3f, level: u32, cam: bool) -> PathOut {
       ps = clamp(fa, 0.1, 0.9);
       kd = 1.0 - fa;
     }
-    if (b == 0) { po.alb = m.dif; po.n = n; po.t = h.t; }
+    if (b == 0) { po.alb = m.dif; po.n = n; po.t = h.t; rim = rim_of(ob, h); rim_i = ob.r2.w; }
 
     // direct light: area lights with MIS, the sun exactly
     var cd = vec3f(0.0);
@@ -605,6 +615,11 @@ fn radiance(o_in: vec3f, d_in: vec3f, level: u32, cam: bool) -> PathOut {
     if (m.spec_on) { prev_pdf += ps * spec_pdf(ns, v, l, alpha); }
     o = p + n * 2e-3;
     d = l;
+  }
+  if (rim > 0.0) {
+    po.diff = mix(po.diff, RIM_COL * rim_i, rim);
+    po.alb = mix(po.alb, vec3f(1.0), rim);
+    po.spec *= 1.0 - rim;
   }
   return po;
 }
@@ -1162,6 +1177,11 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
         let lmv = lightmap(u32(h.id), ob, h);
         e = (lmv + direct_sun(p, n, level)) * kd;
         alb = m.dif;
+        let rim = rim_of(ob, h);
+        if (rim > 0.0) {
+          e = mix(e, RIM_COL * ob.r2.w, rim);
+          alb = mix(alb, vec3f(1.0), rim);
+        }
         nrm = n;
         tt = h.t;
         if (m.spec_on) {

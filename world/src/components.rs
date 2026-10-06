@@ -84,6 +84,32 @@ pub struct TexMap;
 /// Relation `(Uses, palette)`: which wall palette a floor template paints its shell with.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Uses;
+/// Tag on the page block behind a magazine's cover (a child of the magazine prefab): the hover animation moves it with the book.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct BookPages;
+
+/// Hover affordance tunables (script: `HoverTune` on the `Magazine` prefab, hot reloadable; read every frame by world/src/hover.rs).
+/// Metres, degrees, rad/s. `omega`/`zeta` drive the lift and tilt spring, `crack_omega`/`crack_zeta` the cover.
+#[derive(Component, Clone, Copy, Debug)]
+#[flecs(meta)]
+pub struct HoverTune {
+    pub lift_y: f32,
+    pub lift_z: f32,
+    pub tilt_deg: f32,
+    pub crack_deg: f32,
+    pub omega: f32,
+    pub zeta: f32,
+    pub crack_omega: f32,
+    pub crack_zeta: f32,
+    pub rim: f32,
+    pub nudge_s: f32,
+    pub nudge_amount: f32,
+}
+impl Default for HoverTune {
+    fn default() -> Self {
+        HoverTune { lift_y: 0.02, lift_z: 0.03, tilt_deg: 4.0, crack_deg: 10.0, omega: 14.0, zeta: 0.62, crack_omega: 11.0, crack_zeta: 0.7, rim: 1.4, nudge_s: 2.6, nudge_amount: 0.8 }
+    }
+}
 /// Relation `(Displayed, magazine)` on an Article entity: the magazine object that shows it.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Displayed;
@@ -111,4 +137,6 @@ pub fn register(world: &World) {
     world.component_named::<TexMap>("TexMap");
     world.component_named::<Uses>("Uses");
     world.component_named::<Displayed>("Displayed");
+    world.component_named::<BookPages>("BookPages");
+    world.component_named::<HoverTune>("HoverTune");
 }

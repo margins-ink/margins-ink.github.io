@@ -8,6 +8,7 @@ mod book;
 mod components;
 mod elevator;
 mod export;
+mod hover;
 mod reader;
 mod reading;
 mod scene;
@@ -27,6 +28,8 @@ pub struct Output {
     pub lvl: Vec<f32>,
     /// For each input article, the global object index of the magazine showing it (u32::MAX: none).
     pub links: Vec<u32>,
+    /// For each input article, the object index of the page block behind its magazine's cover (u32::MAX: none).
+    pub pages: Vec<u32>,
     /// JSON: `{levelH, roomH, roomD, floors: [{label, title, sub}]}`.
     pub meta: Vec<u8>,
     pub error: Vec<u8>,
@@ -294,8 +297,32 @@ pub extern "C" fn reading_block_at(y_em: f32) -> i32 {
     reading::block_at(y_em)
 }
 
+/// The hovered shelf book (article index, negative none): pointer hit region or keyboard selection (world/src/hover.rs).
+#[no_mangle]
+pub extern "C" fn hover_set(index: i32) {
+    hover::set(index);
+}
+
+/// Start the one-time invitation (a slow open and close of the cover) on article `index`, or cancel it (negative).
+#[no_mangle]
+pub extern "C" fn hover_nudge(index: i32) {
+    hover::nudge(index);
+}
+
+/// `hover::HOVER_LEN` f32: [count, busy, 0, 0, entries of 60: cover obj, pages obj, mask, 0, cover row 28, pages row 28].
+#[no_mangle]
+pub extern "C" fn hover_state_ptr() -> *const f32 {
+    hover::state_ptr()
+}
+
 /// A click on a book: it starts lifting off the shelf at once, before the article bytes arrive.
 #[no_mangle]
 pub extern "C" fn book_begin(index: u32) {
     reader::book_begin(index);
 }
+
+thread_local! { static SPIKE: RefCell<String> = const { RefCell::new(String::new()) }; }
+#[no_mangle]
+pub extern "C" fn museum_spike() -> u32 { let s = museum::spike::run(); SPIKE.with(|x| *x.borrow_mut() = s); SPIKE.with(|x| x.borrow().len() as u32) }
+#[no_mangle]
+pub extern "C" fn museum_spike_ptr() -> *const u8 { SPIKE.with(|x| x.borrow().as_ptr()) }

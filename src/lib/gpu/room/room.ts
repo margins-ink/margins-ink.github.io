@@ -3,7 +3,7 @@ import { accentFor } from '$lib/theme';
 import { ATLAS, buildAtlas } from './atlas';
 import { buildLightmapLayout } from './lightmap';
 import { TRACE } from './shader';
-import { loadWorld, RS, type Floor } from './world';
+import { HOVER, loadWorld, RS, type Floor } from './world';
 import { elevatorApi, ES } from './elevator';
 import { createRail, RAIL_FLOATS, signLabel, type RailHit, type RailView } from './rail';
 import { makeBookBuffer, writeRd, SHEET_W, SHEET_H, type BookUniforms } from './book';
@@ -49,6 +49,10 @@ export interface Room {
 	rayAt(nx: number, ny: number): { o: [number, number, number]; d: [number, number, number] };
 	/** The page module (blocks, scroll, fold, figures) living in the same wasm instance as the book: the in-world Reader drives it. */
 	readonly page: Reading;
+	/** The shelf book under the pointer or selected by keyboard (slug), or null: it lifts, tilts and cracks its cover (Flecs, world/src/hover.rs). */
+	setHover(slug: string | null): void;
+	/** The touch invitation: that book's cover opens and closes once, slowly. null cancels. */
+	nudge(slug: string | null): void;
 	/** Subscribe to book events: opened, closed, sound, phase. */
 	onReader(cb: (e: { kind: string; arg: number }) => void): void;
 	/** An article is open: the cab stays at its floor with the doors open (true), or is released (false). */
@@ -801,6 +805,15 @@ export async function createRoom(
 			}
 			readCb({ kind: ev.kind, arg: ev.arg });
 		}
+		// the hover springs of the shelf books: their rows go into the object buffer; while any spring moves the still accumulation is off
+		const hv = world!.reader.hoverState();
+		for (let i = 0, n = hv[0]; i < n; i++) {
+			const at = HOVER.head + i * HOVER.entry;
+			const mask = hv[at + 2];
+			if (mask & 1) device!.queue.writeBuffer(objBuf, hv[at] * 112, hv, at + 4, 28);
+			if (mask & 2) device!.queue.writeBuffer(objBuf, hv[at + 1] * 112, hv, at + 32, 28);
+		}
+		if (hv[1] > 0) lastChange = now;
 		if (rs[RS.phase] > 0) {
 			// the animated magazine row; once the sheets have replaced it, park it below the room so it cannot show through the gap between sheets
 			if (rs[RS.cardOn] < 0.5) {
@@ -1125,6 +1138,17 @@ export async function createRoom(
 				}) as typeof a.event;
 			}
 			a.setReverbRoom(6.6, ROOM_D, ROOM_H);
+		},
+		/** The shelf book under the pointer or selected by keyboard (slug), or null: it lifts, tilts and cracks its cover (Flecs, world/src/hover.rs). */
+		setHover(slug: string | null) {
+			const i = slug === null ? -1 : items.findIndex((t) => t.slug === slug);
+			world.reader.hover(i);
+			touch();
+		},
+		/** The touch invitation: the book's cover opens and closes once, slowly. null cancels. */
+		nudge(slug: string | null) {
+			world.reader.nudge(slug === null ? -1 : items.findIndex((t) => t.slug === slug));
+			touch();
 		},
 		get reading() {
 			return { slug: wantSlug, t: rs[RS.t], phase: rs[RS.phase], dim: rs[RS.dim] };

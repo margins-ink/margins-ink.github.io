@@ -219,6 +219,15 @@ pub fn pack<'a>(
     for a in articles {
         let mag = a.target(Displayed::id(), 0);
         out.links.push(mag.and_then(|m| index_of.get(&*m.id()).copied()).unwrap_or(u32::MAX));
+        let mut pages = u32::MAX;
+        if let Some(m) = mag {
+            m.each_child(|c| {
+                if c.has(BookPages::id()) {
+                    pages = index_of.get(&*c.id()).copied().unwrap_or(u32::MAX);
+                }
+            });
+        }
+        out.pages.push(pages);
     }
 
     #[derive(serde::Serialize)]
