@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { createAudio } from '$lib/audio';
 	import { page } from '$app/state';
-	import { afterNavigate, goto, replaceState } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import { tick } from 'svelte';
 	import { thoughts, thoughtBySlug } from '$lib/thoughts';
-	import { createRoom, type Room, type LinkHit } from '$lib/gpu/room/room';
+	import { createRoom, type Room } from '$lib/gpu/room/room';
+	import Reader from './Reader.svelte';
 	import { worldState as ws } from '$lib/world.svelte';
 
 	const audio = createAudio();
@@ -45,20 +46,15 @@
 				ws.floors = r?.floors ?? [];
 				if (r) r.setAudio(audio);
 				r?.onReader((e) => {
-						if (e.kind === 'spread') {
-							ws.page = e.arg;
-							audio.event('paperTurn', 0.5);
-						} else if (e.kind === 'layerOpened') audio.event('open', 0.7);
-						else if (e.kind === 'layerClosed') audio.event('close', 0.6);
-						else if (e.kind === 'sound') {
-							// book.rs: arg = id << 8 | velocity 0..255; ids 0 grab, 1 whoosh (scroll), 2 paperTurn, 3 open, 4 close, 5 place
-							const kinds = ['grab', 'scroll', 'paperTurn', 'open', 'close', 'place'] as const;
-							const k = kinds[(e.arg >> 8) & 255];
-							if (k) audio.event(k, (e.arg & 255) / 255);
-						}
-					});
-					r?.onFollow(follow);
-					r?.onHash((h) => replaceState(page.url.pathname + h, page.state));
+					if (e.kind === 'opened') bookOpen = true;
+					else if (e.kind === 'closed') bookOpen = false;
+					else if (e.kind === 'sound') {
+						// book.rs: arg = id << 8 | velocity 0..255; ids 0 grab, 1 whoosh (scroll), 2 paperTurn, 3 open, 4 close, 5 place
+						const kinds = ['grab', 'scroll', 'paperTurn', 'open', 'close', 'place'] as const;
+						const k = kinds[(e.arg >> 8) & 255];
+						if (k) audio.event(k, (e.arg & 255) / 255);
+					}
+				});
 				onscroll();
 			})
 			.catch((e) => {
@@ -85,11 +81,10 @@
 		cold = false;
 		if (s === null) void restoreShelf();
 	});
-	$effect(() => {
-		ws.pages = room?.reading.spreads ?? 0;
-	});
+	/** the book finished opening: the page (Reader, same scene dimmed behind it) takes over */
+	let bookOpen = $state(false);
 
-	let canGoBack = false;
+	let canGoBack = $state(false);
 	afterNavigate(({ from }) => {
 		canGoBack = from !== null;
 	});
@@ -128,28 +123,13 @@
 		return [((e.clientX - r.left) / r.width) * 2 - 1, 1 - ((e.clientY - r.top) / r.height) * 2];
 	};
 
-	function follow(l: LinkHit) {
-		if (l.kind === 0) window.open(l.target, '_blank', 'noopener');
-		else void goto(l.target);
-	}
-
-	// wheel, pinch, touch scroll, mouse hover and click
+	// shelf: wheel pan while zoomed, pinch and ctrl-wheel zoom. Reading is the Reader's native scroller, not the canvas.
 	$effect(() => {
 		const el = canvas;
 		if (!el) return;
 		const onwheel = (e: WheelEvent) => {
-			if (!room) return;
+			if (!room || reading) return;
 			if (!e.ctrlKey) {
-				if (reading) {
-					e.preventDefault();
-					const r = el.getBoundingClientRect();
-					room.wheel({
-						dx: e.deltaX, dy: e.deltaY, mode: e.deltaMode as 0 | 1 | 2, ctrl: false, pageH: innerHeight,
-						ndcDx: (e.deltaX / r.width) * 2, ndcDy: (e.deltaY / r.height) * 2
-					});
-					return;
-				}
-				// two-finger pan: while zoomed in, the scene moves instead of the page
 				if (room.zoom <= 1.01) return;
 				e.preventDefault();
 				const r = el.getBoundingClientRect();
@@ -174,10 +154,6 @@
 		};
 		const pts = new Map<number, { x: number; y: number }>();
 		let dist = 0;
-		const rec = (e: PointerEvent) => {
-			const [nx, ny] = ndc(e);
-			return { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, type: (e.pointerType || 'mouse') as 'mouse' | 'touch' | 'pen', nx, ny };
-		};
 		const down = (e: PointerEvent) => {
 			void audio.resume();
 			pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -185,22 +161,10 @@
 				const [a, b] = [...pts.values()];
 				dist = Math.hypot(a.x - b.x, a.y - b.y);
 			}
-			if (reading && room && pts.size === 1) {
-				if (room.pointerDown(rec(e)) === 'handled') el.setPointerCapture(e.pointerId);
-			}
 		};
 		const move = (e: PointerEvent) => {
 			const p = pts.get(e.pointerId);
-			if (!room) return;
-			if (!p) {
-				if (reading && e.pointerType === 'mouse') {
-					const [nx, ny] = ndc(e);
-					room.pointerMove(rec(e));
-					const h = room.hoverAt(nx, ny);
-					el.style.cursor = h?.link ? 'pointer' : h?.scrub ? 'ew-resize' : h?.text ? 'text' : '';
-				}
-				return;
-			}
+			if (!room || !p) return;
 			const r = el.getBoundingClientRect();
 			const dx = e.clientX - p.x;
 			const dy = e.clientY - p.y;
@@ -212,29 +176,12 @@
 				const [nx, ny] = ndc({ clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 });
 				if (dist > 0) room.zoomAt(d / dist, nx, ny);
 				dist = d;
-			} else {
-				if (reading) room.pointerMove(rec(e));
-				// a mouse drag never pans (it selects text, scrubs figures, grabs the book); touch and pen pan, as do wheel and trackpad
-					if (room.zoom > 1.01 && e.pointerType !== 'mouse') room.panBy((dx / r.width) * 2, -(dy / r.height) * 2);
-			}
+			} else if (room.zoom > 1.01 && e.pointerType !== 'mouse') room.panBy((dx / r.width) * 2, -(dy / r.height) * 2);
 		};
 		const up = (e: PointerEvent) => {
-			if (reading && room && pts.size === 1) {
-				const out = room.pointerUp(rec(e), e.type === 'pointercancel');
-				const [nx, ny] = ndc(e);
-				if (out === 'ignore' && e.type === 'pointerup' && !room.onBook(nx, ny)) close();
-			}
 			pts.delete(e.pointerId);
 			dist = 0;
 		};
-		const dbl = (e: MouseEvent) => {
-				// a double click on text selected a word: it must not also reset the zoom
-				if (reading && room) {
-					const [nx, ny] = ndc(e);
-					if (room.hoverAt(nx, ny)?.text) return;
-				}
-				room?.resetView();
-			};
 		el.addEventListener('wheel', onwheel, { passive: false });
 		el.addEventListener('gesturestart', gs);
 		el.addEventListener('gesturechange', gc);
@@ -242,7 +189,7 @@
 		el.addEventListener('pointermove', move);
 		el.addEventListener('pointerup', up);
 		el.addEventListener('pointercancel', up);
-		el.addEventListener('dblclick', dbl);
+		el.addEventListener('dblclick', () => room?.resetView());
 		return () => {
 			el.removeEventListener('wheel', onwheel);
 			el.removeEventListener('gesturestart', gs);
@@ -251,36 +198,11 @@
 			el.removeEventListener('pointermove', move);
 			el.removeEventListener('pointerup', up);
 			el.removeEventListener('pointercancel', up);
-			el.removeEventListener('dblclick', dbl);
 		};
 	});
-
-	function onkeydown(e: KeyboardEvent) {
-		// Cmd/Ctrl+C copies the exact plain text of the GPU selection through the clipboard API
-		if (reading && room && (e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'c') {
-			const text = room.selectedText();
-			if (text) {
-				e.preventDefault();
-				void navigator.clipboard.writeText(text);
-			}
-			return;
-		}
-		if (!reading || !room || e.metaKey || e.ctrlKey || e.altKey) return;
-		const t = e.target as HTMLElement | null;
-		if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
-		const out = room.keyIn({ key: e.key, shift: e.shiftKey, mod: false });
-		if (out === 'handled') e.preventDefault();
-		else if (e.key === 'Escape') {
-			e.preventDefault();
-			close();
-		}
-	}
-	function onhashchange() {
-		if (reading) room?.applyHash(location.hash);
-	}
 </script>
 
-<svelte:window {onscroll} {onkeydown} {onhashchange} />
+<svelte:window {onscroll} />
 
 <div class="stage" class:live={ws.live} class:reading>
 	<canvas bind:this={canvas} aria-hidden="true"></canvas>
@@ -298,8 +220,10 @@
 		{/each}
 	{/if}
 </div>
-{#if reading && ws.live}
-	<a class="back" href="/" onclick={(e) => (e.preventDefault(), close())}>Back to the shelf</a>
+{#if reading && slug && room && bookOpen}
+	{#key slug}
+		<Reader mode="world" {slug} fromWorld={canGoBack} reading={room.page} onClose={close} />
+	{/key}
 {/if}
 
 <style>
@@ -340,27 +264,5 @@
 	.spot:focus-visible {
 		outline: 2px solid #fff;
 		outline-offset: 2px;
-	}
-	/* keyboard users reach the close control; it is not drawn until focused */
-	.back {
-		position: fixed;
-		left: 1rem;
-		top: 1rem;
-		z-index: 2;
-		padding: 0.4rem 0.8rem;
-		border-radius: 1rem;
-		background: #e9d9b3;
-		color: #231a12;
-		font-family: var(--font-mono);
-		font-size: 0.75rem;
-		clip-path: inset(50%);
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-	}
-	.back:focus {
-		clip-path: none;
-		width: auto;
-		height: auto;
 	}
 </style>

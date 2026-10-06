@@ -5,17 +5,10 @@ import { buildLightmapLayout } from './lightmap';
 import { TRACE } from './shader';
 import { loadWorld, RS, type Floor } from './world';
 import { elevatorApi, ES } from './elevator';
-import { BOW, EM, GUTTER, Magazine, linkAt, pickSpread, writeRd, type Article, type LinkHit, type MagazineUniforms } from './magazine';
-import { createMagazine, MagState, type MagazineExports } from '$lib/ecs/magazine';
-import { onText, selectionRects } from '$lib/magazine/select';
-import { MagazineInput, WHEEL_IDLE_MS, type KeyIn, type Outcome, type PointerIn, type WheelIn } from '$lib/magazine/input';
-import { overviewAt, overviewLayout, scrubbable, type FigureRec, type LinkRec } from '$lib/magazine/hit';
-import { evalPacked, figureTime } from '$lib/magazine/chan';
-import { FigureMode } from '$lib/magazine/format';
+import { makeBookBuffer, makeBookImage, writeRd, SHEET_W, SHEET_H, type BookUniforms } from './book';
+import type { Reading } from '$lib/reading/abi';
 
-export type { Floor, LinkHit };
-
-export interface BookPointer { id: number; x: number; y: number; t: number; type: 'mouse' | 'touch' | 'pen'; nx: number; ny: number }
+export type { Floor };
 
 export interface Hotspot {
 	id: string;
@@ -38,35 +31,21 @@ export interface Room {
 	setReading(slug: string | null, opts?: { snap?: boolean }): void;
 	/** Primary ray through a screen point (ndc, y up), the same basis the tracer uses. */
 	rayAt(nx: number, ny: number): { o: [number, number, number]; d: [number, number, number] };
-	/** Book input (docs/MAGAZINE.md 4): raw pointer, wheel and key records; the room turns them into spread points and drives the Flecs book. */
-	wheel(w: Omit<WheelIn, 't'>): Outcome;
-	pointerDown(p: BookPointer): Outcome;
-	pointerMove(p: BookPointer): Outcome;
-	pointerUp(p: BookPointer, cancel?: boolean): Outcome;
-	keyIn(k: Omit<KeyIn, 't'>): Outcome;
-	/** Link under a screen point (ndc, y up) for the pointer cursor; null when off the book. */
-	hoverAt(nx: number, ny: number): { spread: number; link: LinkHit | null; scrub?: boolean; text?: boolean } | null;
-	/** Exact plain text of the current text selection ('' when none); Cmd/Ctrl+C copies this. */
-	selectedText(): string;
-	clearSelection(): void;
-	/** True when the point is on the open book. */
-	onBook(nx: number, ny: number): boolean;
-	/** Deep link: `#full`, `#full/s3`, `#s3`. */
-	applyHash(hash: string): boolean;
-	/** External and article links, and hash changes, are reported to the route layer. */
-	onFollow(cb: (l: LinkHit) => void): void;
-	onHash(cb: (hash: string) => void): void;
-	/** Subscribe to reader events: opened, closed, spread (arg = spread index), layerOpened, layerClosed, focus, overview. */
+	/** The page module (blocks, scroll, fold, figures) living in the same wasm instance as the book: the in-world Reader drives it. */
+	readonly page: Reading;
+	/** Subscribe to book events: opened, closed, sound, phase. */
 	onReader(cb: (e: { kind: string; arg: number }) => void): void;
 	/** An article is open: the cab stays at its floor with the doors open (true), or is released (false). */
 	hold(on: boolean): void;
 	/** Sound sink: the room drives the elevator hum and floor dings from the scroll. */
 	setAudio(a: import('$lib/audio').RoomAudio): void;
-	readonly reading: { slug: string | null; t: number; layer: number; spread: number; spreads: number };
+	/** Book phase 0 shelf .. 4 reading .. 5 closing; t is the reading blend 0..1. */
+	readonly reading: { slug: string | null; t: number; phase: number; dim: number };
 	floors: Floor[];
 	destroy(): void;
 }
 
+const EM_M = 0.0155;
 const SPP = 160;
 const READ_PIX = 5.5e6;
 /** Lightmap samples per texel at convergence, and the GPU time one bake dispatch should take. */
@@ -333,8 +312,9 @@ export async function createRoom(
 	};
 	const liveY = () => elev.state()[ES.eye] - elev.state()[ES.posM];
 
-	// ---- magazine: Flecs drives Reading (the open pose) and the book (Spread, Turn, Corner, ...); this blends the camera and feeds the shader (magazine.wgsl.ts) ----
-	const mag = new Magazine(device);
+	// ---- the book: Flecs drives it (book.rs: lift, carry, open, close); this blends the camera and feeds the shader (magazine.wgsl.ts) ----
+	const bookBuf = makeBookBuffer(device);
+	const bookImg = makeBookImage(device);
 	const TH_READ = Math.tan((17 * Math.PI) / 180);
 	let rs = world.reader.state();
 	let rdLast = performance.now();
@@ -343,57 +323,15 @@ export async function createRoom(
 	let rdPix = 2.4e6;
 	const magRow = new Float32Array(28);
 	let wantSlug: string | null = null;
-	let hover: { spread: number; link: LinkHit | null } | null = null;
 	let readCb: (e: { kind: string; arg: number }) => void = () => {};
-	let followCb: (l: LinkHit) => void = () => {};
-	let hashCb: (h: string) => void = () => {};
 	let slugIdx = -1;
-	let readPose = { cx: 0, cy: 0, cz: 1, hw: 0.3, hh: 0.4, camX: 0, viewHW: 0.6, spineX: 0, topY: 0, planeZ: 1, dist: 1.5, visHEm: 56 };
+	let readPose = { cx: 0, cy: 0, cz: 1, hw: 0.3, hh: 0.4, camX: 0, viewHW: 0.3, spineX: 0, topY: 0, planeZ: 1, dist: 1.5 };
 	const readingOn = () => rs[RS.article] >= 0 || rs[RS.phase] > 0 || rs[RS.target] > 0 || rs[RS.t] > 0;
-	const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-	let linkRecs: LinkRec[] = [];
-	let figRecs: FigureRec[] = [];
-	const chanBuf = new Float32Array(256);
-	let chanSig = '';
 
-	const exportsOf = world!.exports as MagazineExports;
-	const book = createMagazine(exportsOf, {
-		links: () => linkRecs,
-		figures: () => figRecs,
-		narrow: () => mag.article?.single ?? false,
-		zoom: () => 1 / vs,
-		pxPerEm: () => (canvas.clientHeight / readPose.visHEm) / vs,
-		overviewAt: (nx, ny) => overviewAt(overviewLayout(mag.article?.spreadCount ?? 0, canvas.clientWidth / canvas.clientHeight), nx, ny),
-		follow: (l) => followLink({ kind: l.kind, target: l.target, spread: l.spread, rect: [l.x0, l.y0, l.x1, l.y1] }),
-		resetZoom: () => api.resetView(),
-		panBy: (dx, dy) => api.panBy(dx, dy),
-		setHash: (h) => hashCb(h),
-		text: () => mag.article?.text ?? null,
-		select: (s) => {
-			mag.writeSelection(s?.spread ?? 0, s && mag.article ? selectionRects(mag.article.text, s) : []);
-			touch();
-		}
-	});
-	const input = new MagazineInput(book.sink, book.view);
-
-	function followLink(l: LinkHit) {
-		const art = mag.article;
-		if ((l.kind === 1 || l.kind === 2) && art) {
-			const id = l.target.replace(/^#/, '');
-			const an = art.anchors.find((x) => x.id === id);
-			if (an) {
-				book.sink.goto(Math.max(1, an.spread));
-				return;
-			}
-		}
-		followCb(l);
-	}
-
-	/** Reading camera: frontal, centred on the book, distance fitted so the whole spread (or sheet) fills the view. */
+	/** Reading camera: frontal, centred on the sheet, distance fitted so the sheet fills the view. */
 	function readCamera(aspect: number) {
 		const D = 1.06 * Math.max(readPose.hh / TH_READ, readPose.viewHW / (TH_READ * aspect));
 		readPose.dist = D;
-		readPose.visHEm = (2 * D * TH_READ) / EM;
 		const pos: V3 = [readPose.camX, readPose.cy, readPose.cz + D];
 		return { pos, fwd: [0, 0, -1] as V3, rgt: [1, 0, 0] as V3, up: [0, 1, 0] as V3, th: TH_READ };
 	}
@@ -409,19 +347,17 @@ export async function createRoom(
 		return { pos, fwd, rgt, up: cross(rgt, fwd), th: a.th + (r.th - a.th) * c };
 	};
 
-	/** Place the book on the shelf magazine's spot: the cover flies to the right sheet (the left edge sheet in the narrow class). */
-	function applyPose(art: Article) {
-		const mo = world!.links[slugIdx] * 28;
+	/** Place the sheet on the shelf magazine's spot: the cover flies to it. */
+	function applyPose(idx: number) {
+		const mo = world!.links[idx] * 28;
 		const shelfX = data[mo];
 		const cy = data[mo + 1] + 0.2;
 		const cz = 1.0;
-		const sw = art.sheetW * EM;
-		const hh = (art.spreadH * EM) / 2;
-		const spineX = art.single ? shelfX - sw / 2 : shelfX;
-		const cx = spineX + sw / 2;
-		readPose = { ...readPose, cx, cy, cz, hw: sw / 2, hh, camX: art.single ? shelfX : spineX, viewHW: art.single ? sw / 2 : sw, spineX, topY: cy + hh, planeZ: cz + 0.008 };
+		const hw = (SHEET_W * EM_M) / 2;
+		const hh = (SHEET_H * EM_M) / 2;
+		readPose = { ...readPose, cx: shelfX, cy, cz, hw, hh, camX: shelfX, viewHW: hw, spineX: shelfX - hw, topY: cy + hh, planeZ: cz + 0.008 };
 		readCamera(canvas.clientWidth / canvas.clientHeight);
-		world!.reader.setReadingPose(cx, cy, cz, sw / 2, hh);
+		world!.reader.setReadingPose(shelfX, cy, cz, hw, hh);
 	}
 
 	async function openArticle(slug: string, snap: boolean) {
@@ -439,75 +375,28 @@ export async function createRoom(
 		slugIdx = idx;
 		// a cold deep link: the cab is already at the book's floor
 		if (snap) elev.goto(floorOfObj(world!.links[slugIdx]), true);
-		// the book leaves the shelf on the click; the article bytes arrive while it is in the air
+		// the book leaves the shelf on the click; the page itself is loaded by the Reader while it is in the air
 		if (!snap) world!.reader.begin(slugIdx);
-		const cls = Magazine.classFor(canvas.clientWidth / canvas.clientHeight);
-		const art = await mag.load(slug, cls).catch((e) => (console.error('magazine:', e), null));
-		if (!art || wantSlug !== slug) return;
 		rdPix = READ_PIX;
 		resize();
-		applyPose(art);
-		// the book: N full text spreads, figure clocks, link and figure tables for hit tests
-		const nFull = art.layers.filter((l) => l === 1).length;
-		book.init(nFull);
-		art.figures.forEach((f) => exportsOf.figure_define(f.id, f.spread, f.mode, f.duration, f.poster));
-		exportsOf.set_reduced_motion(reduced.matches ? 1 : 0);
-		linkRecs = art.links.map((l) => ({ x0: l.rect[0], y0: l.rect[1], x1: l.rect[2], y1: l.rect[3], kind: l.kind, target: l.target, spread: l.spread }));
-		figRecs = art.figures.map((f) => ({ id: f.id, spread: f.spread, mode: f.mode, duration: f.duration, x0: f.bounds[0], y0: f.bounds[1], x1: f.bounds[2], y1: f.bounds[3] }));
-		chanSig = '';
-		world!.reader.open(slugIdx, 1, art.sheetW, art.spreadH, 0, snap);
-		if (art.opensFull) book.sink.openFull(1);
-		else if (location.hash) book.applyHash(location.hash);
+		applyPose(slugIdx);
+		world!.reader.open(slugIdx, snap);
 		touch();
 	}
 
-	/** Uniforms of the book as the shader and the CPU pick see them. */
-	function bookUniforms(): MagazineUniforms {
-		const a = mag.article;
-		const open = a !== null && rs[RS.article] >= 0;
-		const ms = book.state();
-		const hv = hover && open ? hover : null;
-		// the figure under the pointer is Flecs state: the (Hover, figure) relation, exported as state[15]
-		const hid = open ? book.state()[MagState.hover] : -1;
-		const hf = hid >= 0 ? figRecs.find((f) => f.id === (hid | 0)) : undefined;
-		const layer0 = ms[MagState.layer] < 0.5;
-		const peel = layer0 ? Math.min(1, Math.max(0, ms[MagState.cornerDrag]) + 0.05 * ms[MagState.tabPulse]) : -1;
+	/** Uniforms of the book as the shader sees them. */
+	function bookUniforms(): BookUniforms {
+		const open = rs[RS.article] >= 0;
+		const hinge = dbg.hinge ?? rs[RS.hinge];
 		return {
 			k: open ? rs[RS.t] : 0,
 			magObj: open ? rs[RS.magObj] : -1,
-			progress: open ? ms[MagState.turnProgress] : 0,
-			dir: open ? ms[MagState.turnDir] : 0,
-			spineX: readPose.spineX + ms[MagState.bounceX] * 0.012,
+			spineX: readPose.spineX,
 			topY: readPose.topY,
 			z: readPose.planeZ,
-			index: open ? ms[14] : 0,
-			hoverSpread: hv?.link ? hv.spread : hf ? hf.spread : -1,
-			hoverRect: hv?.link?.rect ?? (hf ? [hf.x0, hf.y0, hf.x1, hf.y1] : undefined),
-			hoverKind: hv?.link ? 0 : hf ? 1 : 0,
-			peel,
-			hinge: dbg.hinge ?? rs[RS.hinge],
-			cover: open && rs[RS.pagesOn] > 0.5 && (dbg.hinge ?? rs[RS.hinge]) < 0.9995 ? 1 : 0,
-			bow: BOW,
-			gutter: GUTTER,
-			gain: 1
+			hinge,
+			cover: open && rs[RS.pagesOn] > 0.5 && hinge < 0.9995 ? 1 : 0
 		};
-	}
-
-	/** Per-frame channel values: Flecs figure clocks -> timeline time -> packed keyframe tables, only the subrange that changed. */
-	function writeFigures() {
-		const a = mag.article;
-		if (!a || !a.figures.length) return;
-		const clocks = new Float32Array(exportsOf.memory.buffer, exportsOf.figure_clock_ptr(), exportsOf.figure_clock_len());
-		let sig = '';
-		for (const f of a.figures) {
-			const mode = (['loop', 'once', 'scrub', 'static'] as const)[f.mode] ?? 'static';
-			const t = figureTime(mode, clocks[f.id] ?? 0, f.duration, f.poster);
-			sig += t.toFixed(3) + ',';
-			evalPacked(a.chans.slice(f.firstChan, f.firstChan + f.chanCount), a.keys, t, chanBuf.subarray(f.firstChan, f.firstChan + f.chanCount));
-		}
-		if (sig === chanSig) return;
-		chanSig = sig;
-		mag.writeChannels(chanBuf);
 	}
 
 	function writeScene(rw: number, rh: number, y: number, seed: number, blend: number, windowed: boolean) {
@@ -643,9 +532,9 @@ export async function createRoom(
 				{ binding: 19, resource: { buffer: lmBuf! } },
 				{ binding: 22, resource: probeAll },
 				{ binding: 23, resource: probeSampler },
-				{ binding: 6, resource: { buffer: mag.buffer } },
-				{ binding: 27, resource: mag.imgView },
-				{ binding: 28, resource: mag.sampler }
+				{ binding: 6, resource: { buffer: bookBuf } },
+				{ binding: 27, resource: bookImg.view },
+				{ binding: 28, resource: bookImg.sampler }
 			]
 		});
 		bindV = mkBindV();
@@ -832,7 +721,6 @@ export async function createRoom(
 		const gap = now - rdLast;
 		const dt = (gap > 250 ? 16.7 : Math.min(50, gap)) * (dbg.timeScale ?? 1);
 		rdLast = now;
-		input.tick(now);
 		elev.tick(dt);
 		world!.reader.tick(dt);
 		rs = world!.reader.state();
@@ -843,19 +731,12 @@ export async function createRoom(
 		shown = es[ES.frac];
 		for (let ev = world!.reader.poll(); ev; ev = world!.reader.poll()) {
 			if (ev.kind === 'closed' && wantSlug === null) {
-				mag.unload();
-				linkRecs = [];
-				figRecs = [];
 				rdPix = 2.4e6;
 				for (const l of linked) device!.queue.writeBuffer(objBuf, l.o * 112, data, l.o * 28, 28);
 				resize();
 				frame = 0;
 				moving = false;
 			}
-			// figures hold their poster until the fly-in is done (first paint is a finished frame), then play
-			if (ev.kind === 'opened') exportsOf.book_settled(1);
-			if (ev.kind === 'closed') exportsOf.book_settled(0);
-			if (ev.kind === 'spread' || ev.kind === 'layerOpened' || ev.kind === 'layerClosed') (book.syncHash(), input.clearSelection());
 			readCb({ kind: ev.kind, arg: ev.arg });
 		}
 		if (rs[RS.phase] > 0) {
@@ -865,10 +746,8 @@ export async function createRoom(
 				magRow[1] -= 50;
 				device!.queue.writeBuffer(objBuf, rs[RS.magObj] * 112, magRow);
 			} else device!.queue.writeBuffer(objBuf, rs[RS.magObj] * 112, rs, RS.mag, 28);
-			if (rs[RS.article] >= 0) writeFigures();
 		}
-		const ms = book.state();
-		const sig = `${dbg.hinge ?? ''} ${es[ES.posM].toFixed(4)} ${es[ES.lens].toFixed(3)} ${es[ES.gate].toFixed(3)} ${rs[RS.t].toFixed(4)} ${rs[RS.dim].toFixed(4)} ${rs[RS.phase]} ${rs[RS.article]} ${ms[MagState.f].toFixed(4)} ${ms[MagState.cornerDrag].toFixed(3)} ${ms[MagState.bounceX].toFixed(3)} ${ms[MagState.tabPulse].toFixed(3)} ${chanSig} ${hover?.link?.target ?? ''}`;
+		const sig = `${dbg.hinge ?? ''} ${es[ES.posM].toFixed(4)} ${es[ES.lens].toFixed(3)} ${es[ES.gate].toFixed(3)} ${rs[RS.t].toFixed(4)} ${rs[RS.dim].toFixed(4)} ${rs[RS.phase]} ${rs[RS.article]}`;
 		rdIdle = sig === rdSig && !lmBusy ? rdIdle + 1 : 0;
 		rdSig = sig;
 	}
@@ -973,7 +852,6 @@ export async function createRoom(
 		const g = globalThis as unknown as Record<string, unknown>;
 		g.__dbg = dbg;
 		g.__rs = () => Array.from(rs.slice(0, 64));
-		g.__book = () => book.state();
 	}
 
 	const kick = () => {
@@ -1012,22 +890,6 @@ export async function createRoom(
 		]);
 		return { o: cam.pos, d };
 	};
-	mag.onRebind = () => {
-		if (w) bindV = mkBindV();
-		touch();
-	};
-	mag.onDirty = touch;
-	void mag.prefetch().catch(() => {});
-
-	/** Pointer ray -> spread-local point on the open book (the CPU mirror of page_trace), or null. */
-	function spreadPointAt(nx: number, ny: number) {
-		const art = mag.article;
-		if (!art || rs[RS.article] < 0 || rs[RS.t] < 0.999) return null;
-		const { o, d } = rayAt(nx, ny);
-		const hit = pickSpread({ sheetW: art.sheetW, spreadH: art.spreadH, spreadCount: art.spreadCount, single: art.single }, bookUniforms(), o, d);
-		return hit && hit.face !== 2 ? { spread: hit.spread, x: hit.x, y: hit.y } : null;
-	}
-
 	const clampView = () => {
 		const lim = 1 - vs;
 		vm = [Math.max(-lim, Math.min(lim, vm[0])), Math.max(-lim, Math.min(lim, vm[1]))];
@@ -1074,59 +936,12 @@ export async function createRoom(
 		setReading(slug: string | null, opts: { snap?: boolean } = {}) {
 			if (slug === wantSlug) return;
 			wantSlug = slug;
-			hover = null;
 			if (slug === null) world.reader.close(!!opts.snap);
 			else void openArticle(slug, !!opts.snap);
 			touch();
 		},
 		rayAt,
-		wheel(w) {
-			const r = input.wheelIn({ ...w, t: performance.now() });
-			touch();
-			setTimeout(() => (input.tick(performance.now()), touch()), WHEEL_IDLE_MS + 30);
-			return r;
-		},
-		pointerDown: (p) => (touch(), input.pointerDown({ ...p, spreadPoint: spreadPointAt(p.nx, p.ny) })),
-		pointerMove(p) {
-			const sp = spreadPointAt(p.nx, p.ny);
-			const link = sp && mag.article ? linkAt(mag.article, sp.spread, sp.x, sp.y) : null;
-			if (hover?.link !== link) {
-				hover = sp ? { spread: sp.spread, link } : null;
-				touch();
-			}
-			const r = input.pointerMove({ ...p, spreadPoint: sp });
-			touch();
-			return r;
-		},
-		pointerUp: (p, cancel) => (touch(), input.pointerUp({ ...p, spreadPoint: spreadPointAt(p.nx, p.ny) }, cancel)),
-		keyIn(k) {
-			const r = input.keyIn({ ...k, t: performance.now() });
-			touch();
-			return r;
-		},
-		hoverAt(nx: number, ny: number) {
-			const sp = spreadPointAt(nx, ny);
-			const link = sp && mag.article ? linkAt(mag.article, sp.spread, sp.x, sp.y) : null;
-			if (hover?.link !== link) {
-				hover = sp ? { spread: sp.spread, link } : null;
-				touch();
-			}
-			// a scrubbable figure under the pointer (the cursor becomes ew-resize)
-			const f = sp && !link ? figRecs.find((r) => r.spread === sp.spread && sp.x >= r.x0 && sp.x <= r.x1 && sp.y >= r.y0 && sp.y <= r.y1) : undefined;
-			const scrub = !!f && scrubbable(f);
-			const text = !!sp && !!mag.article && !f && onText(mag.article.text, sp.spread, sp.x, sp.y);
-			return hover ? { ...hover, scrub, text } : sp && (scrub || text) ? { spread: sp.spread, link: null, scrub, text } : null;
-		},
-		selectedText: () => input.selectedText(),
-		clearSelection: () => input.clearSelection(),
-		onBook: (nx, ny) => spreadPointAt(nx, ny) !== null,
-		applyHash: (h) => book.applyHash(h),
-		onFollow(cb) {
-			followCb = cb;
-		},
-		onHash(cb) {
-			hashCb = cb;
-		},
+		page: world.reading,
 		onReader(cb: (e: { kind: string; arg: number }) => void) {
 			readCb = cb;
 		},
@@ -1142,8 +957,7 @@ export async function createRoom(
 			a.setReverbRoom(6.6, ROOM_D, ROOM_H);
 		},
 		get reading() {
-			const ms = book.state();
-			return { slug: mag.article?.slug ?? null, t: rs[RS.t], layer: ms[MagState.layer], spread: Math.round(ms[MagState.f]), spreads: ms[MagState.spreads] };
+			return { slug: wantSlug, t: rs[RS.t], phase: rs[RS.phase], dim: rs[RS.dim] };
 		},
 		destroy() {
 			dead = true;
@@ -1152,7 +966,8 @@ export async function createRoom(
 			for (const b of [accum, gbuf, bufB, bufC, volBuf, lmMetaBuf, lmBuf, lmAcc, lmRaw, probeAcc, ...lmTmp]) b?.destroy();
 			probeTex.destroy();
 			atlasTex.destroy();
-			mag.destroy();
+			bookBuf.destroy();
+			bookImg.tex.destroy();
 		}
 	};
 	return api;

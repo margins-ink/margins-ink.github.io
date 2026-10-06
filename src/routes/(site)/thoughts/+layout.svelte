@@ -85,17 +85,10 @@
 {/if}
 
 <style>
-	/* With WebGPU the article is drawn inside the world (World.svelte). This copy stays in the DOM, visually hidden,
-	   as the one accessible and indexable representation (docs/READER.md section 4). */
+	/* With WebGPU the article is drawn by the reader (Reader.svelte: native scroller, text layer, page pass). This prerendered copy
+	   is the no-JS and SEO article; it is not shown and not exposed to assistive tech once the reader runs (docs/READING.md). */
 	:global(html[data-gpu]) .reader-dom {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		margin: -1px;
-		padding: 0;
-		overflow: hidden;
-		clip-path: inset(50%);
-		border: 0;
+		display: none;
 	}
 	.issue {
 		--acc: var(--al);
