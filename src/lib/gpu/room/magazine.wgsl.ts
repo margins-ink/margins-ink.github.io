@@ -12,8 +12,6 @@
  *
  * Bindings (only cs and cs_view reference them, so the bake pipelines keep their layouts):
  *   6  reader      array<u32>: header, channel table (256 f32), fonts, the open article (layout in magazine.ts)
- *   27 reader_img  texture_2d_array<f32> rgba8unorm-srgb, one layer per image of the open article
- *   28 img_s       trilinear + anisotropic sampler
  *
  * Scene uniform fields (vec4f each, 24 floats from rd0; host fills them with writeRd in magazine.ts):
  *   rd0 = (k reading blend, magazine obj index or -1, em in metres, turn progress 0..1)
@@ -57,8 +55,6 @@ const headerConsts = Object.entries(MH).map(([k, v]) => `const MH_${k.toUpperCas
 
 export const MAGAZINE_EVAL_WGSL = /* wgsl */ `
 @group(0) @binding(6) var<storage, read> reader: array<u32>;
-@group(0) @binding(27) var reader_img: texture_2d_array<f32>;
-@group(0) @binding(28) var img_s: sampler;
 
 ${headerConsts}
 const MG_CHAN_BASE = ${CHAN_BASE}u;

@@ -57,15 +57,3 @@ export function makeBookBuffer(device: GPUDevice): GPUBuffer {
 	device.queue.writeBuffer(buf, 0, words);
 	return buf;
 }
-
-/** A 1x1 image array for the unused reader_img binding. */
-export function makeBookImage(device: GPUDevice) {
-	const tex = device.createTexture({
-		size: [1, 1, 1],
-		format: 'rgba8unorm-srgb',
-		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
-	});
-	const view = tex.createView({ dimension: '2d-array' });
-	const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
-	return { tex, view, sampler };
-}

@@ -5,7 +5,7 @@ import { buildLightmapLayout } from './lightmap';
 import { TRACE } from './shader';
 import { loadWorld, RS, type Floor } from './world';
 import { elevatorApi, ES } from './elevator';
-import { makeBookBuffer, makeBookImage, writeRd, SHEET_W, SHEET_H, type BookUniforms } from './book';
+import { makeBookBuffer, writeRd, SHEET_W, SHEET_H, type BookUniforms } from './book';
 import type { Reading } from '$lib/reading/abi';
 
 export type { Floor };
@@ -314,7 +314,6 @@ export async function createRoom(
 
 	// ---- the book: Flecs drives it (book.rs: lift, carry, open, close); this blends the camera and feeds the shader (magazine.wgsl.ts) ----
 	const bookBuf = makeBookBuffer(device);
-	const bookImg = makeBookImage(device);
 	const TH_READ = Math.tan((17 * Math.PI) / 180);
 	let rs = world.reader.state();
 	let rdLast = performance.now();
@@ -532,9 +531,7 @@ export async function createRoom(
 				{ binding: 19, resource: { buffer: lmBuf! } },
 				{ binding: 22, resource: probeAll },
 				{ binding: 23, resource: probeSampler },
-				{ binding: 6, resource: { buffer: bookBuf } },
-				{ binding: 27, resource: bookImg.view },
-				{ binding: 28, resource: bookImg.sampler }
+				{ binding: 6, resource: { buffer: bookBuf } }
 			]
 		});
 		bindV = mkBindV();
@@ -967,7 +964,6 @@ export async function createRoom(
 			probeTex.destroy();
 			atlasTex.destroy();
 			bookBuf.destroy();
-			bookImg.tex.destroy();
 		}
 	};
 	return api;
