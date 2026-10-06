@@ -19,7 +19,7 @@ function timeline() {
 	const nodes: FigNode[] = [];
 	const tracks: Track[] = [];
 	const pad = 0.05; // blocks do not touch, so each reads as its own block
-	const block = (id: string, lane: number, u0: number, u1: number, kind: 'eval' | 'build', color: 'muted' | 'accent', named = false) => {
+	const block = (id: string, lane: number, u0: number, u1: number, kind: 'eval' | 'build', color: 'neutral1' | 'accent', named = false) => {
 		const w = (u1 - u0) * 2.9 - pad;
 		if (kind === 'eval') nodes.push(rrect(id, { at: [X(u0), lane], size: [w, LANE_H], fill: color, label: named ? 'eval' : undefined }));
 		else {
@@ -32,7 +32,7 @@ function timeline() {
 	// CppNix: eval, then the evaluator sits behind each build.
 	const cpp: ['eval' | 'build', number, number][] = [['eval', 0, 1.5], ['build', 1.5, 3], ['eval', 3, 4], ['build', 4, 6], ['eval', 6, 7], ['build', 7, 8.5], ['eval', 8.5, 10]];
 	// the first block of each kind carries its name; the rest read from it (labels on all 13 blocks only added noise)
-	cpp.forEach(([k, a, b], i) => block(`c${i}`, CPP_Y, a, b, k, 'muted', i < 2));
+	cpp.forEach(([k, a, b], i) => block(`c${i}`, CPP_Y, a, b, k, 'neutral1', i < 2));
 	// Snix: eval never stops, so it ends first.
 	const snix: [number, number][] = [[0, 1.5], [1.5, 2.5], [2.5, 3.5], [3.5, 4.5], [4.5, 5.5], [5.5, 6.5]];
 	snix.forEach(([a, b], i) => block(`s${i}`, SNIX_Y, a, b, 'eval', 'accent', i === 0));
@@ -68,7 +68,7 @@ function timeline() {
 		time: { duration: 12, mode: 'loop', poster: 9 },
 		describe: 'When a thunk demands the contents of a derivation, the CppNix evaluator stops, waits for the build, resumes. Snix keeps eval going while the builds run.',
 		alt: 'Two lanes, CppNix and Snix: eval blocks on CppNix are separated by hatched build blocks where it waits; Snix eval blocks run back to back and end first.',
-		palette: { cpp: 'muted', snix: 'accent', build: 'neutral2' },
+		palette: { cpp: 'neutral1', snix: 'accent', build: 'neutral2' },
 		nodes, paths, tracks
 	});
 }
@@ -102,7 +102,7 @@ function graph() {
 	for (const id of Object.keys(POS)) {
 		const [x, y] = POS[id];
 		if (id[0] === 'e') {
-			nodes.push(circle(id, { at: [x, y], r: R, fill: { mix: ['muted', 'accent'], chan: `${id}.mix` } }));
+			nodes.push(circle(id, { at: [x, y], r: R, fill: { mix: ['neutral1', 'accent'], chan: `${id}.mix` } }));
 			tracks.push(track(`${id}.mix`, [[0, 0], [LIT[id], 0], [LIT[id] + 0.4, 1]], ['linear', 'inOutSine']));
 			if (id !== 'e2' && id !== 'e0') tracks.push(appear(id)); // e0 is there from the first frame
 		} else {

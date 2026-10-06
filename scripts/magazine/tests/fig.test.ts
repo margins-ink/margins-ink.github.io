@@ -137,3 +137,45 @@ describe('ifd figures', () => {
 		expect(first).toBe(1);
 	});
 });
+
+// ---- figure colour contrast: every shape, stroke and label colour of every figure of every article, against what it is drawn on ----
+import { readdirSync, existsSync } from 'node:fs';
+import { figureContrast, SHAPE_MIN, TEXT_MIN } from '../fig/contrast';
+import { paletteEntries } from '../palette';
+import { contrast, fromRgb, ok, quant, toHex, NEUTRAL, TINT_HUE } from '../../../src/lib/reading/theme';
+
+const thoughts = `${ROOT}/src/routes/(site)/thoughts`;
+const all: [string, dsl.FigureSet][] = [];
+for (const d of readdirSync(thoughts)) if (existsSync(`${thoughts}/${d}/figures.ts`)) all.push([d, (await import(`${thoughts}/${d}/figures.ts`)).default as dsl.FigureSet]);
+
+describe('figure contrast', () => {
+	test('every figure of every article clears the floors (shapes 1.5:1, strokes and text 4.5:1, labels on their fill 4.5:1)', () => {
+		expect(all.length).toBeGreaterThan(0);
+		for (const [slug, set] of all) for (const [id, spec] of Object.entries(set)) expect(figureContrast(`${slug}/${id}`, spec)).toEqual([]);
+	});
+
+	test('the figure neutrals are visible on the ground and carry ink', () => {
+		const p = paletteEntries();
+		for (const n of ['neutral1', 'neutral2', 'neutral3'] as const) expect(contrast(p[n], p.paper)).toBeGreaterThanOrEqual(SHAPE_MIN);
+		for (const n of ['neutral1', 'neutral2'] as const) expect(contrast(p.ink, p[n])).toBeGreaterThanOrEqual(TEXT_MIN);
+		expect(toHex(p.paper)).not.toBe('#000000');
+	});
+
+	// planted-bug control: the values the reader shipped with (neutral3 at the ground's own lightness, bright grey `muted` fills with paper labels
+	// that read fine only by luck, linear colour on an sRGB canvas) must fail the same check
+	test('control: the old invisible neutral and a ground-coloured fill fail', () => {
+		const p = paletteEntries();
+		const oldNeutral3 = quant(ok(0.15, NEUTRAL.C, TINT_HUE));
+		const planted = { ...p, neutral3: oldNeutral3 };
+		const spec = base({ nodes: [rrect('bar', { at: [2, 2], size: [6, 1], fill: 'neutral3' })], paths: [], tracks: [] });
+		expect(figureContrast('ctl', spec, p).filter((m) => m.includes('bar fill'))).toHaveLength(0);
+		expect(figureContrast('ctl', spec, planted).filter((m) => m.includes('bar fill'))).toHaveLength(1);
+		// the screenshot's colours: linear values shown as sRGB turn ground L 0.15 into near black and the bars into the ground
+		const dark: [number, number, number] = [0.012, 0.014, 0.02];
+		expect(contrast(dark, [0, 0, 0])).toBeLessThan(SHAPE_MIN);
+		// and a label colour that fails on its fill is caught
+		const bad = base({ nodes: [rrect('b', { at: [2, 2], size: [6, 2], fill: 'neutral2', label: 'x' })], paths: [], tracks: [] });
+		expect(figureContrast('ctl', bad, { ...p, ink: p.neutral2 }).some((m) => m.includes('label'))).toBe(true);
+		void fromRgb;
+	});
+});

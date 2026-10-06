@@ -24,6 +24,7 @@ import type { StringSink } from '../typeset';
 import type { Fragment, FItem } from '../emit';
 import { compileFigure, LABEL_SIZE, type CompiledFigureX, type LintItem } from './compile';
 import { lintFigure } from './lint';
+import { figureContrast, labelColour as labelName } from './contrast';
 
 export interface FigureArt { id: string; fragment: Fragment; size: [number, number]; compiled: CompiledFigure }
 
@@ -217,10 +218,7 @@ export function emitFigure(env: FigEnv, figId: string, spec: FigureSpec, cf: Com
 			push(ItemType.glyph, frag.glyphs.length - 1, group, li);
 		}
 	};
-	const labelColour = (fill: ColorRef | 'none'): number => {
-		const a = palOf(fill).a;
-		return fill === 'none' ? PAL2.ink : a === PAL2.accent || a === PAL2.field || a === PAL2.accent2 ? PAL2.accentInk : a === PAL2.muted || a === PAL2.ink ? PAL2.paper : PAL2.ink;
-	};
+	const labelColour = (fill: ColorRef | 'none'): number => PAL2[labelName(fill)];
 
 	// ---- strokes (arrows and stroked paths) ----
 	const strokeOf = new Map<string, number>();
@@ -376,7 +374,7 @@ export function buildFigures(env: FigEnv, set: Record<string, FigureSpec>, where
 	for (const [id, spec] of Object.entries(set)) {
 		try {
 			const cf = compileFigure(id, spec);
-			const msgs = lintFigure(cf);
+			const msgs = [...lintFigure(cf), ...figureContrast(id, spec)];
 			if (msgs.length) { errors.push(...msgs); continue; }
 			out.set(id, emitFigure(env, id, spec, cf));
 		} catch (e) {
