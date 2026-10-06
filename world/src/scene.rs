@@ -12,7 +12,6 @@ const SCRIPTS: &[(&str, &str)] = &[
     ("decor", include_str!("../scene/12-decor.flecs")),
     ("palettes", include_str!("../scene/20-palettes.flecs")),
     ("rooms", include_str!("../scene/30-rooms.flecs")),
-    ("reader", include_str!("../scene/40-reader.flecs")),
 ];
 
 #[derive(Deserialize)]
@@ -56,10 +55,7 @@ pub fn build(json: &[u8]) -> Result<(Output, World, Vec<u64>), String> {
         .map(|(i, t)| {
             world
                 .entity_named(&format!("articles::{}", t.slug))
-                .is_a(world.lookup("Issue"))
                 .set(Article { index: i as u32 })
-                .set(Reading::default())
-                .set(Scroll::default())
         })
         .collect();
 

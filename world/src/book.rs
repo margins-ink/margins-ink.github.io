@@ -442,10 +442,6 @@ pub fn setup(world: &World, articles: &[u64], out: &Output) {
 
 // ---- state machine ----
 
-fn spread_open(w: &World) -> bool {
-    w.try_cloned::<&crate::magazine::Spread>().is_some_and(|s| s.layer > 0.5 || s.f > 0.01)
-}
-
 fn systems(world: &World, select_ph: EntityView, spring_ph: EntityView, pack_ph: EntityView) {
     // ---- Select: transitions and per-phase targets. Positions and velocities are never touched, so any transition is continuous. ----
     world
@@ -460,7 +456,6 @@ fn systems(world: &World, select_ph: EntityView, spring_ph: EntityView, pack_ph:
             let want = e.has(WantOpen::id());
             let ph = Ph::from_f(clk.phase);
             clk.t += it.delta_time();
-            let held = spread_open(&w);
             let mut next = ph;
             match ph {
                 Ph::OnShelf => {
@@ -515,9 +510,6 @@ fn systems(world: &World, select_ph: EntityView, spring_ph: EntityView, pack_ph:
                     // the hand-off: the card is exactly at the reading pose, the page renderer takes over this frame
                     hinge.pages = 1.0;
                 }
-                if next == Ph::Closing && held {
-                    crate::magazine::close_full();
-                }
                 e.add((w.component_id::<BookPhase>(), next.entity(&w)));
             }
             let ph = next;
@@ -558,10 +550,10 @@ fn systems(world: &World, select_ph: EntityView, spring_ph: EntityView, pack_ph:
                     back.dolly.to = 1.0;
                 }
                 Ph::Closing => {
-                    // the cover goes first (held while the full-text layer is still open), then the card goes home along the same arc
+                    // the cover goes first, then the card goes home along the same arc
                     if hinge.pages > 0.5 {
-                        hinge.a.to = if held { rig.hinge_aim } else { -0.06 };
-                        if h <= 0.0 && hinge.a.v >= -0.02 && !held {
+                        hinge.a.to = -0.06;
+                        if h <= 0.0 && hinge.a.v >= -0.02 {
                             hinge.pages = 0.0; // swap back to the card, same pose
                         }
                     }

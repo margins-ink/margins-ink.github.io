@@ -1,4 +1,6 @@
 import type { Thought } from '$lib/thoughts';
+import { createReading } from '../../ecs/reading';
+import type { Reading, ReadingExports } from '../../reading/abi';
 import { ATLAS, MAP, SIGN, signRect, tileRect } from './atlas';
 import wasmUrl from './world.wasm?url';
 
@@ -22,33 +24,31 @@ export interface World {
 	lvl: Float32Array;
 	/** Object index of the magazine showing items[i], or -1. */
 	links: Int32Array;
-	/** Reader state machine (Reading/Scroll/Page entities, see docs/WORLD.md "Reader"). */
+	/** The book (take off the shelf, carry, open, close; docs/BOOK.md). */
 	reader: ReaderApi;
-	/** the raw wasm exports (the magazine wrapper in ecs/magazine.ts drives them) */
+	/** The page: blocks, scroll, fold, figures (world/src/reading.rs). `world_tick` advances it together with the book, so the host never calls `reading.tick` in the room. */
+	reading: Reading;
+	/** the raw wasm exports */
 	exports: unknown;
 }
 
-export type ReaderEvent = { kind: 'opened' | 'closed' | 'scrollEnd' | 'page' | 'spread' | 'layerOpened' | 'layerClosed' | 'focus' | 'overview' | 'hover' | 'sound' | 'phase'; arg: number };
+/** Events of the book (`event_poll`). The page has its own ring: `Reading.poll()` (READING_EVENTS in reading/abi.ts). */
+export type ReaderEvent = { kind: 'opened' | 'closed' | 'sound' | 'phase'; arg: number };
 
 /** Indices into `ReaderApi.state()`. */
 export const RS = {
-	t: 0, target: 1, scroll: 2, scrollMax: 3, article: 4, magObj: 5, lift: 6, camT: 7,
-	firstPage: 8, visible: 9, centrePage: 10, pageCount: 11, mag: 12,
+	t: 0, target: 1, article: 4, magObj: 5, lift: 6, camT: 7, mag: 12,
 	/** book choreography (docs/BOOK.md): phase 0 shelf, 1 lifting, 2 carrying, 3 opening, 4 reading, 5 closing */
 	phase: 40, carry: 41, face: 42, hinge: 43, reveal: 44, dim: 45, cardOn: 46, pagesOn: 47, cardLight: 48, curl: 49, bank: 50
 } as const;
 
 export interface ReaderApi {
 	tick(dtMs: number): void;
-	open(index: number, pageCount: number, sheetW: number, sheetH: number, gap: number, snap: boolean): boolean;
+	/** Open a book: it lifts off the shelf, or snaps open (cold deep link). The page itself is loaded through `World.reading`. */
+	open(index: number, snap: boolean): boolean;
 	close(snap: boolean): void;
 	/** A click on a book: it starts lifting at once, before the article has loaded. */
 	begin(index: number): void;
-	scrollBy(dyEm: number): void;
-	scrollTo(yEm: number): void;
-	/** Start a fling in em/s. */
-	fling(vEmS: number): void;
-	setViewport(viewHEm: number): void;
 	setReadingPose(cx: number, cy: number, cz: number, halfW: number, halfH: number): void;
 	poll(): ReaderEvent | null;
 	/** 64 floats, a live view onto wasm memory (valid until the next call into wasm that may grow it). */
@@ -106,43 +106,39 @@ export function wasiImports(getMem: () => WebAssembly.Memory) {
 	};
 }
 
-interface Exports {
-	memory: WebAssembly.Memory;
+interface Exports extends ReadingExports {
 	world_input(len: number): number;
 	world_build(): number;
 	world_buf(id: number): number;
 	world_buf_len(id: number): number;
 	world_tick(dtMs: number): void;
-	article_open(index: number, pageCount: number, sheetW: number, sheetH: number, gap: number, snap: number): number;
+	article_open(index: number, snap: number): number;
 	article_close(snap: number): void;
 	book_begin(index: number): void;
-	scroll_by(dy: number): void;
-	scroll_to(y: number): void;
-	scroll_fling(v: number): void;
-	set_viewport(h: number): void;
 	set_reading_pose(cx: number, cy: number, cz: number, hw: number, hh: number): void;
 	event_poll(): number;
 	reader_state_ptr(): number;
 	world_entity_count(): number;
 }
 
-const EVENTS: ReaderEvent['kind'][] = ['opened', 'closed', 'scrollEnd', 'page', 'spread', 'layerOpened', 'layerClosed', 'focus', 'overview', 'hover', 'sound', 'phase'];
+/** event_poll kinds of the book: 1 opened, 2 closed, 11 sound, 12 phase */
+const EVENTS: Record<number, ReaderEvent['kind']> = { 1: 'opened', 2: 'closed', 11: 'sound', 12: 'phase' };
 
 function readerApi(x: Exports): ReaderApi {
+	const poll = (): ReaderEvent | null => {
+		for (let v = x.event_poll(); v !== 0; v = x.event_poll()) {
+			const kind = EVENTS[v >>> 24];
+			if (kind) return { kind, arg: v & 0xffffff }; // an unknown kind is skipped, not mislabelled
+		}
+		return null;
+	};
 	return {
 		tick: (dt) => x.world_tick(dt),
-		open: (i, n, w, h, g, snap) => x.article_open(i, n, w, h, g, snap ? 1 : 0) === 0,
+		open: (i, snap) => x.article_open(i, snap ? 1 : 0) === 0,
 		close: (snap) => x.article_close(snap ? 1 : 0),
 		begin: (i) => x.book_begin(i),
-		scrollBy: (d) => x.scroll_by(d),
-		scrollTo: (y) => x.scroll_to(y),
-		fling: (v) => x.scroll_fling(v),
-		setViewport: (h) => x.set_viewport(h),
 		setReadingPose: (a, b, c, d, e) => x.set_reading_pose(a, b, c, d, e),
-		poll() {
-			const v = x.event_poll();
-			return v === 0 ? null : { kind: EVENTS[(v >>> 24) - 1], arg: v & 0xffffff };
-		},
+		poll,
 		// re-derived on every call: a grown memory detaches old views
 		state: () => new Float32Array(x.memory.buffer, x.reader_state_ptr(), 64),
 		entityCount: () => x.world_entity_count()
@@ -178,6 +174,7 @@ export async function loadWorld(items: Thought[]): Promise<World> {
 		lvl: new Float32Array(bytes(2)),
 		links: new Int32Array(bytes(3)),
 		reader: readerApi(x),
+		reading: createReading(x),
 		exports: x
 	};
 }

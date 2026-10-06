@@ -8,8 +8,8 @@ mod book;
 mod components;
 mod elevator;
 mod export;
-mod magazine;
 mod reader;
+mod reading;
 mod scene;
 
 use std::cell::RefCell;
@@ -97,16 +97,16 @@ pub extern "C" fn world_buf_len(id: u32) -> u32 {
     })
 }
 
-/// Advance the reader's systems by `dt_ms` (clamped to 0..100).
+/// Advance the whole pipeline (the book and the reading module) by `dt_ms` (clamped to 0..100). One call per frame in the room.
 #[no_mangle]
 pub extern "C" fn world_tick(dt_ms: f32) {
     reader::tick(dt_ms);
 }
 
-/// Open article `index` (input order): creates its sheets and sets Reading.target to 1. 0 on success.
+/// Open article `index` (input order): the book lifts off the shelf, or snaps open for a cold deep link. 0 on success.
 #[no_mangle]
-pub extern "C" fn article_open(index: u32, page_count: u32, sheet_w: f32, sheet_h: f32, gap: f32, snap: u32) -> u32 {
-    reader::article_open(index, page_count, sheet_w, sheet_h, gap, snap != 0)
+pub extern "C" fn article_open(index: u32, snap: u32) -> u32 {
+    reader::article_open(index, snap != 0)
 }
 
 #[no_mangle]
@@ -115,38 +115,17 @@ pub extern "C" fn article_close(snap: u32) {
 }
 
 #[no_mangle]
-pub extern "C" fn scroll_by(dy_em: f32) {
-    reader::scroll_by(dy_em);
-}
-
-#[no_mangle]
-pub extern "C" fn scroll_to(y_em: f32) {
-    reader::scroll_to(y_em);
-}
-
-/// Extra (not in the base contract): start a fling in em/s.
-#[no_mangle]
-pub extern "C" fn scroll_fling(v_em_s: f32) {
-    reader::scroll_fling(v_em_s);
-}
-
-#[no_mangle]
-pub extern "C" fn set_viewport(view_h_em: f32) {
-    reader::set_viewport(view_h_em);
-}
-
-#[no_mangle]
 pub extern "C" fn set_reading_pose(cx: f32, cy: f32, cz: f32, half_w: f32, half_h: f32) {
     reader::set_reading_pose(cx, cy, cz, half_w, half_h);
 }
 
-/// 0 none; kind << 24 | arg. 1 Opened(article), 2 Closed, 3 ScrollEnd, 4 PageChanged(page).
+/// 0 none; kind << 24 | arg. 1 Opened(article), 2 Closed, 11 Sound, 12 Phase (the book; the page has `reading_event_poll`).
 #[no_mangle]
 pub extern "C" fn event_poll() -> u32 {
     reader::event_poll()
 }
 
-/// 40 f32 of reader state (layout in docs/WORLD.md).
+/// 64 f32 of book state (layout in docs/WORLD.md and `RS` in world.ts).
 #[no_mangle]
 pub extern "C" fn reader_state_ptr() -> *const f32 {
     reader::state_ptr()
@@ -157,60 +136,82 @@ pub extern "C" fn world_entity_count() -> u32 {
     reader::entity_count()
 }
 
-// ---- magazine (src/lib/ecs/magazine.ts) ----
+// ---- reading (src/lib/reading/abi.ts, src/lib/ecs/reading.ts) ----
+
+/// A bare world with only the reading module (reader-only mode). 0 ok, 1 when the room is already built.
+#[no_mangle]
+pub extern "C" fn reading_init() -> u32 {
+    if reader::is_full() {
+        return 1;
+    }
+    reading::init()
+}
+
+/// Pointer to the load buffer of at least `words` u32 (it grows, so re-derive views after the call).
+#[no_mangle]
+pub extern "C" fn reading_buf(words: u32) -> *mut u32 {
+    reading::buf(words)
+}
+
+/// Parse the load buffer into entities, replacing the previous article. 0 ok.
+#[no_mangle]
+pub extern "C" fn reading_load() -> u32 {
+    reading::load()
+}
 
 #[no_mangle]
-pub extern "C" fn spread_init(n: u32) { magazine::spread_init(n); }
+pub extern "C" fn reading_set_viewport(w_px: f32, h_px: f32, dpr: f32, em_px: f32, width_class: u32) {
+    reading::set_viewport(w_px, h_px, dpr, em_px, width_class);
+}
+
 #[no_mangle]
-pub extern "C" fn spread_goto(n: u32) { magazine::spread_goto(n); }
+pub extern "C" fn reading_set_scroll(y_px: f32) {
+    reading::set_scroll(y_px);
+}
+
+/// One gesture or command (`INPUT` in abi.ts): `a` and `b` are block or figure indices or floats as the kind says.
 #[no_mangle]
-pub extern "C" fn spread_by(df: f32) { magazine::spread_by(df); }
+pub extern "C" fn reading_input(kind: u32, a: f32, b: f32) {
+    reading::input(kind, a, b);
+}
+
+/// Advance by `dt_ms`. In the room this is the same single pipeline run as `world_tick`; call one of them per frame, not both.
 #[no_mangle]
-pub extern "C" fn spread_grab(dir: i32) { magazine::spread_grab(dir); }
+pub extern "C" fn reading_tick(dt_ms: f32) {
+    if reader::is_full() {
+        reader::tick(dt_ms);
+    } else {
+        reading::tick(dt_ms);
+    }
+}
+
+/// 64 f32 (`RD` in abi.ts).
 #[no_mangle]
-pub extern "C" fn spread_release(vel: f32) { magazine::spread_release(vel); }
+pub extern "C" fn reading_state_ptr() -> *const f32 {
+    reading::state_ptr()
+}
+
 #[no_mangle]
-pub extern "C" fn open_full(n: u32) { magazine::open_full(n); }
+pub extern "C" fn reading_ack_dirty() {
+    reading::ack_dirty();
+}
+
+/// 0 none; kind << 24 | arg, kind a 1-based index into READING_EVENTS.
 #[no_mangle]
-pub extern "C" fn close_full() { magazine::close_full(); }
+pub extern "C" fn reading_event_poll() -> u32 {
+    reading::poll()
+}
+
 #[no_mangle]
-pub extern "C" fn corner_drag(frac: f32) { magazine::corner_drag(frac); }
+pub extern "C" fn reading_entity_count() -> u32 {
+    reading::entity_count()
+}
+
+/// First block with y1 > `y_em` (document em), -1 when there are no blocks.
 #[no_mangle]
-pub extern "C" fn corner_release(open: u32) { magazine::corner_release(open); }
-#[no_mangle]
-pub extern "C" fn bounce() { magazine::bounce(); }
-#[no_mangle]
-pub extern "C" fn pulse_tab() { magazine::pulse_tab(); }
-#[no_mangle]
-pub extern "C" fn figure_focus(id: i32) { magazine::figure_focus(id); }
-#[no_mangle]
-pub extern "C" fn figure_seek(id: u32, t: f32) { magazine::figure_seek(id, t); }
-/// Declare a figure of the resident article: spread index, FigureMode, duration and poster time in seconds.
-#[no_mangle]
-pub extern "C" fn figure_define(id: u32, spread: u32, mode: u32, duration: f32, poster: f32) { magazine::figure_define(id, spread, mode, duration, poster); }
-#[no_mangle]
-pub extern "C" fn set_reduced_motion(on: u32) { magazine::set_reduced_motion(on); }
-#[no_mangle]
-pub extern "C" fn overview_set(on: u32) { magazine::overview_set(on); }
-#[no_mangle]
-pub extern "C" fn figure_clock_ptr() -> *const f32 { magazine::clock_ptr() }
-#[no_mangle]
-pub extern "C" fn magazine_state_ptr() -> *const f32 { magazine::state_ptr() }
-#[no_mangle]
-pub extern "C" fn figure_clock_len() -> u32 { magazine::clock_len() }
-/// The figure under the pointer (`-1` none): drives the hover highlight and the ew-resize cursor.
-#[no_mangle]
-pub extern "C" fn figure_hover(id: i32) { magazine::figure_hover(id); }
-/// Scrub a figure: the pointer takes it, moves it by timeline seconds, releases it with momentum (s per s).
-#[no_mangle]
-pub extern "C" fn figure_scrub_begin(id: u32) { magazine::figure_scrub_begin(id); }
-#[no_mangle]
-pub extern "C" fn figure_scrub_by(id: u32, dt: f32) { magazine::figure_scrub_by(id, dt); }
-#[no_mangle]
-pub extern "C" fn figure_scrub_end(id: u32, vel: f32) { magazine::figure_scrub_end(id, vel); }
-/// The open book finished its fly-in (1) or left the screen (0): figures hold the poster, then play.
-#[no_mangle]
-pub extern "C" fn book_settled(on: u32) { magazine::book_settled(on); }
+pub extern "C" fn reading_block_at(y_em: f32) -> i32 {
+    reading::block_at(y_em)
+}
 
 /// A click on a book: it starts lifting off the shelf at once, before the article bytes arrive.
 #[no_mangle]

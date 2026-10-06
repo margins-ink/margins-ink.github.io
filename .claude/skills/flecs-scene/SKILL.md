@@ -61,3 +61,21 @@ The room is declared in Flecs script and packed by `world/src/export.rs`; `bun r
 - Detent tests: scroll needs about 500 ms before polling for rest. Latch/detent result 14/14 at random offsets.
 - DEV probes in room.ts: `__dbg` (`hinge` override, `timeScale`, `audio` event log), `__rs()`, `__book()`; use timeScale for frame-by-frame strips.
 - CDP testing runs in a separate headless Chrome, never Andrew's browser: `chrome --headless=new --remote-debugging-port=9333 --user-data-dir=/Volumes/Projects/tmp/chrome-cdp --enable-unsafe-webgpu --use-angle=metal`; scripts read `CDP_PORT` (default 9333). Kill it when done.
+
+## Page pass (src/lib/reading/page.ts, page.wgsl.ts; 2026-10-06, written without a GPU run, unverified)
+
+- Per-block alpha / dy / dx are done by splitting the text draw into runs with a dynamic-offset uniform slot each (not per-instance tables): a run boundary appears only where a map entry exists or the item ranges are not adjacent, so a normal scroll frame is one text call.
+- Never draw the envelope [first item of visFirst, end of last block) when item lists are not contiguous (figure cell lists live in the same items table): use `textRuns`. Text blocks may only list item types glyph / rect / image; shape, path, stroke, numeral words in a block list are dropped by vs_text (they belong in figure cells). Glyphs and rects of text blocks must have group = NONE16 (the quad bounds ignore group transforms).
+- Quad bounds come from the glyph directory box (dir words 4..7) times size, plus 1 device px; the fragment recomputes the document point from the pixel centre (pos / pxScale), so coverage uses a constant footprint fw = 1 / (emPx * pxScale) and stays crisp at any DPR.
+- 8 bit canvas: the shader gamma-encodes (sRGB OETF) and blends in display space, like CSS text; the palette decode in mg_pal is the exact sRGB EOTF so bytes round-trip. float16 extended canvas (only when matchMedia dynamic-range: high): shader writes linear, overlays may exceed 1.
+- foldClipEm applies to every pixel by document y: pass a huge value (1e9) when the article has no fold or the fold is open.
+- Resize clears the canvas: the pass forces one redraw on the next draw even if frame.dirty is false.
+
+## Reading module (world/src/reading.rs, 2026-10-06, written without a compile, unverified)
+
+- One `world.progress_time` per frame serves the book and reading systems (`reader::tick`); `reading_tick` in the room must not progress the world a second time when the full world is built (`reader::is_full`).
+- Relation adds inside systems are deferred (observers fire at merge): write the cache component (`Doc.reading_block`) directly in the system and let the observer only emit the event. Coalesce a clear followed by a set in the event ring or a hover replace emits duplicates.
+- Use the exported prefix-max y1 / suffix-min y0 arrays with binary search for culling, not a per-frame query.
+- Rust keyword trap: `gen` is reserved in edition 2024; rename (`epoch`). A closure borrowing `d` while it is mutated needs the value copied out first.
+- Reading and book share the old names: delete old `Reading`, `Scroll`, `Page`, `Next`, `Visible` components and the Sheet/Issue prefabs in the same change or `component_named` clashes.
+- `loadReadingOnly` uses a dynamic import of world.ts to avoid an import cycle (ecs/reading.ts <-> gpu/room/world.ts).
