@@ -23,7 +23,13 @@
 use crate::components::Article;
 use crate::Output;
 use flecs_ecs::prelude::*;
+use std::cell::RefCell;
 use std::collections::VecDeque;
+
+thread_local! {
+    // part prefab ids by name: the prefabs live in the module's scope, so a root `lookup(name)` cannot find them
+    static PART_PROTOS: RefCell<Vec<(&'static str, u64)>> = const { RefCell::new(Vec::new()) };
+}
 
 pub const EV_SOUND: u32 = 11;
 pub const EV_PHASE: u32 = 12;
@@ -401,7 +407,8 @@ impl Module for BookModule {
             ("PageBlock", Part { kind: 3.0, thick: t * 0.66, share: 0.0, flutter: 0.0, slot: -1.0, owner: 0 }),
             ("FlutterSheet", Part { kind: 4.0, thick: 0.0002, share: 0.0, flutter: 0.16, slot: 0.0, owner: 0 }),
         ] {
-            world.prefab_named(name).is_a(part).set(p);
+            let proto = world.prefab_named(name).is_a(part).set(p);
+            PART_PROTOS.with(|v| v.borrow_mut().push((name, *proto.id())));
         }
 
         let select_ph = world.entity_named("BookSelectPhase").add(flecs::pipeline::Phase).depends_on(flecs::pipeline::OnUpdate);
@@ -833,7 +840,8 @@ pub fn spawn_parts(w: &World, art: u64) {
         return;
     }
     for (name, slot) in [("CoverFront", -1.0), ("CoverBack", -1.0), ("Spine", -1.0), ("PageBlock", -1.0), ("FlutterSheet", 0.0), ("FlutterSheet", 1.0)] {
-        let proto = w.lookup(name);
+        let id = PART_PROTOS.with(|v| v.borrow().iter().find(|(n, _)| *n == name).map(|&(_, id)| id)).expect("part prefab registered by BookModule");
+        let proto = w.entity_from_id(id);
         let mut part = proto.try_cloned::<&Part>().unwrap_or_default();
         part.slot = slot;
         part.owner = *e.id();

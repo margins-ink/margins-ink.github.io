@@ -4,6 +4,7 @@
 //! year (plus an Archive basement), then flattens the world into the packed float buffers that
 //! `src/lib/gpu/room/room.ts` uploads unchanged. See docs/WORLD.md.
 
+mod book;
 mod components;
 mod elevator;
 mod export;
@@ -210,3 +211,9 @@ pub extern "C" fn figure_scrub_end(id: u32, vel: f32) { magazine::figure_scrub_e
 /// The open book finished its fly-in (1) or left the screen (0): figures hold the poster, then play.
 #[no_mangle]
 pub extern "C" fn book_settled(on: u32) { magazine::book_settled(on); }
+
+/// A click on a book: it starts lifting off the shelf at once, before the article bytes arrive.
+#[no_mangle]
+pub extern "C" fn book_begin(index: u32) {
+    reader::book_begin(index);
+}
