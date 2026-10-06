@@ -1,0 +1,21 @@
+[package]
+name = "room-audio"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# MIT OR Apache-2.0 (LICENSE-MIT / LICENSE-APACHE shipped in the 0.23.0 crate). No default features:
+# `files` (symphonia) and `fft` are not needed.
+fundsp = { version = "=0.23.0", default-features = false, features = ["std"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = "abort"
+codegen-units = 1
+strip = true

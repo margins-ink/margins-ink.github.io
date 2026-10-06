@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createAudio } from '$lib/audio';
 	import { page } from '$app/state';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { tick } from 'svelte';
@@ -6,6 +7,7 @@
 	import { createRoom, type Room, type LinkHit } from '$lib/gpu/room/room';
 	import { worldState as ws } from '$lib/world.svelte';
 
+	const audio = createAudio();
 	let canvas = $state<HTMLCanvasElement>();
 	let room = $state.raw<Room | null>(null);
 
@@ -38,8 +40,13 @@
 				ws.live = r !== null;
 				if (!r) delete document.documentElement.dataset.gpu;
 				ws.floors = r?.floors ?? [];
+				if (r) r.setAudio(audio);
 				r?.onReader((e) => {
-					if (e.kind === 'page') ws.page = e.arg;
+					if (e.kind === 'page') {
+						ws.page = e.arg;
+						audio.event('paperTurn', 0.5);
+					} else if (e.kind === 'opened') audio.event('open', 0.7);
+					else if (e.kind === 'closed') audio.event('close', 0.6);
 				});
 				onscroll();
 			})
@@ -155,6 +162,7 @@
 		let moved = 0;
 		let samples: { t: number; y: number }[] = [];
 		const down = (e: PointerEvent) => {
+			void audio.resume();
 			pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
 			moved = 0;
 			samples = [{ t: e.timeStamp, y: e.clientY }];

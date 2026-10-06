@@ -37,6 +37,8 @@ export interface Room {
 	hoverAt(nx: number, ny: number): { page: number; link: LinkHit | null } | null;
 	/** Subscribe to reader events: opened, closed, page (arg = page index at the view centre). */
 	onReader(cb: (e: { kind: string; arg: number }) => void): void;
+	/** Sound sink: the room drives the elevator hum and floor dings from the scroll. */
+	setAudio(a: import('$lib/audio').RoomAudio): void;
 	readonly reading: { slug: string | null; t: number; page: number; pages: number };
 	floors: Floor[];
 	destroy(): void;
@@ -700,6 +702,8 @@ export async function createRoom(
 		rdSig = sig;
 	}
 
+	let audio: import('$lib/audio').RoomAudio | null = null;
+
 	function tick() {
 		raf = 0;
 		if (dead) return;
@@ -726,6 +730,8 @@ export async function createRoom(
 			shown += diff * 0.2;
 			lastChange = now;
 		} else shown = target;
+		// full speed is about 1.5 floors per second of eased travel (tune by ear)
+		audio?.setElevator(settling ? Math.min(1, (Math.abs(diff) * (levels.length - 1)) / 1.5) : 0, Math.round(shown * (levels.length - 1)));
 		const nowMoving = !focusObj && (settling || now - lastChange < 120);
 		if (!focusObj) bakeStep();
 		const baking = !focusObj && (lmN < LM_SPP || probeN < PROBE_SPP);
@@ -912,6 +918,10 @@ export async function createRoom(
 		},
 		onReader(cb: (e: { kind: string; arg: number }) => void) {
 			readCb = cb;
+		},
+		setAudio(a: import('$lib/audio').RoomAudio) {
+			audio = a;
+			a.setReverbRoom(6.6, ROOM_D, ROOM_H);
 		},
 		get reading() {
 			return { slug: rdr.article?.slug ?? null, t: rs[RS.t], page: rs[RS.centrePage], pages: rdr.article?.pageCount ?? 0 };
