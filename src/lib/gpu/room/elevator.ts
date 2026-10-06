@@ -1,5 +1,5 @@
 // Thin wiring for the elevator (docs/ELEVATOR.md). All logic lives in world/src/elevator.rs; this only forwards scroll,
-// reads the state buffer, uploads the cab rows and turns events into audio calls. Nothing here is verified by a build.
+// reads the state buffer, hands out the cab rows and turns events into audio calls.
 import type { RoomAudio } from '$lib/audio';
 
 interface ElevatorExports {
@@ -15,8 +15,8 @@ interface ElevatorExports {
 
 export const STATE_LEN = 40;
 /** state[] indices, see docs/ELEVATOR.md */
-export const S = {
-	posM: 0, frac: 1, speed: 2, floor: 3, target: 4, gate: 5, doors: 6, lens: 7, needle: 9, sway: 13, push: 14,
+export const ES = {
+	posM: 0, frac: 1, speed: 2, floor: 3, target: 4, gate: 5, doors: 6, lens: 7, needle: 9, car: 10, doorsCode: 11, gateCode: 12, sway: 13, push: 14,
 	yaw: 16, pitch: 17, thCab: 18, settled: 19, cabStart: 36, cabCount: 37, eye: 38, pushM: 39
 } as const;
 
@@ -43,7 +43,7 @@ export function elevatorApi(x: ElevatorExports): Elevator {
 		state,
 		rows() {
 			const s = state();
-			return new Float32Array(x.memory.buffer, x.elevator_rows_ptr(), s[S.cabCount] * 28);
+			return new Float32Array(x.memory.buffer, x.elevator_rows_ptr(), s[ES.cabCount] * 28);
 		},
 		pump(audio) {
 			let n = 0;

@@ -37,10 +37,11 @@ struct Scene {
   fx: vec4f,        // probe bake: samples so far, samples this pass, 0, 0
   rd0: vec4f,       // magazine (magazine.wgsl.ts): reading blend k, magazine object index (-1 none), em in metres, turn progress
   rd1: vec4f,       // magazine: spine x, y of the top edge, plane z, turn direction
-  rd2: vec4f,       // magazine: shown spread index, 0, hovered spread + 1 (0 none), dark
+  rd2: vec4f,       // magazine: shown spread index, 0, hovered spread + 1 (0 none), unused
   rd3: vec4f,       // magazine: hovered rect in spread em (x0 y0 x1 y1)
   rd4: vec4f,       // magazine: x tab peel amount (-1 none)
   rd5: vec4f,       // magazine: x page bow, y gutter, z gain
+  cab: vec4f,       // elevator (docs/ELEVATOR.md): x car depth in metres (cab frame y = world y + x), y settled (skip rays that clearly pass the open door), z cab on, w cab level index in lvl
 };
 
 @group(0) @binding(0) var<uniform> sc: Scene;
@@ -486,6 +487,8 @@ struct PathOut {
 // multiple importance sampling against BSDF-sampled hits of the emitters, the exact sun at every vertex, 4 vertices.
 // The result is split by the lobe taken at the first vertex so that the diffuse part can be denoised demodulated.
 // cam: the ray is a camera ray (albedo is filtered to the pixel footprint), else to 8 cm.
+// the first vertex of a camera path ends here: the cab hit that is nearer than any room geometry (see cab_primary)
+var<private> prim_tmax: f32 = 1e5;
 fn radiance(o_in: vec3f, d_in: vec3f, level: u32, cam: bool) -> PathOut {
   var po: PathOut;
   po.diff = vec3f(0.0);
@@ -499,7 +502,7 @@ fn radiance(o_in: vec3f, d_in: vec3f, level: u32, cam: bool) -> PathOut {
   var lobe = 0;          // lobe taken at the first vertex: 1 diffuse, 2 specular (or the glass reflection)
   var prev_pdf = -1.0;   // BSDF density of the last sampled direction, for MIS; < 0: none (camera ray, mirror)
   for (var b = 0; b < 4; b++) {
-    let h = intersect(o, d, 1e5, false, level);
+    let h = intersect(o, d, select(1e5, prim_tmax, b == 0 && cam), false, level);
     if (h.t < 0.0) { break; }
     let ob = objs[u32(h.id)];
     let kind = ob.c.w;
@@ -602,6 +605,59 @@ fn radiance(o_in: vec3f, d_in: vec3f, level: u32, cam: bool) -> PathOut {
   return po;
 }
 
+// ---- the elevator cab (docs/ELEVATOR.md): a separate object list in the cab frame, traced for primary rays only and
+// lit analytically by its own lamp (no lightmap). The cab never moves; the building slides past it, so the ray origin
+// is shifted by the car depth. The hall doors of every floor are part of this list.
+const CAB_GAIN = 7.0;
+fn cab_level() -> u32 { return u32(sc.cab.w); }
+fn cab_primary(oc: vec3f, d: vec3f) -> Hit {
+  if (sc.cab.y > 0.5 && oc.z > 4.6 && d.z < -1e-3) {
+    // settled with the doors open: a ray that stays inside the clear opening from the eye to the shaft rails cannot hit
+    // the cab (no cab object sits inside |x| < 0.8, 0.15 < y < 1.85 between z 4.1 and 4.5)
+    let xa = oc.x + d.x * (4.1 - oc.z) / d.z;
+    let xb = oc.x + d.x * (4.5 - oc.z) / d.z;
+    let ya = oc.y + d.y * (4.1 - oc.z) / d.z;
+    if (abs(xa) < 0.8 && abs(xb) < 0.8 && ya > 0.15 && ya < 1.85) { return Hit(-1.0, vec3f(0.0), vec3f(0.0), -1); }
+  }
+  return intersect(oc, d, 1e5, false, cab_level());
+}
+
+// sphere light of the cab lamp at cab-frame point pc: (direction to it, irradiance factor E / pi per unit colour)
+fn cab_lamp_at(pc: vec3f, n: vec3f, shadow: bool) -> vec4f {
+  let lamp = lvl[cab_level() * LS + 1u];
+  let tl = lamp.xyz - pc;
+  let d2 = max(dot(tl, tl), 0.04);
+  let l = tl * inverseSqrt(d2);
+  let nl = max(dot(n, l), 0.0);
+  var vis = 1.0;
+  if (shadow && nl > 0.0) {
+    let sh = intersect(pc + n * 2e-3, l, sqrt(d2) - lamp.w - 0.02, false, cab_level());
+    if (sh.t > 0.0) { vis = 0.0; }
+  }
+  return vec4f(l, lamp.w * lamp.w / d2 * nl * vis * CAB_GAIN);
+}
+
+fn cab_shade(h: Hit, oc: vec3f, d: vec3f) -> vec3f {
+  let ob = objs[u32(h.id)];
+  // emissive parts (lamps, dial and button lights, door seam light) carry their radiance in tx, flagged by w
+  if (ob.tx.w > 0.5) { return ob.tx.rgb; }
+  let pc = oc + d * h.t;
+  var n = h.n;
+  if (dot(n, d) > 0.0) { n = -n; }
+  let alb = albedo_of(ob, h, pc, pix_fw(h.t));
+  let m = material(ob, n, alb);
+  let lc = lvl[cab_level() * LS + 2u].rgb;
+  let la = cab_lamp_at(pc, n, true);
+  var col = m.dif * lc * la.w;
+  if (m.spec_on) {
+    col += lc * la.w * PI * spec_eval(n, -d, la.xyz, max(m.rough * m.rough, 0.004), m.f0) ;
+  }
+  // warm bounce fill: the oak and tile return the lamp light, stronger from below
+  let fill = vec3f(0.075, 0.05, 0.03) * (0.55 + 0.45 * (0.5 - 0.5 * n.y));
+  col += m.dif * fill;
+  return col;
+}
+
 @compute @workgroup_size(8, 8)
 fn cs(@builtin(global_invocation_id) gid: vec3u) {
   if (f32(gid.x) >= sc.res.x || f32(gid.y) >= sc.res.y) { return; }
@@ -624,6 +680,11 @@ fn cs(@builtin(global_invocation_id) gid: vec3u) {
   po.t = 1e5;
   var level = 0u;
 
+  // the cab (primary rays only); its hits are measured from the same origin as the room's
+  let oc = vec3f(o.x, o.y + sc.cab.x, o.z);
+  var ch = Hit(-1.0, vec3f(0.0), vec3f(0.0), -1);
+  if (sc.cab.z > 0.5) { ch = cab_primary(oc, d); }
+
   // enter the building through its open front
   let tp = (sc.misc.z - o.z) / d.z;
   let q = o + d * tp;
@@ -638,6 +699,7 @@ fn cs(@builtin(global_invocation_id) gid: vec3u) {
     from_inside = true;
     inside = true;
   }
+  let cab_first = ch.t > 0.0 && !from_inside && ch.t < tp;
   if (from_inside) {
     level = u32(clamp(floor((top - o.y) / sc.misc.y), 0.0, sc.misc.x - 1.0));
   } else if (inside && rel > top) {
@@ -645,13 +707,24 @@ fn cs(@builtin(global_invocation_id) gid: vec3u) {
     inside = false;
   } else if (!inside) {
     po.diff = live_bg();
+  } else {
+    level = u32(k);
+    o = q + d * 1e-3;
   }
-  if (inside) {
-    if (!from_inside) {
-      level = u32(k);
-      o = q + d * 1e-3;
-    }
+  // the cab's hits are measured from the eye, the room's from the front plane
+  let t_cab = ch.t - tp;
+  var cab_win = cab_first;
+  if (inside && !cab_first) {
+    if (ch.t > 0.0) { prim_tmax = t_cab; }
     po = radiance(o, d, level, true);
+    if (ch.t > 0.0 && po.t >= t_cab) { cab_win = true; }
+  }
+  if (cab_win) {
+    po.diff = cab_shade(ch, oc, d);
+    po.spec = vec3f(0.0);
+    po.alb = vec3f(1.0);
+    po.n = select(ch.n, -ch.n, dot(ch.n, d) > 0.0);
+    po.t = 0.0; // no depth: the shaft light shafts and the denoiser's depth stop treat the cab as the near field
   }
 
   let col = po.diff; // already demodulated: the first-hit diffuse albedo was never multiplied in
@@ -996,6 +1069,10 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
   var nrm = vec3f(0.0);
   var tt = 1e5;
 
+  let oc = vec3f(o.x, o.y + sc.cab.x, o.z);
+  var ch = Hit(-1.0, vec3f(0.0), vec3f(0.0), -1);
+  if (sc.cab.z > 0.5) { ch = cab_primary(oc, d); }
+
   let tp = (sc.misc.z - o.z) / d.z;
   let q = o + d * tp;
   let top = sc.misc.w;
@@ -1020,8 +1097,14 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
     level = u32(k);
   }
 
-  if (inside) {
-    let h = intersect(start, d, 1e5, false, level);
+  let cab_first = ch.t > 0.0 && !from_inside && ch.t < tp;
+  var cab_win = cab_first;
+  if (inside && !cab_first) {
+    // the cab's hits are measured from the eye, the room's from the front plane
+    var tmax_room = 1e5;
+    if (ch.t > 0.0) { tmax_room = ch.t - tp; }
+    let h = intersect(start, d, tmax_room, false, level);
+    if (h.t < 0.0 && ch.t > 0.0) { cab_win = true; }
     if (h.t >= 0.0) {
       let ob = objs[u32(h.id)];
       let kind = ob.c.w;
@@ -1069,6 +1152,14 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
         if (i32(h.id) == i32(sc.rd0.y)) { e = mix(e, vec3f(page_light(p, level)), sc.rd0.x); }
       }
     }
+  }
+
+  if (cab_win) {
+    e = cab_shade(ch, oc, d);
+    sp = vec3f(0.0);
+    alb = vec3f(1.0);
+    nrm = select(ch.n, -ch.n, dot(ch.n, d) > 0.0);
+    tt = 0.0; // see cs: the cab is the near field
   }
 
   // article sheets (surface kind 10), see magazine.wgsl.ts

@@ -77,6 +77,8 @@
 		const s = slug;
 		if (!r) return;
 		r.setReading(s, { snap: cold && s !== null });
+		// reading pins the cab to its floor with the doors open
+		r.hold(s !== null);
 		cold = false;
 		if (s === null) void restoreShelf();
 	});

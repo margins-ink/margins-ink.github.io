@@ -20,10 +20,15 @@ export function buildLightmapLayout(objs: Float32Array, lvl: Float32Array): Ligh
 	const n = objs.length / OBJ_FLOATS;
 	const meta = new Uint32Array(n * 6 * 4);
 	const levelOf = new Uint32Array(n);
+	// the elevator cab list (lvl[3] = 1) is lit analytically and has no lightmap
+	const isCab = new Uint8Array(n);
 	for (let l = 0; l < lvl.length / 20; l++) {
 		const start = lvl[l * 20];
 		const count = lvl[l * 20 + 1];
-		for (let i = start; i < start + count; i++) levelOf[i] = l;
+		for (let i = start; i < start + count; i++) {
+			levelOf[i] = l;
+			if (lvl[l * 20 + 3] === 1) isCab[i] = 1;
+		}
 	}
 	let off = 0;
 	const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -34,7 +39,9 @@ export function buildLightmapLayout(objs: Float32Array, lvl: Float32Array): Ligh
 			const m = (i * 6 + f) * 4;
 			let nu = 0;
 			let nv = 0;
-			if (kind === 1 || kind === 3 || kind === 9) {
+			if (isCab[i]) {
+				// no map
+			} else if (kind === 1 || kind === 3 || kind === 9) {
 				// glass pane, accent panel and lamp bulb are emitters: never lit
 			} else if (kind >= 8) {
 				if (f === 0) {

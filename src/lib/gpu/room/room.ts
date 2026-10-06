@@ -4,6 +4,7 @@ import { ATLAS, buildAtlas } from './atlas';
 import { buildLightmapLayout } from './lightmap';
 import { TRACE } from './shader';
 import { loadWorld, RS, type Floor } from './world';
+import { elevatorApi, ES } from './elevator';
 import { BOW, EM, GUTTER, Magazine, linkAt, pickSpread, writeRd, type Article, type LinkHit, type MagazineUniforms } from './magazine';
 import { createMagazine, MagState, type MagazineExports } from '$lib/ecs/magazine';
 import { onText, selectionRects } from '$lib/magazine/select';
@@ -57,6 +58,8 @@ export interface Room {
 	onHash(cb: (hash: string) => void): void;
 	/** Subscribe to reader events: opened, closed, spread (arg = spread index), layerOpened, layerClosed, focus, overview. */
 	onReader(cb: (e: { kind: string; arg: number }) => void): void;
+	/** An article is open: the cab stays at its floor with the doors open (true), or is released (false). */
+	hold(on: boolean): void;
 	/** Sound sink: the room drives the elevator hum and floor dings from the scroll. */
 	setAudio(a: import('$lib/audio').RoomAudio): void;
 	readonly reading: { slug: string | null; t: number; layer: number; spread: number; spreads: number };
@@ -78,6 +81,13 @@ const PROBE_STEP = 2;
 const SCENE_FLOATS = 104;
 const CAM_Z = 5.2;
 type V3 = [number, number, number];
+
+/** Eye z at the door (lens 1): as far forward as the room view still fits through the hall door (its top ray 0.4 m above the eye at z 3.9). */
+function doorEyeZ(thBase: number) {
+	let z = 4.85;
+	while (z > 4.3 && ((thBase * z) / CAM_Z) * (z - 3.9) > 0.4) z -= 0.01;
+	return z;
+}
 
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -114,7 +124,6 @@ export async function createRoom(
 	device.addEventListener("uncapturederror", (e) => console.error("webgpu:", (e as GPUUncapturedErrorEvent).error.message));
 	const format = navigator.gpu.getPreferredCanvasFormat();
 	ctx.configure({ device, format, alphaMode: 'opaque' });
-	const mq = matchMedia('(prefers-color-scheme: dark)');
 	// the scene is declared in the Flecs world (world/scene/*.flecs) and packed in world.wasm
 	const world = await loadWorld(items).catch((e) => {
 		console.error('room: world.wasm failed', e);
@@ -122,6 +131,12 @@ export async function createRoom(
 	});
 	if (!world) return null;
 	const { levelH: LEVEL_H, roomH: ROOM_H, roomD: ROOM_D } = world;
+	const elev = elevatorApi(world.exports as Parameters<typeof elevatorApi>[0]);
+	/** Floor (index) whose object range holds object `o`. */
+	const floorOfObj = (o: number) => {
+		for (let l = 0; l < world.floors.length; l++) if (o >= world.lvl[l * 20] && o < world.lvl[l * 20] + world.lvl[l * 20 + 1]) return l;
+		return 0;
+	};
 	const levels = world.floors;
 	const data = world.objs;
 	const focusIdx = opts.focus ? items.findIndex((t) => t.slug === opts.focus) : -1;
@@ -229,7 +244,13 @@ export async function createRoom(
 		cp.end();
 		device.queue.submit([enc.finish()]);
 	}
-	if (await device.popErrorScope()) return null;
+	{
+		const err = await device.popErrorScope();
+		if (err) {
+			console.error('room: pipeline setup failed', err.message);
+			return null;
+		}
+	}
 
 	// working buffers (sized for the screen)
 	let accum: GPUBuffer | null = null;
@@ -248,8 +269,9 @@ export async function createRoom(
 	let frame = 0;
 	let raf = 0;
 	let dead = false;
-	let atlasDark: boolean | null = null;
+	let atlasBuilt = false;
 	let target = 0;
+	let progressSeen = false;
 	let shown = 0;
 	let moving = false;
 	let lastChange = 0;
@@ -259,19 +281,19 @@ export async function createRoom(
 	let lmSpp = 4;
 	let lmTarget = 4;
 	let lmBusy = false;
-	let lmDark: boolean | null = null;
+	let lmStarted = false;
 	let lmT0 = 0;
 	let vm: [number, number] = [0, 0];
 	let vs = 1;
 	let spots: Hotspot[] = [];
 
-	const accents = items.map((t) => (mq.matches ? accentFor(t.slug).dark : accentFor(t.slug).light));
+	const accents = items.map((t) => accentFor(t.slug).dark);
 	const signs = levels;
 
 	async function upload() {
-		if (atlasDark === mq.matches) return;
-		atlasDark = mq.matches;
-		const c = await buildAtlas(items, accents, mq.matches, signs);
+		if (atlasBuilt) return;
+		atlasBuilt = true;
+		const c = await buildAtlas(items, accents, signs);
 		device!.queue.copyExternalImageToTexture({ source: c }, { texture: atlasTex }, [ATLAS, ATLAS]);
 	}
 
@@ -287,14 +309,23 @@ export async function createRoom(
 			const up = cross(rgt, fwd);
 			return { pos, fwd, rgt, up, th: Math.tan((17 * Math.PI) / 180) };
 		}
-		const pos: V3 = [0, y, CAM_Z];
-		const fwd = norm(sub([0, y - 0.05, 0.3], pos));
+		// the camera rides in the cab: the car depth sets y, the lens blends from the cab's wide view to the room's as the doors open
+		const st = elev.state();
+		const lens = st[ES.lens];
+		const thBase = Math.max(Math.tan((22 * Math.PI) / 180), 3.0 / (CAM_Z * aspect));
+		const zc = doorEyeZ(thBase);
+		const pos: V3 = [st[ES.sway], y, CAM_Z - (CAM_Z - zc) * lens];
+		const room = norm(sub([0, y - 0.05, 0.3], pos));
+		const cp = Math.cos(st[ES.pitch]);
+		const cab: V3 = [Math.sin(st[ES.yaw]) * cp, Math.sin(st[ES.pitch]) - 0.02, -Math.cos(st[ES.yaw]) * cp];
+		const fwd = norm([cab[0] + (room[0] - cab[0]) * lens, cab[1] + (room[1] - cab[1]) * lens, cab[2] + (room[2] - cab[2]) * lens]);
 		const rgt = norm(cross(fwd, [0, 1, 0]));
 		const up = cross(rgt, fwd);
-		const th = Math.max(Math.tan((22 * Math.PI) / 180), 3.0 / (CAM_Z * aspect));
+		// room framing is the old one (the whole room width at the back wall), kept through the dolly
+		const th = st[ES.thCab] + (thBase * (zc / CAM_Z) - st[ES.thCab]) * lens;
 		return { pos, fwd, rgt, up, th };
 	};
-	const liveY = () => 1.55 - shown * LEVEL_H * (levels.length - 1);
+	const liveY = () => elev.state()[ES.eye] - elev.state()[ES.posM];
 
 	// ---- magazine: Flecs drives Reading (the open pose) and the book (Spread, Turn, Corner, ...); this blends the camera and feeds the shader (magazine.wgsl.ts) ----
 	const mag = new Magazine(device);
@@ -390,6 +421,8 @@ export async function createRoom(
 	async function openArticle(slug: string, snap: boolean) {
 		slugIdx = items.findIndex((t) => t.slug === slug);
 		if (slugIdx < 0 || world!.links[slugIdx] < 0) return;
+		// a cold deep link: the cab is already at the book's floor
+		if (snap) elev.goto(floorOfObj(world!.links[slugIdx]), true);
 		// the book leaves the shelf on the click; the article bytes arrive while it is in the air
 		if (!snap) world!.reader.begin(slugIdx);
 		const cls = Magazine.classFor(canvas.clientWidth / canvas.clientHeight);
@@ -413,7 +446,7 @@ export async function createRoom(
 	}
 
 	/** Uniforms of the book as the shader and the CPU pick see them. */
-	function bookUniforms(night: boolean): MagazineUniforms {
+	function bookUniforms(): MagazineUniforms {
 		const a = mag.article;
 		const open = a !== null && rs[RS.article] >= 0;
 		const ms = book.state();
@@ -435,7 +468,6 @@ export async function createRoom(
 			hoverSpread: hv?.link ? hv.spread : hf ? hf.spread : -1,
 			hoverRect: hv?.link?.rect ?? (hf ? [hf.x0, hf.y0, hf.x1, hf.y1] : undefined),
 			hoverKind: hv?.link ? 0 : hf ? 1 : 0,
-			dark: night,
 			peel,
 			bow: BOW,
 			gutter: GUTTER,
@@ -463,16 +495,18 @@ export async function createRoom(
 	function writeScene(rw: number, rh: number, y: number, seed: number, blend: number, windowed: boolean) {
 		const aspect = canvas.clientWidth / canvas.clientHeight;
 		const cam = camera(aspect, y);
-		const night = mq.matches;
 		const rdFloats = new Float32Array(24);
-		writeRd(rdFloats, 0, bookUniforms(night));
-		const sky = night ? [0.5, 0.8, 1.7] : [7.5, 7.0, 6.0];
+		writeRd(rdFloats, 0, bookUniforms());
+		const sky = [0.5, 0.8, 1.7];
 		// outside radiance fades from open sky to underground as the elevator descends
 		const t = Math.min(1, shown * 1.4);
-		const base = night ? [0.05, 0.07, 0.15] : [0.55, 0.62, 0.72];
+		const base = [0.05, 0.07, 0.15];
 		const fade = 1 - 0.85 * t;
 		const sk = Math.max(...sky);
-		const sun = sky.map((c) => (c / sk) * (night ? 5.0 : 14.0));
+		const sun = sky.map((c) => (c / sk) * 5.0);
+		const es = elev.state();
+		const cabOn = !focusObj && cam.pos[2] > 3.95 ? 1 : 0;
+		const settled = es[ES.settled] > 0.5 && es[ES.lens] > 0.999 && es[ES.car] === 0 ? 1 : 0;
 		const amb = [0, 0, 0];
 		const vw = windowed ? [vm[0], vm[1], vs] : [0, 0, 1];
 		device!.queue.writeBuffer(
@@ -480,7 +514,7 @@ export async function createRoom(
 			0,
 			new Float32Array([
 				rw, rh, seed, blend,
-				...sky, night ? 5.0 : 14.0,
+				...sky, 5.0,
 				...base, fade,
 				...cam.pos, cam.th,
 				...cam.fwd, 0,
@@ -488,20 +522,22 @@ export async function createRoom(
 				...cam.up, 0,
 				0.27, 0.37, 0.0905, 0,
 				levels.length, LEVEL_H, ROOM_D, ROOM_H,
-				(night ? 3.4 : 2.6) * (1 - 0.45 * rs[RS.dim]), seed, w, h,
+				3.4 * (1 - 0.45 * rs[RS.dim]), seed, w, h,
 				...vw, 0,
 				lmN, lmSpp, lmLayout.texels, lmGroupsX,
 				...sun, 0,
 				...amb, 0,
 				DBG, 0, 0, 0,
 				probeN, probeSpp, 0, 0,
-				...rdFloats
+				...rdFloats,
+				es[ES.posM], settled, cabOn, levels.length
 			])
 		);
 	}
 
 	function layoutSpots() {
-		if (readingOn()) {
+		// no click targets while reading or while the doors still hide the room
+		if (readingOn() || elev.state()[ES.lens] < 0.97) {
 			if (spots.length) onLayout((spots = []));
 			return;
 		}
@@ -648,7 +684,7 @@ export async function createRoom(
 	}
 
 	function startBake() {
-		lmDark = mq.matches;
+		lmStarted = true;
 		lmN = 0;
 		lmPass = 0;
 		lmT0 = performance.now();
@@ -779,8 +815,14 @@ export async function createRoom(
 		const dt = gap > 250 ? 16.7 : Math.min(50, gap);
 		rdLast = now;
 		input.tick(now);
+		elev.tick(dt);
 		world!.reader.tick(dt);
 		rs = world!.reader.state();
+		if (audio) elev.pump(audio);
+		// the cab rows (gate, doors, needle, lamps) are rewritten by the Flecs systems every tick
+		const es = elev.state();
+		device!.queue.writeBuffer(objBuf, es[ES.cabStart] * 112, elev.rows());
+		shown = es[ES.frac];
 		for (let ev = world!.reader.poll(); ev; ev = world!.reader.poll()) {
 			if (ev.kind === 'closed' && wantSlug === null) {
 				mag.unload();
@@ -808,7 +850,7 @@ export async function createRoom(
 			if (rs[RS.article] >= 0) writeFigures();
 		}
 		const ms = book.state();
-		const sig = `${rs[RS.t].toFixed(4)} ${rs[RS.dim].toFixed(4)} ${rs[RS.phase]} ${rs[RS.article]} ${ms[MagState.f].toFixed(4)} ${ms[MagState.cornerDrag].toFixed(3)} ${ms[MagState.bounceX].toFixed(3)} ${ms[MagState.tabPulse].toFixed(3)} ${chanSig} ${hover?.link?.target ?? ''}`;
+		const sig = `${es[ES.posM].toFixed(4)} ${es[ES.lens].toFixed(3)} ${es[ES.gate].toFixed(3)} ${rs[RS.t].toFixed(4)} ${rs[RS.dim].toFixed(4)} ${rs[RS.phase]} ${rs[RS.article]} ${ms[MagState.f].toFixed(4)} ${ms[MagState.cornerDrag].toFixed(3)} ${ms[MagState.bounceX].toFixed(3)} ${ms[MagState.tabPulse].toFixed(3)} ${chanSig} ${hover?.link?.target ?? ''}`;
 		rdIdle = sig === rdSig && !lmBusy ? rdIdle + 1 : 0;
 		rdSig = sig;
 	}
@@ -835,14 +877,11 @@ export async function createRoom(
 			if (rdIdle < 3 || lmN < LM_SPP) raf = requestAnimationFrame(tick);
 			return;
 		}
-		const diff = target - shown;
-		const settling = Math.abs(diff) > 1e-4;
-		if (settling) {
-			shown += diff * 0.2;
-			lastChange = now;
-		} else shown = target;
-		// full speed is about 1.5 floors per second of eased travel (tune by ear)
-		audio?.setElevator(settling ? Math.min(1, (Math.abs(diff) * (levels.length - 1)) / 1.5) : 0, Math.round(shown * (levels.length - 1)));
+		// the cab is at rest when parked with gate and doors open and the lens fully on the room
+		const es = elev.state();
+		const settling = !(es[ES.car] === 0 && es[ES.settled] > 0.5 && es[ES.lens] > 0.999 && es[ES.gateCode] === 2 && es[ES.doorsCode] === 2);
+		if (settling) lastChange = now;
+		audio?.setElevator(es[ES.speed], es[ES.floor]);
 		const nowMoving = !focusObj && (settling || now - lastChange < 120);
 		if (!focusObj) bakeStep();
 		const baking = !focusObj && (lmN < LM_SPP || probeN < PROBE_SPP);
@@ -909,6 +948,7 @@ export async function createRoom(
 		return (performance.now() - t0) / n;
 	}
 	if (import.meta.env.DEV) (globalThis as unknown as { __roomBench?: typeof bench }).__roomBench = bench;
+	if (import.meta.env.DEV) (globalThis as unknown as { __elev?: typeof elev }).__elev = elev;
 
 	const kick = () => {
 		if (!raf && !dead) raf = requestAnimationFrame(tick);
@@ -922,8 +962,7 @@ export async function createRoom(
 		if (dead) return;
 		await upload();
 		resize();
-		// sky and sun change with the theme: that is the only thing that invalidates the lightmaps
-		if (!focusObj && lmDark !== mq.matches) startBake();
+		if (!focusObj && !lmStarted) startBake();
 		frame = 0;
 		moving = false;
 		layoutSpots();
@@ -932,7 +971,6 @@ export async function createRoom(
 
 	const ro = new ResizeObserver(() => void restart());
 	ro.observe(canvas);
-	mq.addEventListener('change', restart);
 	device.lost.then(() => (dead = true));
 	await restart();
 
@@ -960,7 +998,7 @@ export async function createRoom(
 		const art = mag.article;
 		if (!art || rs[RS.article] < 0 || rs[RS.t] < 0.999) return null;
 		const { o, d } = rayAt(nx, ny);
-		const hit = pickSpread({ sheetW: art.sheetW, spreadH: art.spreadH, spreadCount: art.spreadCount, single: art.single }, bookUniforms(mq.matches), o, d);
+		const hit = pickSpread({ sheetW: art.sheetW, spreadH: art.spreadH, spreadCount: art.spreadCount, single: art.single }, bookUniforms(), o, d);
 		return hit && hit.face !== 2 ? { spread: hit.spread, x: hit.x, y: hit.y } : null;
 	}
 
@@ -978,6 +1016,16 @@ export async function createRoom(
 			const t = Math.min(1, Math.max(0, p));
 			if (t === target) return;
 			target = t;
+			// the first value is where the page was restored to: the car appears there instead of riding to it
+			if (!progressSeen) {
+				progressSeen = true;
+				elev.goto(Math.round(t * (levels.length - 1)), true);
+			}
+			elev.scroll(t);
+			touch();
+		},
+		hold(on: boolean) {
+			elev.hold(on);
 			touch();
 		},
 		zoomAt(factor: number, nx: number, ny: number) {
@@ -1068,7 +1116,6 @@ export async function createRoom(
 			dead = true;
 			cancelAnimationFrame(raf);
 			ro.disconnect();
-			mq.removeEventListener('change', restart);
 			for (const b of [accum, gbuf, bufB, bufC, volBuf, lmMetaBuf, lmBuf, lmAcc, lmRaw, probeAcc, ...lmTmp]) b?.destroy();
 			probeTex.destroy();
 			atlasTex.destroy();
