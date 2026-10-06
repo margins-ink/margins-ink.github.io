@@ -19,7 +19,7 @@ struct Scene {
   frame: f32,
   blend: f32,       // minimum history weight while the camera is moving
   sky: vec4f,       // window radiance
-  bg: vec4f,        // radiance outside the building
+  bg: vec4f,        // xyz radiance outside the building at the surface, w its fade at the live elevator depth
   cam: vec4f,       // xyz position, w tan(half fov)
   fwd: vec4f,
   rgt: vec4f,
@@ -27,12 +27,8 @@ struct Scene {
   pane: vec4f,      // x half width, y half height, z plane
   misc: vec4f,      // x levels, y level height, z front plane z, w room height
   tone: vec4f,      // x exposure, y rng seed, zw output size
-  rcam: vec4f,      // rest camera: x, y of level 0, z, tan(half fov)
-  rfwd: vec4f,
-  rrgt: vec4f,
-  rup: vec4f,
-  cdim: vec4f,      // cache width, height
   view: vec4f,      // zoom window: centre xy (rest ndc), half size s
+  lmx: vec4f,       // lightmap bake: samples so far, samples this pass, texel count, workgroups per row
 };
 
 @group(0) @binding(0) var<uniform> sc: Scene;
@@ -48,10 +44,10 @@ struct Scene {
 @group(0) @binding(12) var<storage, read> final_ro: array<vec4f>;
 struct AF { step: vec4f };
 @group(0) @binding(13) var<uniform> af: AF;
-@group(0) @binding(14) var<storage, read> cache: array<vec4u>;
-@group(0) @binding(15) var<storage, read_write> cache_w: array<vec4u>;
-struct PK { level: vec4f };
-@group(0) @binding(16) var<uniform> pk: PK;
+@group(0) @binding(14) var<storage, read> lm_meta: array<vec4u>;
+@group(0) @binding(15) var<storage, read_write> lm_acc: array<vec4f>;
+@group(0) @binding(16) var<storage, read_write> lm_w: array<vec2u>;
+@group(0) @binding(19) var<storage, read> lm: array<vec2u>;
 @group(0) @binding(7) var<storage, read> lvl: array<vec4f>;
 
 @group(0) @binding(17) var<storage, read_write> vol_w: array<f32>;
@@ -327,7 +323,7 @@ fn cs(@builtin(global_invocation_id) gid: vec3u) {
     col = vec3f(0.1, 0.085, 0.07); // the floor slab between two rooms
     inside = false;
   } else if (!inside) {
-    col = sc.bg.rgb;
+    col = live_bg();
   }
   if (inside) {
     if (!from_inside) {
@@ -347,7 +343,7 @@ fn cs(@builtin(global_invocation_id) gid: vec3u) {
       var n = h.n;
       if (dot(n, d) > 0.0) { n = -n; }
       if (kind == 4.0 && n.z < -0.5 && p.z > sc.misc.z - 0.02) {
-        col += thr * sc.bg.rgb;
+        col += thr * select(lm_bg(level), live_bg(), bounce == 0);
         break;
       }
       let alb = albedo_of(ob, h, p);
@@ -372,26 +368,36 @@ fn cs(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 
-struct CacheTap { e: vec3f, n: vec3f, t: f32 };
-fn cache_at(level: u32, ix: i32, iy: i32) -> CacheTap {
-  let cw = i32(sc.cdim.x);
-  let ch = i32(sc.cdim.y);
-  let x = clamp(ix, 0, cw - 1);
-  let y = clamp(iy, 0, ch - 1);
-  let v = cache[u32(level) * u32(cw * ch) + u32(y * cw + x)];
-  return CacheTap(
-    vec3f(unpack2x16float(v.x), unpack2x16float(v.y).x),
-    unpack4x8snorm(v.z).xyz,
-    bitcast<f32>(v.w));
+
+// ---- per-surface irradiance lightmaps (static scene, baked progressively) ----------------------
+// Every box face and every sphere owns a texel grid. lm_meta[obj * 6 + face] = (texel offset, nu, nv, level);
+// nu = 0 marks a surface without a map (glass panes, the lamp bulb). Spheres use face 0 as a lat-long grid.
+// A texel stores diffuse irradiance E / pi (so albedo * E is the outgoing radiance) WITHOUT the sun's direct
+// term at the first hit; the view pass adds that exactly, with one noise-free shadow ray.
+
+const LM_BOUNCES = 3;
+
+// local axis a of a box, as a world vector
+fn lm_axis(ob: Obj, a: u32) -> vec3f {
+  if (a == 0u) { return ob.r0.xyz; }
+  if (a == 1u) { return ob.r1.xyz; }
+  return ob.r2.xyz;
 }
 
-// one-bounce-plus estimate of diffuse irradiance at a surface point (fallback when the cache misses)
-fn indirect_e(p: vec3f, n: vec3f, level: u32) -> vec3f {
-  var e = direct(p, n, level);
+// outside radiance fades as the elevator descends (see room.ts): seen directly it follows the live depth,
+// as light entering a floor it is that floor's own depth, so baked and traced lighting agree at any camera height
+fn live_bg() -> vec3f { return sc.bg.rgb * sc.bg.w; }
+fn lm_bg(level: u32) -> vec3f {
+  return sc.bg.rgb * (1.0 - 0.85 * min(1.0, 1.4 * f32(level) / max(1.0, sc.misc.x - 1.0)));
+}
+
+// diffuse irradiance estimate at a surface point: area lights by NEE, then cosine bounces (sun kept from the 2nd vertex on)
+fn lm_sample(p: vec3f, n: vec3f, level: u32) -> vec3f {
+  var e = direct_area(p, n, level);
   var thr = vec3f(1.0);
   var o = p + n * 2e-3;
   var d = cosine_dir(n);
-  for (var b = 0; b < 2; b++) {
+  for (var b = 0; b < LM_BOUNCES; b++) {
     let h = intersect(o, d, 1e5, false, level);
     if (h.t < 0.0) { break; }
     let ob = objs[u32(h.id)];
@@ -400,7 +406,7 @@ fn indirect_e(p: vec3f, n: vec3f, level: u32) -> vec3f {
     let p2 = o + d * h.t;
     var n2 = h.n;
     if (dot(n2, d) > 0.0) { n2 = -n2; }
-    if (kind == 4.0 && n2.z < -0.5 && p2.z > sc.misc.z - 0.02) { e += thr * sc.bg.rgb; break; }
+    if (kind == 4.0 && n2.z < -0.5 && p2.z > sc.misc.z - 0.02) { e += thr * lm_bg(level); break; }
     let a2 = albedo_of(ob, h, p2);
     e += thr * a2 * direct(p2, n2, level);
     thr *= a2;
@@ -410,13 +416,109 @@ fn indirect_e(p: vec3f, n: vec3f, level: u32) -> vec3f {
   return e;
 }
 
-// scroll / zoom pass: trace only the primary ray, take lighting from the converged per-floor cache
+// one thread per texel: sc.lmx = (samples so far, samples this pass, texel count, workgroups per row)
+@compute @workgroup_size(64)
+fn bake_lightmap(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_index) li: u32) {
+  let t = (wid.y * u32(sc.lmx.w) + wid.x) * 64u + li;
+  if (t >= u32(sc.lmx.z)) { return; }
+  // metadata is sorted by offset: find the last entry whose offset is <= t
+  var lo = 0u;
+  var hi = arrayLength(&lm_meta) - 1u;
+  while (lo < hi) {
+    let mid = (lo + hi + 1u) / 2u;
+    if (lm_meta[mid].x <= t) { lo = mid; } else { hi = mid - 1u; }
+  }
+  let m = lm_meta[lo];
+  let ob = objs[lo / 6u];
+  let face = lo % 6u;
+  let nu = m.y;
+  let ti = t - m.x;
+  let iu = ti % nu;
+  let iv = ti / nu;
+  var p: vec3f;
+  var n: vec3f;
+  if (ob.c.w >= 8.0) {
+    let phi = (f32(iu) + 0.5) / f32(nu) * 6.2831853 - 3.1415927;
+    let th = (f32(iv) + 0.5) / f32(m.z) * 3.1415927;
+    n = vec3f(sin(th) * cos(phi), cos(th), sin(th) * sin(phi));
+    p = ob.c.xyz + n * ob.h.x;
+  } else {
+    let a = face / 2u;
+    let ua = (a + 1u) % 3u;
+    let va = (a + 2u) % 3u;
+    let sg = select(1.0, -1.0, (face & 1u) == 1u);
+    var l = vec3f(0.0);
+    l[a] = sg * ob.h[a];
+    l[ua] = ((f32(iu) + 0.5) / f32(nu) * 2.0 - 1.0) * ob.h[ua];
+    l[va] = ((f32(iv) + 0.5) / f32(m.z) * 2.0 - 1.0) * ob.h[va];
+    p = ob.c.xyz + ob.r0.xyz * l.x + ob.r1.xyz * l.y + ob.r2.xyz * l.z;
+    n = lm_axis(ob, a) * sg;
+    // the room shell is seen from inside
+    if (ob.c.w == 4.0) { n = -n; }
+  }
+  rng_state = t * 9781u + u32(sc.tone.y) * 6271u + 1u;
+  pcg(); pcg();
+  var sum = vec3f(0.0);
+  for (var s = 0; s < i32(sc.lmx.y); s++) { sum += min(lm_sample(p, n, m.w), vec3f(30.0)); }
+  var prev = lm_acc[t].rgb;
+  if (sc.lmx.x < 0.5) { prev = vec3f(0.0); }
+  let tot = prev + sum;
+  lm_acc[t] = vec4f(tot, 0.0);
+  let mean = tot / (sc.lmx.x + sc.lmx.y);
+  lm_w[t] = vec2u(pack2x16float(mean.rg), pack2x16float(vec2f(mean.b, 0.0)));
+}
+
+fn lm_texel(off: u32, nu: i32, ix: i32, iy: i32) -> vec3f {
+  let v = lm[off + u32(iy * nu + ix)];
+  return vec3f(unpack2x16float(v.x), unpack2x16float(v.y).x);
+}
+
+// bilinear fetch from the surface's own map (never from a neighbouring face)
+fn lightmap(oi: u32, ob: Obj, hit: Hit) -> vec3f {
+  var m: vec4u;
+  var g: vec2f;
+  if (ob.c.w >= 8.0) {
+    m = lm_meta[oi * 6u];
+    let dn = hit.lp;
+    g = vec2f((atan2(dn.z, dn.x) / 6.2831853 + 0.5) * f32(m.y) - 0.5,
+              acos(clamp(dn.y, -1.0, 1.0)) / 3.1415927 * f32(m.z) - 0.5);
+    let nu = i32(m.y);
+    let nv = i32(m.z);
+    let i0 = vec2i(floor(g));
+    let f = fract(g);
+    let xa = ((i0.x % nu) + nu) % nu;
+    let xb = (xa + 1) % nu;
+    let ya = clamp(i0.y, 0, nv - 1);
+    let yb = clamp(i0.y + 1, 0, nv - 1);
+    return mix(mix(lm_texel(m.x, nu, xa, ya), lm_texel(m.x, nu, xb, ya), f.x),
+               mix(lm_texel(m.x, nu, xa, yb), lm_texel(m.x, nu, xb, yb), f.x), f.y);
+  }
+  let r = abs(hit.lp) / max(ob.h.xyz, vec3f(1e-6));
+  var a = 0u;
+  var mx = r.x;
+  if (r.y > mx) { a = 1u; mx = r.y; }
+  if (r.z > mx) { a = 2u; }
+  let face = a * 2u + select(0u, 1u, hit.lp[a] < 0.0);
+  m = lm_meta[oi * 6u + face];
+  let ua = (a + 1u) % 3u;
+  let va = (a + 2u) % 3u;
+  let nu = i32(m.y);
+  let nv = i32(m.z);
+  g = vec2f((hit.lp[ua] / ob.h[ua] + 1.0) * 0.5 * f32(nu) - 0.5,
+            (hit.lp[va] / ob.h[va] + 1.0) * 0.5 * f32(nv) - 0.5);
+  g = clamp(g, vec2f(0.0), vec2f(f32(nu - 1), f32(nv - 1)));
+  let i0 = vec2i(floor(g));
+  let f = g - vec2f(i0);
+  let i1 = min(i0 + vec2i(1), vec2i(nu - 1, nv - 1));
+  return mix(mix(lm_texel(m.x, nu, i0.x, i0.y), lm_texel(m.x, nu, i1.x, i0.y), f.x),
+             mix(lm_texel(m.x, nu, i0.x, i1.y), lm_texel(m.x, nu, i1.x, i1.y), f.x), f.y);
+}
+
+// scroll / zoom pass: trace only the primary ray; lighting = lightmap + the exact sun
 @compute @workgroup_size(8, 8)
 fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
   if (f32(gid.x) >= sc.res.x || f32(gid.y) >= sc.res.y) { return; }
   let idx = gid.y * u32(sc.res.x) + gid.x;
-  rng_state = idx * 9781u + u32(sc.tone.y) * 6271u + 1u;
-  pcg(); pcg();
 
   let uv = (vec2f(gid.xy) + vec2f(0.5)) / sc.res;
   let ndc = sc.view.xy + vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0) * sc.view.z;
@@ -449,7 +551,7 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
     e = vec3f(0.1, 0.085, 0.07);
     inside = false;
   } else if (!inside) {
-    e = sc.bg.rgb;
+    e = live_bg();
   } else {
     level = u32(k);
   }
@@ -467,35 +569,12 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
       } else if (kind == 9.0) {
         e = lvl[level * 3u + 2u].rgb;
       } else if (kind == 4.0 && n.z < -0.5 && p.z > sc.misc.z - 0.02) {
-        e = sc.bg.rgb;
+        e = live_bg();
       } else {
         alb = albedo_of(ob, h, p);
         nrm = n;
         tt = h.t;
-        // project into this floor's rest camera and fetch the cached irradiance
-        let rpos = vec3f(sc.rcam.x, sc.rcam.y - f32(level) * sc.misc.y, sc.rcam.z);
-        let v = p - rpos;
-        let z = dot(v, sc.rfwd.xyz);
-        let rn = vec2f(dot(v, sc.rrgt.xyz) / z / (sc.rcam.w * (sc.cdim.x / sc.cdim.y)),
-                       dot(v, sc.rup.xyz) / z / sc.rcam.w);
-        let cp = vec2f((rn.x + 1.0) * 0.5 * sc.cdim.x, (1.0 - rn.y) * 0.5 * sc.cdim.y) - 0.5;
-        let c0 = vec2i(floor(cp));
-        let fr = fract(cp);
-        // cached depth is measured from where the rest camera's ray enters the front plane
-        let dist = (1.0 - (sc.misc.z - rpos.z) / v.z) * length(v);
-        var acc = vec3f(0.0);
-        var wsum = 0.0;
-        for (var j = 0; j < 2; j++) {
-          for (var i = 0; i < 2; i++) {
-            let tap = cache_at(level, c0.x + i, c0.y + j);
-            let wb = select(1.0 - fr.x, fr.x, i == 1) * select(1.0 - fr.y, fr.y, j == 1);
-            let ok = dot(tap.n, n) > 0.85 && abs(tap.t - dist) < 0.04 * dist + 0.02 && tap.t < 1e4;
-            let wt = select(0.0, wb, ok);
-            acc += tap.e * wt;
-            wsum += wt;
-          }
-        }
-        if (wsum > 0.02) { e = acc / wsum; } else { e = indirect_e(p, n, level); }
+        e = lightmap(u32(h.id), ob, h) + direct_sun(p, n, level);
       }
     }
   }
@@ -503,21 +582,6 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
   accum[idx] = vec4f(e, 6.0);
   gbuf[idx * 2u] = vec4f(nrm, tt);
   gbuf[idx * 2u + 1u] = vec4f(alb, 0.0);
-}
-
-// copy the denoised result of a rest-view render into the per-floor cache
-@compute @workgroup_size(8, 8)
-fn pack_cache(@builtin(global_invocation_id) gid: vec3u) {
-  if (f32(gid.x) >= sc.cdim.x || f32(gid.y) >= sc.cdim.y) { return; }
-  let idx = gid.y * u32(sc.cdim.x) + gid.x;
-  let e = filt_in[idx].rgb;
-  let g = gb_ro[idx * 2u];
-  let base = u32(pk.level.x) * u32(sc.cdim.x * sc.cdim.y);
-  cache_w[base + idx] = vec4u(
-    pack2x16float(e.rg),
-    pack2x16float(vec2f(e.b, 0.0)),
-    pack4x8snorm(vec4f(g.xyz, 0.0)),
-    bitcast<u32>(g.w));
 }
 
 fn lum(c: vec3f) -> f32 { return dot(c, vec3f(0.299, 0.587, 0.114)); }

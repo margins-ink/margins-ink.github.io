@@ -1,6 +1,7 @@
 import type { Thought } from '$lib/thoughts';
 import { accentFor } from '$lib/theme';
 import { ATLAS, buildAtlas } from './atlas';
+import { buildLightmapLayout } from './lightmap';
 import { TRACE } from './shader';
 import { loadWorld, type Floor } from './world';
 
@@ -28,7 +29,11 @@ export interface Room {
 }
 
 const SPP = 160;
-const BUILD_SPP = 96;
+/** Lightmap samples per texel at convergence, and the GPU time one bake dispatch should take. */
+const LM_SPP = 640;
+const LM_BUDGET_MS = 5;
+/** Floats in the Scene uniform (see shader.ts). */
+const SCENE_FLOATS = 48;
 const CAM_Z = 5.2;
 type V3 = [number, number, number];
 
@@ -84,15 +89,13 @@ export async function createRoom(
 	const compute = pipe('cs');
 	const atrous = pipe('atrous');
 	const viewPipe = pipe('cs_view');
-	const packPipe = pipe('pack_cache');
+	const bakeLmPipe = pipe('bake_lightmap');
 	const stepBufs = [1, 2, 4, 8].map((st) => {
 		const b = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 		device.queue.writeBuffer(b, 0, new Float32Array([st, 0, 0, 0]));
 		return b;
 	});
-	const pkBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const bakePipe = pipe('bake_sun');
-	const bakeProbePipe = pipe('bake_probes');
 	const presentPipe = device.createRenderPipeline({
 		layout: 'auto',
 		vertex: { module, entryPoint: 'vs' },
@@ -117,8 +120,15 @@ export async function createRoom(
 		format: 'rgba8unorm',
 		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
 	});
-	const PROBE = [48, 24, 32];
-	const probeBuf = storage(levels.length * PROBE[0] * PROBE[1] * PROBE[2] * 6 * 16);
+	// lightmaps: metadata and f16x3 texels live for the session; the f32 accumulator only while baking
+	const lmLayout = buildLightmapLayout(data, world.lvl);
+	const lmMetaBuf = storage(lmLayout.meta.byteLength);
+	device.queue.writeBuffer(lmMetaBuf, 0, lmLayout.meta);
+	const lmBuf = storage(lmLayout.texels * 8);
+	let lmAcc: GPUBuffer | null = null;
+	const lmGroups = Math.ceil(lmLayout.texels / 64);
+	const lmGroupsX = Math.min(lmGroups, 4096);
+	console.debug('room: lightmap texels', lmLayout.texels);
 	const VOL = [96, 48, 64];
 	const volBuf = storage(levels.length * VOL[0] * VOL[1] * VOL[2] * 4);
 	{
@@ -133,7 +143,7 @@ export async function createRoom(
 			]
 		});
 		// one-off bake: needs the pane/level uniform, so write a rest-state scene first
-		const u = new Float32Array(64);
+		const u = new Float32Array(SCENE_FLOATS);
 		u.set([0.27, 0.37, 0.0905, 0], 28);
 		u.set([levels.length, LEVEL_H, ROOM_D, ROOM_H], 32);
 		device.queue.writeBuffer(sceneBuf, 0, u);
@@ -147,30 +157,19 @@ export async function createRoom(
 	}
 	if (await device.popErrorScope()) return null;
 
-	// working buffers (sized for the screen) and the per-floor irradiance cache
+	// working buffers (sized for the screen)
 	let accum: GPUBuffer | null = null;
 	let gbuf: GPUBuffer | null = null;
 	let bufB: GPUBuffer | null = null;
 	let bufC: GPUBuffer | null = null;
-	let cache: GPUBuffer | null = null;
-	// the cache is built in its own buffers so scrolling never disturbs it
-	let baccum: GPUBuffer | null = null;
-	let bgbuf: GPUBuffer | null = null;
-	let bbufB: GPUBuffer | null = null;
-	let bbufC: GPUBuffer | null = null;
-	let bindCB: GPUBindGroup;
-	let bindAB: GPUBindGroup[] = [];
-	let bindKB: GPUBindGroup;
 	let bindA: GPUBindGroup[] = [];
 	let bindC: GPUBindGroup;
 	let bindV: GPUBindGroup;
-	let bindK: GPUBindGroup;
 	let bindP: GPUBindGroup;
 	let bindPV: GPUBindGroup;
+	let bindL: GPUBindGroup | null = null;
 	let w = 0;
 	let h = 0;
-	let cw = 0;
-	let ch = 0;
 	let frame = 0;
 	let raf = 0;
 	let dead = false;
@@ -179,8 +178,14 @@ export async function createRoom(
 	let shown = 0;
 	let moving = false;
 	let lastChange = 0;
-	let built: boolean[] = [];
-	let building: { level: number; n: number } | null = null;
+	// lightmap bake: samples per texel so far, next pass index, samples in the pass being written, adaptive target
+	let lmN = 0;
+	let lmPass = 0;
+	let lmSpp = 4;
+	let lmTarget = 4;
+	let lmBusy = false;
+	let lmDark: boolean | null = null;
+	let lmT0 = 0;
 	let vm: [number, number] = [0, 0];
 	let vs = 1;
 	let spots: Hotspot[] = [];
@@ -200,7 +205,7 @@ export async function createRoom(
 		if (focusObj) {
 			// close, slightly low, hero-lit look at one magazine, framed on the right third
 			const mx = data[focusObj * 28];
-		const my = data[focusObj * 28 + 1];
+			const my = data[focusObj * 28 + 1];
 			const pos: V3 = [mx - 0.15, my - 0.05, 2.3];
 			const fwd = norm(sub([mx - 0.85, my + 0.02, 0.3], pos));
 			const rgt = norm(cross(fwd, [0, 1, 0]));
@@ -214,19 +219,17 @@ export async function createRoom(
 		const th = Math.max(Math.tan((22 * Math.PI) / 180), 3.0 / (CAM_Z * aspect));
 		return { pos, fwd, rgt, up, th };
 	};
-	const levelY = (k: number) => 1.55 - k * LEVEL_H;
 	const liveY = () => 1.55 - shown * LEVEL_H * (levels.length - 1);
 
 	function writeScene(rw: number, rh: number, y: number, seed: number, blend: number, windowed: boolean) {
 		const aspect = canvas.clientWidth / canvas.clientHeight;
 		const cam = camera(aspect, y);
-		const rest = camera(aspect, 1.55);
 		const night = mq.matches;
-		const sky = night ? [0.35, 0.55, 1.2] : [7.5, 7.0, 6.0];
+		const sky = night ? [0.5, 0.8, 1.7] : [7.5, 7.0, 6.0];
 		// outside radiance fades from open sky to underground as the elevator descends
 		const t = Math.min(1, shown * 1.4);
-		const base = night ? [0.03, 0.045, 0.1] : [0.55, 0.62, 0.72];
-		const bg = base.map((v) => v * (1 - 0.85 * t));
+		const base = night ? [0.05, 0.07, 0.15] : [0.55, 0.62, 0.72];
+		const fade = 1 - 0.85 * t;
 		const vw = windowed ? [vm[0], vm[1], vs] : [0, 0, 1];
 		device!.queue.writeBuffer(
 			sceneBuf,
@@ -234,20 +237,16 @@ export async function createRoom(
 			new Float32Array([
 				rw, rh, seed, blend,
 				...sky, night ? 5.0 : 14.0,
-				...bg, 0,
+				...base, fade,
 				...cam.pos, cam.th,
 				...cam.fwd, 0,
 				...cam.rgt, 0,
 				...cam.up, 0,
 				0.27, 0.37, 0.0905, 0,
 				levels.length, LEVEL_H, ROOM_D, ROOM_H,
-				night ? 2.4 : 2.6, seed, w, h,
-				0, 1.55, CAM_Z, rest.th,
-				...rest.fwd, 0,
-				...rest.rgt, 0,
-				...rest.up, 0,
-				cw, ch, 0, 0,
-				...vw, 0
+				night ? 3.4 : 2.6, seed, w, h,
+				...vw, 0,
+				lmN, lmSpp, lmLayout.texels, lmGroupsX
 			])
 		);
 	}
@@ -302,59 +301,11 @@ export async function createRoom(
 		h = nh;
 		canvas.width = w;
 		canvas.height = h;
-		const aspect = cssW / cssH;
-		ch = Math.min(h, Math.floor(Math.sqrt(1e6 / aspect)));
-		cw = Math.min(w, Math.round(ch * aspect));
-		for (const b of [accum, gbuf, bufB, bufC, cache, baccum, bgbuf, bbufB, bbufC]) b?.destroy();
+		for (const b of [accum, gbuf, bufB, bufC]) b?.destroy();
 		accum = storage(w * h * 16);
 		gbuf = storage(w * h * 32);
 		bufB = storage(w * h * 16);
 		bufC = storage(w * h * 16);
-		cache = storage(Math.max(1, levels.length) * cw * ch * 16);
-		baccum = storage(cw * ch * 16);
-		bgbuf = storage(cw * ch * 32);
-		bbufB = storage(cw * ch * 16);
-		bbufC = storage(cw * ch * 16);
-		bindCB = device!.createBindGroup({
-			layout: compute.getBindGroupLayout(0),
-			entries: [
-				{ binding: 0, resource: { buffer: sceneBuf } },
-				{ binding: 1, resource: { buffer: objBuf } },
-				{ binding: 2, resource: { buffer: baccum } },
-				{ binding: 3, resource: atlasTex.createView() },
-				{ binding: 4, resource: sampler },
-				{ binding: 5, resource: { buffer: paneBuf } },
-				{ binding: 7, resource: { buffer: lvlBuf } },
-				{ binding: 8, resource: { buffer: bgbuf } }
-			]
-		});
-		bindKB = device!.createBindGroup({
-			layout: packPipe.getBindGroupLayout(0),
-			entries: [
-				{ binding: 0, resource: { buffer: sceneBuf } },
-				{ binding: 9, resource: { buffer: bgbuf } },
-				{ binding: 10, resource: { buffer: bbufC } },
-				{ binding: 15, resource: { buffer: cache } },
-				{ binding: 16, resource: { buffer: pkBuf } }
-			]
-		});
-		bindAB = ([
-			[baccum, bbufB],
-			[bbufB, bbufC],
-			[bbufC, bbufB],
-			[bbufB, bbufC]
-		] as GPUBuffer[][]).map(([i, o], k) =>
-			device!.createBindGroup({
-				layout: atrous.getBindGroupLayout(0),
-				entries: [
-					{ binding: 0, resource: { buffer: sceneBuf } },
-					{ binding: 9, resource: { buffer: bgbuf! } },
-					{ binding: 10, resource: { buffer: i } },
-					{ binding: 11, resource: { buffer: o } },
-					{ binding: 13, resource: { buffer: stepBufs[k] } }
-				]
-			})
-		);
 		bindC = device!.createBindGroup({
 			layout: compute.getBindGroupLayout(0),
 			entries: [
@@ -376,20 +327,11 @@ export async function createRoom(
 				{ binding: 2, resource: { buffer: accum } },
 				{ binding: 3, resource: atlasTex.createView() },
 				{ binding: 4, resource: sampler },
+				{ binding: 5, resource: { buffer: paneBuf } },
 				{ binding: 7, resource: { buffer: lvlBuf } },
 				{ binding: 8, resource: { buffer: gbuf } },
-				{ binding: 14, resource: { buffer: cache } },
-				{ binding: 20, resource: { buffer: probeBuf } }
-			]
-		});
-		bindK = device!.createBindGroup({
-			layout: packPipe.getBindGroupLayout(0),
-			entries: [
-				{ binding: 0, resource: { buffer: sceneBuf } },
-				{ binding: 9, resource: { buffer: gbuf } },
-				{ binding: 10, resource: { buffer: bufC } },
-				{ binding: 15, resource: { buffer: cache } },
-				{ binding: 16, resource: { buffer: pkBuf } }
+				{ binding: 14, resource: { buffer: lmMetaBuf } },
+				{ binding: 19, resource: { buffer: lmBuf } }
 			]
 		});
 		const chain = [
@@ -422,8 +364,6 @@ export async function createRoom(
 			});
 		bindP = mkP(bufC);
 		bindPV = mkP(accum);
-		built = levels.map(() => false);
-		building = null;
 		frame = 0;
 	}
 
@@ -446,44 +386,56 @@ export async function createRoom(
 		}
 	}
 
-	function nextUnbuilt(): number | null {
-		const here = Math.round(shown * (levels.length - 1));
-		const order = levels.map((_, k) => k).sort((a, b) => Math.abs(a - here) - Math.abs(b - here));
-		return order.find((k) => !built[k]) ?? null;
+	function startBake() {
+		lmDark = mq.matches;
+		lmN = 0;
+		lmPass = 0;
+		lmT0 = performance.now();
+		lmAcc ??= storage(lmLayout.texels * 16);
+		bindL = device!.createBindGroup({
+			layout: bakeLmPipe.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: { buffer: sceneBuf } },
+				{ binding: 1, resource: { buffer: objBuf } },
+				{ binding: 3, resource: atlasTex.createView() },
+				{ binding: 4, resource: sampler },
+				{ binding: 5, resource: { buffer: paneBuf } },
+				{ binding: 7, resource: { buffer: lvlBuf } },
+				{ binding: 14, resource: { buffer: lmMetaBuf } },
+				{ binding: 15, resource: { buffer: lmAcc } },
+				{ binding: 16, resource: { buffer: lmBuf } }
+			]
+		});
 	}
 
-	/** Render one floor from its rest pose into the cache. Several samples per animation frame. */
-	function buildSteps(count: number) {
-		if (!building) {
-			const k = nextUnbuilt();
-			if (k === null) return false;
-			building = { level: k, n: 0 };
-			const enc = device!.createCommandEncoder();
-			enc.clearBuffer(baccum!);
-			device!.queue.submit([enc.finish()]);
-		}
-		for (let i = 0; i < count && building; i++) {
-			writeScene(cw, ch, levelY(building.level), building.n, 0, false);
-			const enc = device!.createCommandEncoder();
-			const cp = enc.beginComputePass();
-			cp.setPipeline(compute);
-			cp.setBindGroup(0, bindCB);
-			cp.dispatchWorkgroups(groups(cw), groups(ch));
-			building.n++;
-			if (building.n >= BUILD_SPP) {
-				denoise(cp, cw, ch, bindAB);
-				device!.queue.writeBuffer(pkBuf, 0, new Float32Array([building.level, 0, 0, 0]));
-				cp.setPipeline(packPipe);
-				cp.setBindGroup(0, bindKB);
-				cp.dispatchWorkgroups(groups(cw), groups(ch));
-				built[building.level] = true;
-				console.debug('room: cache built', building.level);
-				building = null;
+	/** One progressive lightmap pass over every texel; the sample count adapts to keep a pass near LM_BUDGET_MS. */
+	function bakeStep() {
+		if (lmN >= LM_SPP || lmBusy || !bindL) return;
+		lmBusy = true;
+		const t0 = performance.now();
+		lmSpp = Math.min(lmTarget, LM_SPP - lmN);
+		writeScene(w, h, liveY(), ++lmPass, 0, false);
+		const enc = device!.createCommandEncoder();
+		const cp = enc.beginComputePass();
+		cp.setPipeline(bakeLmPipe);
+		cp.setBindGroup(0, bindL);
+		cp.dispatchWorkgroups(lmGroupsX, Math.ceil(lmGroups / lmGroupsX));
+		cp.end();
+		device!.queue.submit([enc.finish()]);
+		lmN += lmSpp;
+		const pass = lmPass;
+		const spp = lmSpp;
+		void device!.queue.onSubmittedWorkDone().then(() => {
+			const dt = performance.now() - t0;
+			lmBusy = false;
+			lmTarget = Math.max(1, Math.min(32, Math.round((spp * LM_BUDGET_MS) / Math.max(dt, 0.5))));
+			if (pass === lmPass && lmN >= LM_SPP) {
+				console.debug(`room: lightmaps converged ${LM_SPP} spp in ${Math.round(performance.now() - t0 + (t0 - lmT0))} ms`);
+				lmAcc?.destroy();
+				lmAcc = null;
+				bindL = null;
 			}
-			cp.end();
-			device!.queue.submit([enc.finish()]);
-		}
-		return true;
+		});
 	}
 
 	function tick() {
@@ -497,10 +449,11 @@ export async function createRoom(
 			lastChange = now;
 		} else shown = target;
 		const nowMoving = !focusObj && (settling || now - lastChange < 120);
+		if (!focusObj) bakeStep();
+		const baking = !focusObj && lmN < LM_SPP;
 
 		if (nowMoving) {
-			// scroll or zoom: no history, lighting comes from the converged per-floor cache
-			if (!focusObj) buildSteps(2);
+			// scroll or zoom: no history, lighting comes from the baked lightmaps plus the exact sun
 			moving = true;
 			writeScene(w, h, liveY(), frame, 1, true);
 			const enc = device!.createCommandEncoder();
@@ -508,14 +461,8 @@ export async function createRoom(
 			cp.setPipeline(viewPipe);
 			cp.setBindGroup(0, bindV);
 			cp.dispatchWorkgroups(groups(w), groups(h));
-			// two edge-aware passes mop up any pixels the cache could not light
-			cp.setPipeline(atrous);
-			for (const bg of bindA.slice(0, 2)) {
-				cp.setBindGroup(0, bg);
-				cp.dispatchWorkgroups(groups(w), groups(h));
-			}
 			cp.end();
-			draw(enc, bindP);
+			draw(enc, bindPV);
 			device!.queue.submit([enc.finish()]);
 			frame = 1;
 			layoutSpots();
@@ -540,11 +487,10 @@ export async function createRoom(
 			draw(enc, bindP);
 			device!.queue.submit([enc.finish()]);
 			frame++;
-			if (!focusObj) buildSteps(2);
 			raf = requestAnimationFrame(tick);
 			return;
 		}
-		if (!focusObj && buildSteps(4)) raf = requestAnimationFrame(tick);
+		if (baking) raf = requestAnimationFrame(tick);
 	}
 
 	const kick = () => {
@@ -555,42 +501,12 @@ export async function createRoom(
 		kick();
 	};
 
-	/** Bake the noise-free ambient probes (the scene is static; redone when the sky changes). */
-	function bakeProbes() {
-		const bind = device!.createBindGroup({
-			layout: bakeProbePipe.getBindGroupLayout(0),
-			entries: [
-				{ binding: 0, resource: { buffer: sceneBuf } },
-				{ binding: 1, resource: { buffer: objBuf } },
-				{ binding: 3, resource: atlasTex.createView() },
-				{ binding: 4, resource: sampler },
-				{ binding: 5, resource: { buffer: paneBuf } },
-				{ binding: 7, resource: { buffer: lvlBuf } },
-				{ binding: 19, resource: { buffer: probeBuf } }
-			]
-		});
-		const enc0 = device!.createCommandEncoder();
-		enc0.clearBuffer(probeBuf);
-		device!.queue.submit([enc0.finish()]);
-		for (let pass = 0; pass < 12; pass++) {
-			writeScene(cw, ch, 1.55, pass + 1, 0, false);
-			const enc = device!.createCommandEncoder();
-			const cp = enc.beginComputePass();
-			cp.setPipeline(bakeProbePipe);
-			cp.setBindGroup(0, bind);
-			cp.dispatchWorkgroups(PROBE[0] / 4, PROBE[1] / 4, Math.ceil((levels.length * PROBE[2]) / 4));
-			cp.end();
-			device!.queue.submit([enc.finish()]);
-		}
-	}
-
 	async function restart() {
 		if (dead) return;
 		await upload();
 		resize();
-		bakeProbes();
-		built = levels.map(() => false);
-		building = null;
+		// sky and sun change with the theme: that is the only thing that invalidates the lightmaps
+		if (!focusObj && lmDark !== mq.matches) startBake();
 		frame = 0;
 		moving = false;
 		layoutSpots();
@@ -641,7 +557,7 @@ export async function createRoom(
 			cancelAnimationFrame(raf);
 			ro.disconnect();
 			mq.removeEventListener('change', restart);
-			for (const b of [accum, gbuf, bufB, bufC, cache, baccum, bgbuf, bbufB, bbufC, volBuf, probeBuf]) b?.destroy();
+			for (const b of [accum, gbuf, bufB, bufC, volBuf, lmMetaBuf, lmBuf, lmAcc]) b?.destroy();
 			atlasTex.destroy();
 		}
 	};
