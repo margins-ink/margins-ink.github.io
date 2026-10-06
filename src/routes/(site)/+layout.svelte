@@ -6,7 +6,6 @@
 	import Reader from '$lib/components/Reader.svelte';
 	import { thoughtBySlug } from '$lib/thoughts';
 	import { goto } from '$app/navigation';
-	import '$lib/reading.css';
 
 	const { data, children }: { data?: LayoutData; children: any } = $props();
 
@@ -43,7 +42,7 @@
 	{/key}
 {/if}
 
-<div class="shell" class:landing={isLanding}>
+<div class="shell" class:landing={isLanding} inert={readerSlug !== null && !worldOn} aria-hidden={readerSlug !== null && !worldOn ? true : undefined}>
 	{@render children?.()}
 </div>
 

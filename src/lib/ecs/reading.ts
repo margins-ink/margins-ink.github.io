@@ -1,11 +1,12 @@
 // Typed wrapper over the reading exports of world.wasm (world/src/reading.rs, contract in src/lib/reading/abi.ts).
 // JS owns no reading state: every gesture ends in `input(kind, a, b)`, the springs, culling, section spy and figure clocks run in Flecs.
 import type { ReadingModel } from '../magazine/format';
-import { packLoad, READING_EVENTS, type Reading, type ReadingExports } from '../reading/abi';
+import { createScrollApi, packLoad, READING_EVENTS, type Reading, type ReadingExports, type ScrollExports } from '../reading/abi';
 import wasmUrl from '../gpu/room/world.wasm?url';
 
-export function createReading(x: ReadingExports): Reading {
+export function createReading(x: ReadingExports & ScrollExports): Reading {
 	return {
+		scroll: createScrollApi(x),
 		load(m: ReadingModel) {
 			const words = packLoad(m);
 			// reading_buf may grow the wasm memory: build the view after the call
@@ -36,7 +37,7 @@ export async function loadReadingOnly(): Promise<Reading> {
 	const { wasiImports } = await import('../gpu/room/world');
 	let memory!: WebAssembly.Memory;
 	const { instance } = await WebAssembly.instantiateStreaming(fetch(wasmUrl), wasiImports(() => memory));
-	const x = instance.exports as unknown as ReadingExports;
+	const x = instance.exports as unknown as ReadingExports & ScrollExports;
 	memory = x.memory;
 	if (x.reading_init() !== 0) throw new Error('reading_init failed');
 	return createReading(x);

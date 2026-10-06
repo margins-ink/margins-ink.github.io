@@ -9,12 +9,12 @@ interface IndexImage { id: number; tiers: { w: number; h: number; url: string }[
 interface IndexBin { file: string; bytes?: number; brotli?: number }
 interface IndexArticle {
 	slug: string; title: string; dek?: string; date?: string; hidden?: boolean;
-	fullWords?: number; briefWords?: number; wordsFull?: number; wordsBrief?: number; opensFull?: boolean; wdth?: number; wght?: number;
+	fullWords?: number; briefWords?: number; wordsFull?: number; wordsBrief?: number; opensFull?: boolean; wdth?: number; wght?: number; refs?: { id: string; title: string; url: string }[];
 	bins: Partial<Record<(typeof CLASS_NAMES)[number], IndexBin>>;
 }
 export interface MagazineIndex { version: number; fonts: string; articles: IndexArticle[]; images: IndexImage[] }
 
-export interface ArticleMeta { title: string; dek: string; date: string; wordsBrief: number; wordsFull: number; opensFull: boolean; hue: number; wdth: number; wght: number }
+export interface ArticleMeta { title: string; dek: string; date: string; wordsBrief: number; wordsFull: number; opensFull: boolean; hue: number; wdth: number; wght: number; refs: { id: string; title: string; url: string }[] }
 export interface LoadedArticle {
 	slug: string;
 	widthClass: number;
@@ -80,7 +80,7 @@ export async function loadArticle(slug: string, widthClass: number): Promise<Loa
 			title: a.title, dek: a.dek ?? '', date: a.date ?? '',
 			wordsBrief: a.briefWords ?? a.wordsBrief ?? 0, wordsFull: a.fullWords ?? a.wordsFull ?? 0, opensFull: !!a.opensFull,
 			hue: paletteHue(model.palette[PAL2.accent] ?? 0xffffffff),
-			wdth: a.wdth ?? 80, wght: a.wght ?? 600
+			wdth: a.wdth ?? 80, wght: a.wght ?? 600, refs: a.refs ?? []
 		}
 	};
 }

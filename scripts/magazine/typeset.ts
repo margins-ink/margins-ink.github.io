@@ -84,7 +84,7 @@ export interface Env {
 
 // ---- placed content ------------------------------------------------------------------------------
 
-export interface PG { x: number; y: number; glyphId: number; size: number; colour: number; flags: number; off: number }
+export interface PG { x: number; y: number; glyphId: number; size: number; colour: number; flags: number; off: number; /** drawn but not text: kept out of the line's glyph range (the code language label) */ deco?: boolean }
 export interface Ln { yTop: number; yBot: number; x0: number; x1: number; base: number; glyphs: PG[]; off: number; canBreakBefore: boolean; /** bytes of hung marker text ('- ', '[3] ') that precede `off` in the text sink but are not part of the line's DOM text */ markerLen?: number }
 export interface BRect { x0: number; y0: number; x1: number; y1: number; colour: number; kind: number; radius?: number }
 export interface BImage { x0: number; y0: number; x1: number; y1: number; imageId: number; radius: number; alt: string }
@@ -585,7 +585,7 @@ export function layoutCode(env: Env, bl: Extract<Block, { t: 'code' }>, ctx: Ctx
 		for (const g of sans.shape(label)) {
 			const gi = glyphIndex(env, F.sans, g.gid);
 			// glyph offsets point at the first source character: a click on the label lands at the start of the code, never in the hung label bytes
-			if (gi !== null) pgs.push({ x: lx + g.xOffset * size, y: labelBase, glyphId: gi, size, colour: PAL_EXT.ink3, flags: 0, off: first.off });
+			if (gi !== null) pgs.push({ x: lx + g.xOffset * size, y: labelBase, glyphId: gi, size, colour: PAL_EXT.ink3, flags: 0, off: first.off, deco: true });
 			lx += g.xAdvance * size;
 		}
 		first.glyphs = [...pgs, ...first.glyphs];

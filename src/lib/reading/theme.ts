@@ -150,9 +150,9 @@ export type SyntaxName = keyof typeof SYNTAX;
 export const SYNTAX_ORDER = Object.keys(SYNTAX) as SyntaxName[];
 
 export const syntaxRgb = (): Record<SyntaxName, Rgb> =>
-	Object.fromEntries(SYNTAX_ORDER.map((k) => [k, quant(ok(...SYNTAX[k]))])) as Record<SyntaxName, Rgb>;
+	Object.fromEntries(SYNTAX_ORDER.map((k) => [k, quant(ok(...(SYNTAX[k] as unknown as [number, number, number])))])) as Record<SyntaxName, Rgb>;
 export const syntaxHex = (): Record<SyntaxName, string> =>
-	Object.fromEntries(SYNTAX_ORDER.map((k) => [k, toHex(quant(ok(...SYNTAX[k])))])) as Record<SyntaxName, string>;
+	Object.fromEntries(SYNTAX_ORDER.map((k) => [k, toHex(quant(ok(...(SYNTAX[k] as unknown as [number, number, number]))))])) as Record<SyntaxName, string>;
 
 // ---- the table for one article hue ---------------------------------------------------------------------
 

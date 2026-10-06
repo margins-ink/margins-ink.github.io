@@ -80,6 +80,10 @@ export const RD = {
 	idle: 22, // seconds since the last scroll, for the figure autoplay gate
 	emPx: 23, // Typography.em_px as set
 	viewportEm: 24, // viewport height in em
+	scrollY: 25, // engine scroll position, CSS px (negative or above max while the rubber band is out)
+	scrollMaxPx: 26,
+	scrollMode: 27, // SCROLL_MODE
+	velocity: 28, // px/s
 	/** per figure (up to 16): clock time in seconds at 32 + 2 * i, visible flag (1 | 0) at 33 + 2 * i */
 	figBase: 32
 } as const;
@@ -142,6 +146,8 @@ export interface Reading {
 	poll(): { kind: ReadingEventKind; arg: number } | null;
 	blockAt(yEm: number): number;
 	entityCount(): number;
+	/** engine-owned scroll (wheel, touch, keys, smooth scroll-to) */
+	scroll: ScrollApi;
 }
 
 // ---- scroll (docs/READING_GPU.md "Scroll (lane R)"): the engine owns the position, JS forwards events and reads state[RD.scrollY] ----

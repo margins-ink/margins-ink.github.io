@@ -1,6 +1,6 @@
 import type { Thought } from '$lib/thoughts';
 import { createReading } from '../../ecs/reading';
-import type { Reading, ReadingExports } from '../../reading/abi';
+import type { Reading, ReadingExports, ScrollExports } from '../../reading/abi';
 import { ATLAS, MAP, SIGN, signRect, tileRect } from './atlas';
 import wasmUrl from './world.wasm?url';
 
@@ -106,7 +106,7 @@ export function wasiImports(getMem: () => WebAssembly.Memory) {
 	};
 }
 
-interface Exports extends ReadingExports {
+interface Exports extends ReadingExports, ScrollExports {
 	world_input(len: number): number;
 	world_build(): number;
 	world_buf(id: number): number;

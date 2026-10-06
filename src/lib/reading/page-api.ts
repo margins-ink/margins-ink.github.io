@@ -46,6 +46,8 @@ export interface PageFrame {
 	/** UI text (chrome labels, find query ...), drawn after the overlays by a second instanced draw with the article's glyph atlas and coverage shader.
 	 *  Glyph ids come from ui/text.ts (fonts.bin union ids); ids out of range are skipped. Capped at 4096 glyphs per frame. */
 	uiText?: UiGlyph[];
+	/** image lightbox: draws the image item of `block` fitted into the px rect `rect` (alpha 0..1), after the overlays and before uiText. `em` is the image's document box (em). */
+	lightbox?: { block: number; em: { x0: number; y0: number; x1: number; y1: number }; rect: { x: number; y: number; w: number; h: number }; alpha: number };
 	/** scissor in CSS px for uiText; omit for the whole viewport (the overlays and uiText are never clipped by `clip`) */
 	uiClip?: { x0: number; y0: number; x1: number; y1: number };
 	/** accent peak above 1.0 on extended-range canvases (hover underline, focus ring, rail head); 1 = SDR */

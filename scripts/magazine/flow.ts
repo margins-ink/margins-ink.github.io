@@ -165,15 +165,16 @@ class Page {
 		const lines = blk.lines.filter((l) => l.off >= 0 || l.glyphs.length);
 		lines.forEach((ln, k) => {
 			const g0 = s.glyphs.length;
+			const nDeco = ln.glyphs.filter((g) => g.deco).length; // decorations lead the line's glyphs and sit outside its glyph range
 			for (const g of ln.glyphs) {
 				s.glyphs.push({ x: ox + g.x, y: oy + g.y, glyphId: g.glyphId, size: g.size, colour: g.colour, flags: g.flags, charOffset: g.off < 0 ? 0 : g.off, group: NONE16 });
 				s.items.push({ type: ItemType.glyph, index: s.glyphs.length - 1 });
 			}
-			const off = ln.off < 0 ? (ln.glyphs[0]?.off ?? 0) : ln.off;
+			const off = ln.off < 0 ? (ln.glyphs[nDeco]?.off ?? 0) : ln.off;
 			const next = lines[k + 1];
-			const rawEnd = next ? (next.off < 0 ? next.glyphs[0]?.off ?? o.end : next.off) - (next.markerLen ?? 0) : o.end;
+			const rawEnd = next ? (next.off < 0 ? next.glyphs[next.glyphs.findIndex((g) => !g.deco)]?.off ?? o.end : next.off) - (next.markerLen ?? 0) : o.end;
 			s.lines.push({
-				yTop: oy + ln.yTop, yBot: oy + ln.yBot, x0: ox + ln.x0, x1: ox + ln.x1, firstGlyph: g0, glyphCount: ln.glyphs.length,
+				yTop: oy + ln.yTop, yBot: oy + ln.yBot, x0: ox + ln.x0, x1: ox + ln.x1, firstGlyph: g0 + nDeco, glyphCount: ln.glyphs.length - nDeco,
 				textOff: off, textLen: 0, block: owner, size: o.size, font: o.font, flags: 0
 			});
 			this.lineMarker.push(ln.markerLen ?? 0);

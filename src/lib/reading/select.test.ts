@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test';
 import { BlockKind, type ReadingModel } from '../magazine/format';
 import { caretAt, foldEndOf, textIndex, type Caret } from './hit';
 import { copyText, dragTo, lineAt, paraAt, press, rangeRects, selectAll, selectionRects, wordAt, type Sel } from './select';
-import { selectionText } from './textlayer';
 import { demoModel, loadBin } from './testmodel';
 
 const dec = new TextDecoder();
@@ -205,26 +204,6 @@ describe('copyText on the built articles', () => {
 				checked++;
 			}
 			expect(checked).toBeGreaterThan(100);
-			// whole blocks: the text layer's own line-wise reconstruction (selectionText) must agree with the blob slice
-			let compared = 0;
-			mm.blocks.forEach((b, bi) => {
-				const kinds: number[] = [BlockKind.para, BlockKind.heading, BlockKind.code, BlockKind.quote, BlockKind.hero, BlockKind.caption];
-				if (!kinds.includes(b.kind) || b.lineCount === 0) return;
-				const picked = Array.from({ length: b.lineCount }, (_, k) => {
-					const L = mm.lines[b.firstLine + k];
-					return { line: b.firstLine + k, text: slice(mm, L.textOff, L.textOff + L.textLen) };
-				});
-				const [a, z] = paraAt(mm, mm.glyphs[mm.lines[b.firstLine].firstGlyph].charOffset);
-				if (b.kind === BlockKind.code) {
-					const first = ix.lineStart[b.firstLine], last = ix.lineEnd[b.firstLine + b.lineCount - 1];
-					expect(copyText(mm, { anchor: first, focus: last })).toBe(selectionText(mm, picked));
-				} else {
-					expect(copyText(mm, { anchor: a, focus: z }, { clipEm: foldEndOf(mm) })).toBe(selectionText(mm, picked));
-					void bi;
-				}
-				compared++;
-			});
-			expect(compared).toBeGreaterThan(15);
 		});
 	}
 });

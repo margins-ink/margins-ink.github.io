@@ -2,7 +2,7 @@
 // The pure parts (block lookup, fold mapping, anchor keys) are exported for tests; createScrollState wires them to a scroller.
 import { BlockFlag, BlockKind, stringAt, type ReadingModel } from '../magazine/format';
 import { LINE_EM } from './metrics';
-import type { LineRange } from './textlayer';
+export interface LineRange { first: number; last: number }
 
 export interface SavedState {
 	blockId: number;
@@ -114,7 +114,12 @@ export function anchorMap(m: ReadingModel): Map<string, { block: number; y: numb
 // ---- controller ---------------------------------------------------------------------------------------------------
 
 export interface ScrollEnv {
-	scroller: HTMLElement;
+	/** the engine's scroll position (state[RD.scrollY]), CSS px */
+	getScrollY(): number;
+	/** engine scroll-to (reading_scroll_to) */
+	scrollTo(topPx: number, smooth: boolean): void;
+	/** flash a block (arrival wash) */
+	wash(block: number): void;
 	getModel(): ReadingModel;
 	getEmPx(): number;
 	/** RD.foldClipEm now */
@@ -122,10 +127,9 @@ export interface ScrollEnv {
 	getBarPx(): number;
 	isFoldExpanded(): boolean;
 	setFold(expanded: boolean, instant: boolean): void;
-	/** push a pending fold or geometry change into the DOM height now (so scrollTop is valid) */
+	/** push a pending fold or geometry change into the engine now (so the document height is valid) */
 	syncLayout(): void;
 	reduced(): boolean;
-	blockEl(i: number): HTMLElement | undefined;
 	scale(): number;
 	fromWorld(): boolean;
 	/** history entries: replace or push the hash (the host routes through SvelteKit) */
@@ -160,8 +164,6 @@ export function readHistoryState(): SavedState | null {
 export function createScrollState(env: ScrollEnv): ScrollController {
 	if (typeof history !== 'undefined') history.scrollRestoration = 'manual';
 	let saveTimer: ReturnType<typeof setTimeout> | undefined;
-	let washTimer: ReturnType<typeof setTimeout> | undefined;
-	let washEl: HTMLElement | null = null;
 	let spyTimer: ReturnType<typeof setTimeout> | undefined;
 	let spyLast = -2;
 	let spyHold = 0;
@@ -173,8 +175,6 @@ export function createScrollState(env: ScrollEnv): ScrollController {
 		if (amapModel !== m) { amapModel = m; amap = anchorMap(m); secs = sectionBlocks(m); }
 		return m;
 	};
-	const instant = (): ScrollToOptions['behavior'] => 'auto';
-	const smooth = (want: boolean): ScrollToOptions['behavior'] => (want && !env.reduced() ? 'smooth' : 'auto');
 	const marginPx = () => env.getBarPx() + LINE_EM * env.getEmPx();
 	const topFor = (layoutY: number) => {
 		const m = env.getModel();
@@ -183,7 +183,7 @@ export function createScrollState(env: ScrollEnv): ScrollController {
 
 	function key(): SavedState | null {
 		const m = env.getModel();
-		const a = anchorAt(m, env.scroller.scrollTop / env.getEmPx(), env.getClipEm());
+		const a = anchorAt(m, env.getScrollY() / env.getEmPx(), env.getClipEm());
 		return a ? { ...a, fold: env.isFoldExpanded(), scale: env.scale(), fromWorld: env.fromWorld() } : null;
 	}
 	function save() {
@@ -201,18 +201,10 @@ export function createScrollState(env: ScrollEnv): ScrollController {
 		const m = env.getModel();
 		const ly = resolveAnchor(m, s);
 		if (ly === null) return false;
-		env.scroller.scrollTo({ top: Math.max(0, layoutToDocY(m, ly, env.getClipEm()) * env.getEmPx()), behavior: instant() });
+		env.scrollTo(Math.max(0, layoutToDocY(m, ly, env.getClipEm()) * env.getEmPx()), false);
 		return true;
 	}
-	function wash(block: number) {
-		const el = env.blockEl(block);
-		if (!el) return;
-		washEl?.classList.remove('wash');
-		clearTimeout(washTimer);
-		el.classList.add('wash');
-		washEl = el;
-		washTimer = setTimeout(() => { el.classList.remove('wash'); if (washEl === el) washEl = null; }, 1200);
-	}
+	function wash(block: number) { env.wash(block); }
 	function goToAnchor(id: string, o: { smooth?: boolean; push?: boolean } = {}): boolean {
 		const m = maps();
 		const a = amap.get(id);
@@ -221,7 +213,7 @@ export function createScrollState(env: ScrollEnv): ScrollController {
 		if (b && (b.flags & BlockFlag.folded) && !env.isFoldExpanded()) { env.setFold(true, true); env.syncLayout(); }
 		if (o.push) { save(); env.pushHash(`#${encodeURIComponent(id)}`); }
 		spyHold = performance.now() + 900;
-		env.scroller.scrollTo({ top: topFor(a.y), behavior: smooth(o.smooth !== false) });
+		env.scrollTo(topFor(a.y), o.smooth !== false && !env.reduced());
 		wash(a.block);
 		return true;
 	}
@@ -238,11 +230,11 @@ export function createScrollState(env: ScrollEnv): ScrollController {
 		if (!b) return;
 		if ((b.flags & BlockFlag.folded) && !env.isFoldExpanded()) { env.setFold(true, true); env.syncLayout(); }
 		spyHold = performance.now() + 900;
-		env.scroller.scrollTo({ top: b.kind === BlockKind.hero ? 0 : topFor(b.y0), behavior: smooth(sm) });
+		env.scrollTo(b.kind === BlockKind.hero ? 0 : topFor(b.y0), sm && !env.reduced());
 	}
 	function jump(dir: 1 | -1) {
 		const m = maps();
-		const cur = env.scroller.scrollTop;
+		const cur = env.getScrollY();
 		const collapsed = !env.isFoldExpanded();
 		const ok = (i: number) => !(collapsed && (m.blocks[i].flags & BlockFlag.folded));
 		if (dir === 1) {
@@ -252,7 +244,7 @@ export function createScrollState(env: ScrollEnv): ScrollController {
 				const i = secs[k];
 				if (ok(i) && topFor(m.blocks[i].y0) < cur - 2) { scrollToBlock(i); return; }
 			}
-			env.scroller.scrollTo({ top: 0, behavior: smooth(true) });
+			env.scrollTo(0, !env.reduced());
 		}
 	}
 	function spy(block: number) {
@@ -275,6 +267,6 @@ export function createScrollState(env: ScrollEnv): ScrollController {
 			return s ? restore(s) : false;
 		},
 		goToAnchor, goToHash, scrollToBlock, jump, spy, wash,
-		dispose() { clearTimeout(saveTimer); clearTimeout(washTimer); clearTimeout(spyTimer); washEl?.classList.remove('wash'); }
+		dispose() { clearTimeout(saveTimer); clearTimeout(spyTimer); }
 	};
 }

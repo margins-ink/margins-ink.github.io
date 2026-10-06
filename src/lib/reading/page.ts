@@ -254,6 +254,9 @@ class PageImpl implements PagePass {
 	private g0: GPUBindGroup | null = null;
 	private g1: GPUBindGroup;
 	private frameBuf: GPUBuffer;
+	private frameBuf2: GPUBuffer;
+	private g1b: GPUBindGroup;
+	private frameData2 = new Float32Array(FRAME_VEC4 * 4);
 	private segBuf: GPUBuffer;
 	private segCap = 64;
 	private segStride: number;
@@ -294,14 +297,16 @@ class PageImpl implements PagePass {
 		this.segStride = Math.max(256, device.limits.minUniformBufferOffsetAlignment);
 		this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', maxAnisotropy: 16, addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
 		this.frameBuf = device.createBuffer({ size: FRAME_VEC4 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+		this.frameBuf2 = device.createBuffer({ size: FRAME_VEC4 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 		this.segBuf = this.allocSeg();
 		this.figBuf = device.createBuffer({ size: MAX_FIGS * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
 		this.ovlBuf = device.createBuffer({ size: MAX_OVERLAYS * OVERLAY_FLOATS * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
 		this.uiBuf = device.createBuffer({ size: MAX_UI_GLYPHS * UI_FLOATS * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-		this.extraBytes = FRAME_VEC4 * 16 + MAX_FIGS * 16 + MAX_OVERLAYS * OVERLAY_FLOATS * 4 + MAX_UI_GLYPHS * UI_FLOATS * 4;
+		this.extraBytes = 2 * FRAME_VEC4 * 16 + MAX_FIGS * 16 + MAX_OVERLAYS * OVERLAY_FLOATS * 4 + MAX_UI_GLYPHS * UI_FLOATS * 4;
 		this.img = this.makeTexture(1, 1, 1);
 		this.imgView = this.img.createView({ dimension: '2d-array' });
 		this.g1 = this.makeG1();
+		this.g1b = this.makeG1(this.frameBuf2);
 		if (device.features.has('timestamp-query')) {
 			this.qs = device.createQuerySet({ type: 'timestamp', count: 2 });
 			this.qResolve = device.createBuffer({ size: 16, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
@@ -323,11 +328,11 @@ class PageImpl implements PagePass {
 		return this.device.createBuffer({ size: this.segCap * this.segStride, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	}
 
-	private makeG1() {
+	private makeG1(frame: GPUBuffer = this.frameBuf) {
 		return this.device.createBindGroup({
 			layout: this.l1,
 			entries: [
-				{ binding: 0, resource: { buffer: this.frameBuf } },
+				{ binding: 0, resource: { buffer: frame } },
 				{ binding: 1, resource: { buffer: this.segBuf, size: SEG_BYTES } },
 				{ binding: 2, resource: { buffer: this.figBuf } },
 				{ binding: 3, resource: { buffer: this.ovlBuf } },
@@ -471,6 +476,23 @@ class PageImpl implements PagePass {
 		const [lo, hi] = blockSpan(f, model.blocks.length);
 		const maps = { alpha: f.blockAlpha, dy: f.blockDy, dx: f.blockDx };
 		const runs = textRuns(model, lo, hi, maps).concat(noteRuns(model, f.noteFirst, f.noteCount, f.only));
+		const nMain = runs.length;
+		// lightbox: the image item of one block through a second frame uniform (the image fitted into its rect)
+		let lb: { rect: { x: number; y: number; w: number; h: number } } | null = null;
+		if (f.lightbox && f.lightbox.alpha > 0 && f.lightbox.rect.w > 0) {
+			const L = f.lightbox;
+			const b = model.blocks[L.block];
+			let ik = -1;
+			if (b) for (let k = b.firstItem; k < b.firstItem + b.itemCount; k++) if (itemType(model.items[k]) === ItemType.image) { ik = k; break; }
+			if (ik >= 0) {
+				const em = L.rect.w / Math.max(1e-6, L.em.x1 - L.em.x0);
+				const f2: PageFrame = { ...f, emPx: em, originX: L.rect.x - L.em.x0 * em, originY: 0, scrollPx: L.em.y0 * em - L.rect.y, foldClipEm: 1e9, groundA: 0 };
+				packFrame(f2, W, !this.extended, this.extended ? Math.max(1, f.hdrGain) : 1, null, this.frameData2);
+				dev.queue.writeBuffer(this.frameBuf2, 0, this.frameData2);
+				runs.push({ first: ik, count: 1, alpha: L.alpha, dy: 0, dx: 0, clipBlock: -1 });
+				lb = { rect: L.rect };
+			}
+		}
 		const figs = figureInstances(model, lo, hi, maps);
 
 		// per-frame writes: channels, frame uniform, run segments, figure list, overlays
@@ -483,6 +505,7 @@ class PageImpl implements PagePass {
 			while (this.segCap < runs.length) this.segCap *= 2;
 			this.segBuf = this.allocSeg();
 			this.g1 = this.makeG1();
+			this.g1b = this.makeG1(this.frameBuf2);
 		}
 		if (runs.length) {
 			const seg = new ArrayBuffer((runs.length - 1) * this.segStride + SEG_BYTES);
@@ -523,7 +546,7 @@ class PageImpl implements PagePass {
 		if (clip) {
 			pass.setScissorRect(...clip);
 			pass.setPipeline(this.pipes.text);
-			runs.forEach((r, i) => {
+			runs.slice(0, nMain).forEach((r, i) => {
 				let sc: [number, number, number, number] | null = clip;
 				if (r.clipBlock >= 0) {
 					const b = model.blocks[r.clipBlock];
@@ -553,6 +576,16 @@ class PageImpl implements PagePass {
 			pass.setBindGroup(1, this.g1, [0]);
 			pass.draw(4, nOvl);
 			calls++;
+		}
+		if (lb) {
+			const sc = this.scissor(lb.rect.x - 1, lb.rect.y - 1, lb.rect.x + lb.rect.w + 1, lb.rect.y + lb.rect.h + 1, s);
+			if (sc) {
+				pass.setScissorRect(sc[0], sc[1], sc[2], sc[3]);
+				pass.setPipeline(this.pipes.text);
+				pass.setBindGroup(1, this.g1b, [nMain * this.segStride]);
+				pass.draw(4, 1);
+				calls++;
+			}
 		}
 		if (nUi) {
 			const uc = f.uiClip ? this.scissor(f.uiClip.x0, f.uiClip.y0, f.uiClip.x1, f.uiClip.y1, s) : full;
@@ -605,6 +638,7 @@ class PageImpl implements PagePass {
 		this.reader?.destroy();
 		this.img.destroy();
 		this.frameBuf.destroy();
+		this.frameBuf2.destroy();
 		this.segBuf.destroy();
 		this.figBuf.destroy();
 		this.ovlBuf.destroy();
