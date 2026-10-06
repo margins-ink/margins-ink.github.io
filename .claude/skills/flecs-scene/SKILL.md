@@ -100,3 +100,9 @@ The room is declared in Flecs script and packed by `world/src/export.rs`; `bun r
 - Figure colours are palette names only; `fig/contrast.ts` (`figureContrast`) runs in `buildFigures` and in `scripts/magazine/tests/fig.test.ts` over every article's figures.ts (shapes 1.5:1, strokes and text 4.5:1, labels 4.5:1 on their fill) with a planted old-neutral control. Neutrals: L 0.50 / 0.38 / 0.32 (0.15 was the ground itself, invisible).
 - Scrub cursor: the OS cursor via data-URI SVG (`scrubCursor` in reader.ts), only for `FigureMode.scrub`; the drag readout is an overlay pill plus UI glyphs. Never a GPU-drawn follower.
 - Narrow screens (390 px) shrink a 36 em figure to about 9 px per em: labels read small. A narrow-specific figure layout is the proper fix and is not done.
+
+## No HTML page content (2026-10-06)
+
+- The page is WebGPU only: DOM = head tags + one canvas per mode + (error state only) one `#gpu-error` line from `app.html`. Route `.svx` files are compiled to frontmatter only (`src/lib/frontmatter-preprocess.js`); never render their body, never add a mirror, `inert` article or no-WebGPU article. Shelf books are canvas hit regions (`ws.spots`), so tests click canvas coordinates, not `a.spot` (the shared `/Volumes/Projects/tmp/cdp/lib.ts` `openBook` still looks for `a.spot`: click `ws.spots` centres instead).
+- SvelteKit's `#svelte-announcer` writes the page title into the DOM after each navigation; the root layout removes it with a MutationObserver. A stray text node check: `tests/e2e/reading/checks.ts` section 4 (planted `<p>` control).
+- Another headless Chrome may already own CDP :9333 (check `ps` for `remote-debugging-port=9333`); use a different port and your own `--user-data-dir`, and kill only yours.

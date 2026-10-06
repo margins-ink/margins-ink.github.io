@@ -1,5 +1,7 @@
 # The room world (Flecs ECS in wasm)
 
+No HTML page content: the home page is the canvas and an empty `#world-spacer` (scroll length of the elevator), the shelf's books are hit regions of the canvas (click, pointer cursor, Tab/arrows/Enter inside the canvas: `World.svelte`), not DOM links; the HTML list of pieces and the hidden accessible copies are deleted. Head tags only. Cost, Andrew's explicit decision (2026-10-06, "remove the HTML version of pages, just have the projection which is WebGPU"): screen readers, search engines indexing body text, Reader Mode and clients without WebGPU get nothing but the head tags and, where WebGPU is missing or fails to start, one line of text. Nothing is added back.
+
 The room's scene (floors, furniture, magazines, window panes, lamps, signs) is declared in a Flecs
 world written in Rust (`world/`, crate `flecs_ecs` 0.2.2) and compiled to `src/lib/gpu/room/world.wasm`.
 It runs once at startup: `src/lib/gpu/room/world.ts` passes the article list in, gets the packed
