@@ -3,7 +3,7 @@ import {
 	ItemType, NO_CHAN, NONE16, PALETTE2_SIZE, REC2, Sec2, packItem, packMagazine, unpackContainer, type MagazineModel
 } from '../../magazine/format';
 import { Sec as FSec, packContainer, FONTS_MAGIC } from '../../reader/format';
-import { MAGAZINE_EVAL_WGSL, MAGAZINE_TRACE_WGSL, MAGAZINE_WGSL, CHAN_BASE, DATA_BASE, MH, MH_WORDS } from './magazine.wgsl';
+import { MAGAZINE_EVAL_WGSL, MAGAZINE_TRACE_WGSL, MAGAZINE_WGSL, CHAN_BASE, DATA_BASE, MH, MH_WORDS, SEL_BASE, SEL_WORDS } from './magazine.wgsl';
 import { BOW, EM, assemble, leafAngle, pickSpread, writeRd, RD_FLOATS, type Book, type MagazineUniforms } from './magazine';
 
 const model = (): MagazineModel => ({
@@ -103,7 +103,8 @@ describe('assemble', () => {
 		expect(words[MH.single]).toBe(0);
 		expect(words[MH.chans]).toBe(CHAN_BASE);
 		expect(MH_WORDS).toBe(32);
-		expect(DATA_BASE).toBe(MH_WORDS + 256);
+		expect(DATA_BASE).toBe(MH_WORDS + 256 + SEL_WORDS); // header, channel table, selection table
+		expect(Array.from(words.subarray(SEL_BASE, DATA_BASE)).every((w) => w === 0)).toBe(true); // no selection after a load
 		for (let i = CHAN_BASE; i < DATA_BASE; i++) expect(words[i]).toBe(0);
 		// fonts then the article's tables, each at the offset its header word says, byte for byte
 		expect(words[MH.fdir]).toBe(DATA_BASE);
