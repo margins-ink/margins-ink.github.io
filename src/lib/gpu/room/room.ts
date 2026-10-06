@@ -77,7 +77,14 @@ export async function createRoom(
 ): Promise<Room | null> {
 	if (!('gpu' in navigator)) return null;
 	const adapter = await navigator.gpu.requestAdapter();
-	const device = adapter && (await adapter.requestDevice());
+	const device =
+		adapter &&
+		(await adapter.requestDevice({
+			requiredLimits: {
+				maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+				maxBufferSize: adapter.limits.maxBufferSize
+			}
+		}));
 	const ctx = canvas.getContext('webgpu');
 	if (!device || !ctx) return null;
 
@@ -437,7 +444,9 @@ export async function createRoom(
 		const cssW = canvas.clientWidth;
 		const cssH = canvas.clientHeight;
 		let dpr = Math.min(devicePixelRatio || 1, 2);
-		while (cssW * dpr * cssH * dpr > rdPix && dpr > 0.5) dpr -= 0.25;
+		// the g-buffer is 48 B per pixel and must fit one storage binding
+		const maxPix = Math.min(rdPix, device!.limits.maxStorageBufferBindingSize / 48);
+		while (cssW * dpr * cssH * dpr > maxPix && dpr > 0.5) dpr -= 0.25;
 		const nw = Math.max(8, Math.round(cssW * dpr));
 		const nh = Math.max(8, Math.round(cssH * dpr));
 		if (nw === w && nh === h && accum) return;

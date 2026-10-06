@@ -1078,6 +1078,12 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
       e = vec3f(ps.e);
       nrm = vec3f(0.0, 0.0, 1.0);
       tt = ph.t;
+      sp = vec3f(0.0);
+    } else {
+      // everything that is not a page falls into shadow while an article is open
+      let dim = 1.0 - 0.85 * smoothstep(0.0, 1.0, sc.rd0.x);
+      e *= dim;
+      sp *= dim;
     }
   }
 
@@ -1187,7 +1193,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   if (sc.post.x == 1.0) { return vec4f(pow(final_ro[gi].rgb * 0.3, vec3f(0.45)), 1.0); }
   if (sc.post.x == 2.0) { return vec4f(pow(gb_ro[gi * GS + 1u].rgb, vec3f(0.45)), 1.0); }
   if (sc.post.x == 3.0) { return vec4f(pow(gb_ro[gi * GS + 2u].rgb * 0.3, vec3f(0.45)), 1.0); }
-  c += shafts(pos.xy, gb_ro[gi * GS].w);
+  c += shafts(pos.xy, gb_ro[gi * GS].w) * (1.0 - smoothstep(0.0, 0.9, sc.rd0.x));
   c = aces(c * sc.tone.x);
   let uv = pos.xy / vec2f(sc.tone.z, sc.tone.w) - 0.5;
   c *= 1.0 - 0.55 * dot(uv, uv);
