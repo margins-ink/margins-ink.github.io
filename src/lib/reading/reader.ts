@@ -13,10 +13,10 @@ import type { Overlay, PageFrame, PagePass } from './page-api';
 import { createPagePass } from './page';
 import { loadReadingOnly } from '$lib/ecs/reading';
 import { loadArticle, type LoadedArticle } from './load';
-import { accentSrgb, barPxFor, cubicBezier, emPxFor, originXFor, scaleSteps, snapScale, widthClassFor, DEFAULT_SCALE } from './metrics';
+import { barPxFor, cubicBezier, emPxFor, originXFor, scaleSteps, snapScale, widthClassFor, DEFAULT_SCALE } from './metrics';
 import { createScrollState, layoutToDocY, readHistoryState, type SavedState, type ScrollController } from './scrollstate';
 import { attachScroll } from './input';
-import { themeFor } from './theme';
+import { THEME } from './theme';
 import { buildMirror, type Mirror } from './mirror';
 import { hitTest, caretAt, type Hit, type ViewOpts } from './hit';
 import { press, dragTo, selectAll, selectionRects, copyText, selEmpty, selLo, selHi, type Gesture, type Sel } from './select';
@@ -25,7 +25,7 @@ import { buildChrome, createChromeAnim } from './ui/widgets';
 import { hitChrome } from './ui/hit';
 import type { ChromeState, ChromeInput, HitRect, KeyEvent, Rect, FindState, CodeBlockInfo, FigureInfo, ToastInfo } from './ui/layout';
 import { newScrollbar, scrollbarFrame, scrollbarDragStart, scrollbarDragTo, scrollbarTrackClick } from './ui/scrollbar';
-import { loadUiTables, setUiTables, shapeUi } from './ui/text';
+import { loadUiTables, measureUi, setUiTables, shapeUi, uiGlyphs } from './ui/text';
 import type { ScrollbarInput } from './ui/types';
 
 
@@ -49,14 +49,12 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let ready = false;
 	let mounted = false;
 	let cls = 0;
-	let hue = 265;
 	let title = '';
 	/** the root element's attributes mirror the reader's state (tests and CSS read them) */
 	function publish() {
 		rootEl.dataset.mode = mode;
 		rootEl.dataset.class = String(cls);
 		rootEl.dataset.ready = String(ready);
-		rootEl.style.setProperty('--hue', String(hue));
 		rootEl.setAttribute('aria-label', title || 'Article');
 	}
 
@@ -81,8 +79,8 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let needDraw = true, firstDraw = true, restoredScroll = false;
 	let lastSection = -2, lastReadBlock = -2;
 	let hdrGain = 1;
-	let theme = themeFor(265);
-	let accent: [number, number, number] = [0.6, 0.6, 1];
+	const theme = THEME;
+	const accent = THEME.accent as unknown as [number, number, number];
 	const eventCbs = new Set<(k: ReadingEventKind, a: number) => void>();
 	let articleDisposers: (() => void)[] = [];
 	const devHook = { frame: null as null | ((f: PageFrame) => void) };
@@ -100,7 +98,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		scrollPx: 0, emPx: 18, originX: 0, originY: 0, viewW: 0, viewH: 0, dpr: 1,
 		visFirst: 0, visCount: 0, noteFirst: 0, noteCount: 0, foldClipEm: 0, foldFadeEm: 3.24, chans,
 		groundA: 1, ground: { x0: 0, y0: 0, x1: 0, y1: 0, radius: 0 }, blockAlpha, blockDy, blockDx, overlays,
-		hdrGain: 1, time: 0, hue: 265, dirty: true
+		hdrGain: 1, time: 0, dirty: true
 	};
 	let enterState = new Uint8Array(0); // 0 waiting, 1 animating, 2 done
 	let enterStart = new Float64Array(0);
@@ -267,11 +265,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		art = a;
 		model = a.model;
 		cls = a.widthClass;
-		hue = a.meta.hue;
 		title = a.meta.title;
-		accent = accentSrgb(hue);
-		theme = themeFor(hue);
-		frame.hue = hue;
 		loadedOnce = true;
 		if (fresh) foldExpanded = readFoldPref(a);
 		if (model.foldH <= 0) foldExpanded = true;
@@ -683,13 +677,23 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		}
 	}
 
+	/** The OS cursor over a scrubbable figure (zero lag, never a drawn follower): chevrons left and right, white with a dark outline; the
+	 *  grabbing variant adds a filled centre dot. 24 px, hotspot centred, `ew-resize` as the fallback. Only figures with a real scrub track. */
+	const scrubCursor = (grabbing: boolean): string => {
+		const chev = (d: string) => `<path d="${d}" fill="none" stroke="#0b0e14" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/><path d="${d}" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+		const dot = grabbing ? '<circle cx="12" cy="12" r="3.4" fill="#fff" stroke="#0b0e14" stroke-width="1.2"/>' : '';
+		const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">${chev('M8.5 6.5 3.5 12l5 5.5')}${chev('M15.5 6.5 20.5 12l-5 5.5')}${dot}</svg>`;
+		return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, ew-resize`;
+	};
+	const SCRUB_CURSOR = scrubCursor(false), SCRUB_CURSOR_GRAB = scrubCursor(true);
+
 	function cursorFor(h: Hit | null): string {
 		if (!h) return 'default';
 		switch (h.kind) {
 			case 'link': case 'cite': case 'fold': return 'pointer';
 			case 'image': return 'zoom-in';
 			case 'text': case 'code': return 'text';
-			case 'figure': return h.fig >= 0 && model!.figures[h.fig]?.mode === FigureMode.scrub ? 'ew-resize' : 'default';
+			case 'figure': return h.fig >= 0 && model!.figures[h.fig]?.mode === FigureMode.scrub ? SCRUB_CURSOR : 'default';
 			default: return 'default';
 		}
 	}
@@ -1157,13 +1161,25 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		chromeAnimating = out.animating;
 		for (const o of out.overlays) overlays.push(o);
 		f.uiText = out.uiText;
+		// scrub readout: the time under the pointer next to the figure while it is being scrubbed (mouse and pen only)
+		if (scrubbing.size && ptrType !== 'touch' && ptr) {
+			const i = [...scrubbing][0], fg = model!.figures[i], info = state.figures.find((q) => q.fig === i);
+			if (fg && info) {
+				const label = `${(figT[i] ?? 0).toFixed(1)} s / ${fg.duration.toFixed(0)} s`;
+				const sz = 12, padX = 8, w = measureUi(label, 'mono', sz) + padX * 2, h = 22;
+				const x = Math.max(8, Math.min(viewW - w - 8, ptr.x - w / 2)), y = Math.max(barPx + 4, info.rect.y - h - 6);
+				const [gr, gg, gb] = theme.surface.popover, [tr, tg, tb] = theme.text.primary;
+				overlays.push({ x, y, w, h, radius: 6, r: gr, g: gg, b: gb, a: 0.96 });
+				f.uiText = [...(f.uiText ?? []), ...uiGlyphs(label, 'mono', sz, x + padX, y + h / 2 + sz * 0.35, [tr, tg, tb, 1])];
+			}
+		}
 		for (const a of out.actions) act(a);
 		if (out.lightbox && lightbox) f.lightbox = { block: lightbox.block, em: lightbox.em, rect: out.lightbox.rect, alpha: out.lightbox.alpha };
 		else f.lightbox = undefined;
 		// toasts age out
 		for (let i = toasts.length - 1; i >= 0; i--) if (now - toasts[i].atMs > 2400) toasts.splice(i, 1);
 
-		if (canvasEl) canvasEl.style.cursor = dragKind === 'select' ? 'text' : chromeCursor || cursorFor(ptr ? hoverHit : null);
+		if (canvasEl) canvasEl.style.cursor = dragKind === 'select' ? 'text' : dragKind === 'fig' ? SCRUB_CURSOR_GRAB : chromeCursor || cursorFor(ptr ? hoverHit : null);
 
 		if (dev && devHook.frame) devHook.frame(f);
 		const t0 = dev ? performance.now() : 0;
@@ -1228,7 +1244,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 				get selection() { return sel; },
 				get find() { return { ...find, hits: findHits.length }; },
 				counters,
-				get geometry() { return { viewW, viewH, dpr, emPx, originX, barPx, cls, scale, foldExpanded, reduced, hue }; },
+				get geometry() { return { viewW, viewH, dpr, emPx, originX, barPx, cls, scale, foldExpanded, reduced }; },
 				scrollTo: (id: string) => scrollSt?.goToAnchor(id, { smooth: false }),
 				act: (a: string) => act(a),
 				copySelection,

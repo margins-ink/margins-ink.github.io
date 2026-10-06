@@ -59,7 +59,7 @@ export function quantiseSyntax(pairs: Map<string, number>) {
 	return { syntax: reps.map((r) => ({ dark: r })), idx };
 }
 
-function sidecar(dir: string): { accentHue?: number; hyphenExceptions?: string[]; display?: { wdth?: number; wght?: number } } {
+function sidecar(dir: string): { hyphenExceptions?: string[]; display?: { wdth?: number; wght?: number } } {
 	const f = path.join(dir, 'spread.json');
 	return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
 }
@@ -103,10 +103,9 @@ interface Shared { fonts: FontSet; union: GlyphTableBuilder; missing: Set<string
 
 function voiceOf(slug: string, side: ReturnType<typeof sidecar>) {
 	const ov: Record<string, number> = {};
-	if (side.accentHue !== undefined) ov.hue = side.accentHue;
 	if (side.display?.wdth !== undefined) ov.wdth = side.display.wdth;
 	if (side.display?.wght !== undefined) ov.wght = side.display.wght;
-	try { return voiceFor(slug, ov); } catch { return { slug, hue: 265, wdth: 85, wght: 600, ...ov }; }
+	try { return voiceFor(slug, ov); } catch { return { slug, wdth: 85, wght: 600, ...ov }; }
 }
 
 /** One article at one width class: flow layout and emit. */
@@ -114,7 +113,7 @@ async function layOut(sh: Shared, p: Parsed, cls: MagClass, neighbours: { prev?:
 	const dir = path.dirname(p.file);
 	const side = sidecar(dir);
 	const voice = voiceOf(p.slug, side);
-	const palette = buildPalette(side.accentHue ?? voice.hue);
+	const palette = buildPalette();
 	const cfg = CFG[cls.id];
 	const wc = { id: cls.id, sheetW: cfg.colW, sheetH: 0, measure: cfg.colW, marginX: 0, marginY: 0 };
 	const env: Env = {
@@ -267,7 +266,7 @@ export async function buildMagazine(opts: BuildOpts = {}): Promise<BuildResult> 
 		const b0 = built.find((x) => x.p === p)!;
 		articles.push({
 			slug: p.slug, title: p.meta.title, dek: p.meta.dek, date: p.meta.date, hidden: !p.meta.visible, hasBrief: b0.hasBrief, words: b0.words,
-			hue: voiceOf(p.slug, sidecar(path.dirname(p.file))).hue, wdth: voiceOf(p.slug, sidecar(path.dirname(p.file))).wdth, wght: voiceOf(p.slug, sidecar(path.dirname(p.file))).wght, refs: p.refs, neighbours: nbs.get(p.slug) ?? {}, bins
+			wdth: voiceOf(p.slug, sidecar(path.dirname(p.file))).wdth, wght: voiceOf(p.slug, sidecar(path.dirname(p.file))).wght, refs: p.refs, neighbours: nbs.get(p.slug) ?? {}, bins
 		});
 	}
 	const index = {

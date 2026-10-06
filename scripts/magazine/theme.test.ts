@@ -1,32 +1,16 @@
-// Theme tests (src/lib/reading/theme.ts): WCAG contrast of every token on its real ground over every article hue, the generated Shiki theme,
+// Theme tests (src/lib/reading/theme.ts): WCAG contrast of every token on its real ground (one theme for every article), the generated Shiki theme,
 // the `::` ligature rule and the heading face. A planted-bug control swaps the old github-dark (light-theme) syntax values back in and must fail.
 import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { codeToTokens } from 'shiki';
+import { codeToTokens, type BundledLanguage } from 'shiki';
 import { F, FONT_SPECS, FontSet, ROOT } from '../reader/fonts';
 import { readerTheme } from '../reader/shiki-theme';
 import { buildPalette, PAL_SYNTAX_START } from './palette';
-import { VOICES } from './voices';
 import {
-	CONTRAST, ELEVATION, GROUND, SYNTAX, SYNTAX_ORDER, TEXT, contrast, deltaE, fromHex, fromRgb, themeFor, toHex, type Rgb, type SyntaxName, type Theme
+	CONTRAST, ELEVATION, GROUND, SYNTAX, SYNTAX_ORDER, TEXT, contrast, deltaE, fromHex, fromRgb, THEME, toHex, type Rgb, type SyntaxName, type Theme
 } from '../../src/lib/reading/theme';
 import { quantiseSyntax } from './build';
-
-// ---- every article hue: voices table, spread.json sidecars, the built index (when present), plus a sweep so a new article cannot break the table ----
-function articleHues(): number[] {
-	const hues = new Set<number>(VOICES.map((v) => v.hue));
-	const thoughts = path.join(ROOT, 'src/routes/(site)/thoughts');
-	for (const d of fs.readdirSync(thoughts)) {
-		const f = path.join(thoughts, d, 'spread.json');
-		if (fs.existsSync(f)) { const h = JSON.parse(fs.readFileSync(f, 'utf8')).accentHue; if (typeof h === 'number') hues.add(h); }
-	}
-	const idx = path.join(ROOT, 'static/magazine/index.json');
-	if (fs.existsSync(idx)) for (const a of JSON.parse(fs.readFileSync(idx, 'utf8')).articles ?? []) if (typeof a.hue === 'number') hues.add(a.hue);
-	for (let h = 0; h < 360; h += 15) hues.add(h);
-	return [...hues].sort((a, b) => a - b);
-}
-const HUES = articleHues();
 
 /** Syntax colours must read on the code panel; comments are the floor (4.5:1) and no other syntax colour may be weaker. Returns the failures. */
 function syntaxFailures(colours: Record<string, Rgb>, panel: Rgb, min = CONTRAST.text): string[] {
@@ -42,14 +26,10 @@ const old = Object.fromEntries(Object.entries(OLD_GITHUB).map(([k, v]) => [k, fr
 const tolerance = (v: number) => Math.round(v * 100) / 100;
 
 describe('token table', () => {
-	test('hues covered include every voice and sidecar', () => {
-		expect(HUES.length).toBeGreaterThanOrEqual(VOICES.length);
-		for (const v of VOICES) expect(HUES).toContain(v.hue);
-	});
-
 	test('ground is a deep tinted near-black, not #000, and elevations climb', () => {
-		for (const h of HUES) {
-			const t = themeFor(h);
+		{
+			const h = 'the theme';
+			const t = THEME;
 			const L = (c: Rgb) => fromRgb(c)[0];
 			expect(toHex(t.surface.ground)).not.toBe('#000000');
 			expect(L(t.surface.ground)).toBeGreaterThan(0.13);
@@ -60,18 +40,18 @@ describe('token table', () => {
 			expect(fromRgb(t.surface.ground)[1]).toBeGreaterThan(0.008); // tinted, not grey
 		}
 		expect(ELEVATION.code.L).toBeCloseTo(0.2, 2);
-		expect(GROUND.top).toBeGreaterThan(GROUND.L);
-	});
+			});
 
 	test('text ramp: primary 9:1 on the ground, all three >= 4.5:1 on ground (lightest stop) and on all three elevations', () => {
-		for (const h of HUES) {
-			const t = themeFor(h);
-			const grounds: [string, Rgb][] = [['ground top', themeFor(h).groundTop], ['ground', t.surface.ground], ['ground bottom', t.groundBottom], ['code', t.surface.code], ['card', t.surface.card], ['popover', t.surface.popover]];
+		{
+			const h = 'the theme';
+			const t = THEME;
+			const grounds: [string, Rgb][] = [['ground', t.surface.ground], ['code', t.surface.code], ['card', t.surface.card], ['popover', t.surface.popover]];
 			for (const [gn, g] of grounds) for (const k of Object.keys(TEXT) as (keyof typeof TEXT)[]) {
 				const r = contrast(t.text[k], g);
 				if (r < CONTRAST.text) throw new Error(`hue ${h}: ${k} on ${gn} ${r.toFixed(2)}:1 < ${CONTRAST.text}`);
 			}
-			expect(contrast(t.text.primary, t.groundTop)).toBeGreaterThanOrEqual(CONTRAST.body);
+			expect(contrast(t.text.primary, t.surface.ground)).toBeGreaterThanOrEqual(CONTRAST.body);
 			expect(contrast(t.text.primary, t.surface.popover)).toBeGreaterThanOrEqual(CONTRAST.body);
 			// large text (headings) needs only 3:1, and uses primary: covered above with margin
 			expect(contrast(t.text.primary, t.surface.popover)).toBeGreaterThanOrEqual(CONTRAST.large);
@@ -79,9 +59,10 @@ describe('token table', () => {
 	});
 
 	test('accent as text on the ground and the elevations; accent2 and accent as graphics; ink on accent fill; hairlines are visible but faint', () => {
-		for (const h of HUES) {
-			const t = themeFor(h);
-			for (const [gn, g] of [['ground top', t.groundTop], ['ground', t.surface.ground], ['code', t.surface.code], ['card', t.surface.card], ['popover', t.surface.popover]] as [string, Rgb][]) {
+		{
+			const h = 'the theme';
+			const t = THEME;
+			for (const [gn, g] of [['ground', t.surface.ground], ['code', t.surface.code], ['card', t.surface.card], ['popover', t.surface.popover]] as [string, Rgb][]) {
 				const a = contrast(t.accent, g);
 				if (a < CONTRAST.text) throw new Error(`hue ${h}: accent text on ${gn} ${a.toFixed(2)}:1`);
 				const a2 = contrast(t.accent2, g);
@@ -96,10 +77,11 @@ describe('token table', () => {
 		}
 	});
 
-	test('syntax: twelve slots, every colour >= 4.5:1 on the code panel for every hue, comments readable but quietest chroma, balanced chroma, no pure red or blue', () => {
+	test('syntax: twelve slots, every colour >= 4.5:1 on the code panel comments readable but quietest chroma, balanced chroma, no pure red or blue', () => {
 		expect(SYNTAX_ORDER.length).toBe(32 - PAL_SYNTAX_START);
-		for (const h of HUES) {
-			const t = themeFor(h);
+		{
+			const h = 'the theme';
+			const t = THEME;
 			const fails = syntaxFailures(t.syntax, t.surface.code);
 			if (fails.length) throw new Error(`hue ${h}: ${fails.join('; ')}`);
 			// the comment slot is the dimmest syntax colour but still clears the floor with margin
@@ -117,7 +99,7 @@ describe('token table', () => {
 	});
 
 	test('syntax families are distinct: pairwise OKLab distance >= 0.04 between every two slots', () => {
-		const t = themeFor(265);
+		const t = THEME;
 		const worst: [number, string][] = [];
 		for (let i = 0; i < SYNTAX_ORDER.length; i++) for (let j = i + 1; j < SYNTAX_ORDER.length; j++) {
 			const a = SYNTAX_ORDER[i], b = SYNTAX_ORDER[j];
@@ -129,8 +111,8 @@ describe('token table', () => {
 	});
 
 	test('the built palette carries exactly the theme hex in the syntax slots', () => {
-		const pal = buildPalette(265);
-		const t = themeFor(265);
+		const pal = buildPalette();
+		const t = THEME;
 		SYNTAX_ORDER.forEach((k, i) => {
 			const w = pal[PAL_SYNTAX_START + i];
 			const hex = '#' + [w & 255, (w >> 8) & 255, (w >> 16) & 255].map((v) => v.toString(16).padStart(2, '0')).join('');
@@ -139,7 +121,7 @@ describe('token table', () => {
 	});
 
 	test('planted-bug control: the old github-dark (light-theme) syntax values fail the same check', () => {
-		const t = themeFor(265);
+		const t = THEME;
 		expect(syntaxFailures(t.syntax, t.surface.code)).toEqual([]);
 		const fails = syntaxFailures(old, t.surface.code);
 		expect(fails.length).toBeGreaterThanOrEqual(5);
@@ -151,7 +133,7 @@ describe('token table', () => {
 });
 
 describe('shiki theme', () => {
-	const hexes = new Set(Object.values(themeFor(265).syntax).map(toHex));
+	const hexes = new Set(Object.values(THEME.syntax).map(toHex));
 	const rust = `#[entry]
 fn main() -> ! {
     // Enable the GPIO clock
@@ -172,9 +154,9 @@ fn main() -> ! {
 		['diff', '@@ -1 +1 @@\n-old\n+new'],
 		['toml', '[package]\nname = "x"\nversion = "1.0"']
 	];
-	const tokenise = (lang: string, code: string) => codeToTokens(code, { lang, themes: { dark: readerTheme() }, defaultColor: false }).then((r) => r.tokens);
+	const tokenise = (lang: string, code: string) => codeToTokens(code, { lang: lang as BundledLanguage, themes: { dark: readerTheme() }, defaultColor: false }).then((r) => r.tokens);
 
-	test('every emitted colour is one of the twelve theme colours and reads on the panel for every hue', async () => {
+	test('every emitted colour is one of the twelve theme colours and reads on the panel', async () => {
 		for (const [lang, code] of sample) {
 			const seen = new Set<string>();
 			for (const line of await tokenise(lang, code)) for (const tk of line) seen.add(String((tk.htmlStyle as Record<string, string> | undefined)?.['--shiki-dark'] ?? '').toLowerCase());
@@ -182,11 +164,11 @@ fn main() -> ! {
 			for (const c of seen) expect(hexes.has(c)).toBe(true);
 			expect(seen.size).toBeGreaterThanOrEqual(lang === 'diff' || lang === 'toml' ? 2 : 3);
 		}
-		for (const h of HUES) expect(syntaxFailures(Object.fromEntries([...hexes].map((x) => [x, fromHex(x)])), themeFor(h).surface.code)).toEqual([]);
+		expect(syntaxFailures(Object.fromEntries([...hexes].map((x) => [x, fromHex(x)])), THEME.surface.code)).toEqual([]);
 	});
 
 	test('Rust maps to the intended slots: keywords, functions, types, lifetimes, macros, attributes, comments, strings, numbers', async () => {
-		const hex = themeFor(265).syntax;
+		const hex = THEME.syntax;
 		const slot = (c: string) => SYNTAX_ORDER.find((k) => toHex(hex[k]) === c.toLowerCase());
 		const lines = await tokenise('rust', rust);
 		const by = new Map<string, SyntaxName | undefined>();
@@ -203,9 +185,9 @@ fn main() -> ! {
 	});
 
 	test('quantiseSyntax maps each theme hex to its own slot', () => {
-		const pairs = new Map(SYNTAX_ORDER.map((k) => [toHex(themeFor(265).syntax[k]), 3]));
+		const pairs = new Map(SYNTAX_ORDER.map((k) => [toHex(THEME.syntax[k]), 3]));
 		const { idx } = quantiseSyntax(pairs);
-		SYNTAX_ORDER.forEach((k, i) => expect(idx.get(toHex(themeFor(265).syntax[k]))).toBe(PAL_SYNTAX_START + i));
+		SYNTAX_ORDER.forEach((k, i) => expect(idx.get(toHex(THEME.syntax[k]))).toBe(PAL_SYNTAX_START + i));
 	});
 });
 

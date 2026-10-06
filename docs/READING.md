@@ -57,7 +57,9 @@ All vertical space is a multiple of half a body line (`u = 0.81em`). Tokens in e
 - Heights of figures, images and code blocks round up to a multiple of `u` (so the rhythm never drifts after a figure).
 - Horizontal: gutters 20 px phone, 32 px medium, auto on wide.
 
-### 2.4 Colour tokens (one dark look, OKLCH, per-article hue `h` from `voices`)
+### 2.4 Colour tokens (ONE colour system: one dark look, one ground, one accent, for every article; the numbers live in `src/lib/reading/theme.ts`, the table below is the shape, not the authority)
+
+Andrew, 2026-10-06: "we want one color for everything, not multiple color guidelines". No per-article hue, tint or glow; nothing changes colour between pages or scroll positions. Tint hue 265 (deep blue-grey ground and text), accent amber (OKLCH h 68, the hue of the room's lamps, LampColour {4, 2.4, 1.1}), one fixed secondary teal (h 205) for a second data series.
 
 | Token | Value | Use |
 |---|---|---|
@@ -74,7 +76,9 @@ All vertical space is a multiple of half a body line (`u = 0.81em`). Tokens in e
 
 Build step (existing palette script) fails the build under 4.5:1 for text and 3:1 for graphics against `--bg` and `--surface`, and on sRGB gamut clipping. Estimated ratios: ink about 15:1, ink-2 about 9:1, ink-3 about 5.3:1 (est., script is the authority).
 
-Ambient: a soft radial of `--accent` at 7% alpha behind the hero, fading out by 1.2 viewports (the lamp of the scene, continued onto the page). Nothing else is decorative.
+No ambient glow, no gradient: the ground is flat. Nothing is decorative.
+
+Figures draw only palette names (ink, muted, accent, accent2, neutral1..3, paper); `scripts/magazine/fig/contrast.ts` fails the build when a shape is under 1.5:1 against the ground, a stroke or text under 4.5:1, or a label under 4.5:1 on its fill.
 
 HDR-aware: on an `extended` canvas (WAVE3 5.1) the accent only may exceed 1.0, up to `min(headroom, 1.6)`: the focus ring, the link underline on hover, the progress-rail head, the figure's key mark at its poster beat, the copied check. Ink stays SDR. Off under `prefers-contrast: more` and when headroom is 1. Reduced motion does not remove it (it is not motion).
 
@@ -239,7 +243,7 @@ Algorithm, per layout request (resize, text-size change, fold toggle, relayout o
 6. Whole-article layout is synchronous in wasm. Est. under 30 ms for a 1,500-word post (K-P is milliseconds per 300 lines per MAGAZINE.md), under 120 ms for 10,000 words, no height estimation and so no layout shift, which keeps scroll positions deterministic. If a post exceeds 16 ms on a phone, layout moves to a worker; the contract does not change.
 7. Caching: per block by `(hash(block), width, em_px, class)`; resize relays only changed blocks' widths (all, but cached shaping), so a drag-resize is shaping-free.
 
-Survives from the magazine design: Inter + Instrument Sans + Fira Code; per-article accent hue and `wdth`/`wght` voice (dark column only); the Slug glyph evaluator and curve data; shaping, Knuth-Plass, hyphenation, microtype (hanging punctuation); the figure engine (`figures.ts`, channels, strokes, scrub, `poster`, `describe`/`alt` lints) and the figure Flecs systems; pull quotes (restyled); the distilled block and its lint, controls and review gate; hairlines, folio-as-top-bar, numerals as an inline block; the half-baseline rhythm (as `u`); drop caps stay out.
+Survives from the magazine design: Inter + Instrument Sans + Fira Code; per-article `wdth`/`wght` voice (colour is one system) (dark column only); the Slug glyph evaluator and curve data; shaping, Knuth-Plass, hyphenation, microtype (hanging punctuation); the figure engine (`figures.ts`, channels, strokes, scrub, `poster`, `describe`/`alt` lints) and the figure Flecs systems; pull quotes (restyled); the distilled block and its lint, controls and review gate; hairlines, folio-as-top-bar, numerals as an inline block; the half-baseline rhythm (as `u`); drop caps stay out.
 
 Deleted: spread templates (`duo`, `solo`, `compare`, `numerals`, `text`, `text-code`) and their `-n` variants, `grid.ts` track solver, `planner.ts` and copyfit, `frames.ts` (spread frames), the two-sheet geometry (bow, gutter shadow, spine safe zone), page turning (`Turn`, `Corner` peel, `LeafCull`, `spread_goto/nav/by/grab/release`), the Full-text-tab peel and the layer swap, `Overview` contact sheet (replaced by the contents list), `Bounce`, A1 spread invariants and A2 planner checks (replaced in section 10), the `reader.wgsl`-style per-pixel cell evaluator for the page, the `template:` field in `distill`, `spread.json` template keys (voice stays).
 
@@ -264,7 +268,7 @@ Module `ReadingModule` (replaces the spread parts of `MagazineModule`; Figure, s
 
 **Prefabs** (all `IsA` from `Block`): `Block {x, y, w, h}` (CSS px, document coordinates), with `Heading {level, number}`, `Paragraph {firstLine, lines}`, `Figure` (existing component plus `Block`), `CodeBlock {scroll_x, scroll_max}`, `PullQuote`, `ImageBlock {tier, ready}`, `ListBlock`, `Rule`, `Numerals`, `FoldBlock {peek_lines}`, `Hero`, `Refs`. Notes are `Note {y}` entities. Each carries `Rect` only where it differs from the block.
 
-**Hierarchy and order**: `article` entity (`Article {slug}`, `Voice {hue, wdth, wght}`); blocks are `(ChildOf, article)` created in reading order with `OrderBy` on creation index, plus an exclusive `(Next, block)` chain for neighbour traversal (J/K, next-heading, sticky bar). `Prev` is not stored (query `(Next, $this)`). Sections are `(InSection, heading)` pairs on blocks (a cascade query computes them at pack time, so "what is current" is a relation lookup, not a scan).
+**Hierarchy and order**: `article` entity (`Article {slug}`, `Voice {wdth, wght}`); blocks are `(ChildOf, article)` created in reading order with `OrderBy` on creation index, plus an exclusive `(Next, block)` chain for neighbour traversal (J/K, next-heading, sticky bar). `Prev` is not stored (query `(Next, $this)`). Sections are `(InSection, heading)` pairs on blocks (a cascade query computes them at pack time, so "what is current" is a relation lookup, not a scan).
 
 **Relations**: `Anchor` is a component `{id}` on headings and figures, and `(Targets, anchor)` is the relation on a `Link` entity for internal links (so `LinksTo` jumps and the back chip are one lookup); `(Cites, ref)` from a `Link` to a `RefEntry`; `(NoteOf, block)` from a note to its anchor paragraph; `(InFold, fold)` on every block after the fold. Exclusive relations (existing pattern, observer turns each change into a JS event): `Reading` (current heading), `Hover`, `Focus` (focused link, figure, code block), `Scrubbing`, `Open` (popover or lightbox target). Tags: `Visible`, `Folded`, `Expanded`, `Settled`, `Reduced`.
 

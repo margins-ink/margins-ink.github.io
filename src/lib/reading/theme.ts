@@ -1,7 +1,8 @@
 // THE colour token table of the reader (docs/READING_GPU.md "Colour and typography", docs/READING.md 2.4). Pure TS, no DOM: the build
 // (scripts/magazine/palette.ts, scripts/reader/shiki-theme.ts), the page shader (ground) and the tests all read the numbers here and nowhere else.
-// Everything is OKLCH (L 0..1, C, h degrees); `h` is the article hue. One look: dark, deep tinted near-black, never #000.
-// Every text-bearing token is checked against its real ground by scripts/magazine/theme.test.ts (WCAG 2 contrast, all article hues).
+// Everything is OKLCH (L 0..1, C, h degrees). ONE colour system for every article, the room and its UI: one flat tinted near-black
+// ground (never #000), one text ramp, ONE accent, one syntax palette, one set of figure colours. No per-article hue, tint or glow,
+// nothing that moves with scroll or page. Every text-bearing token is checked against its real ground by scripts/magazine/theme.test.ts.
 
 export type Rgb = readonly [number, number, number]; // sRGB 0..1, gamma encoded
 export type Oklch = readonly [number, number, number]; // L 0..1, C, h degrees
@@ -74,7 +75,6 @@ export function deltaE(a: Rgb, b: Rgb): number {
 	return Math.hypot(L1 - L2, x1 - x2, y1 - y2);
 }
 
-const wrap = (h: number) => ((h % 360) + 360) % 360;
 /** An OKLCH colour pulled into the sRGB gamut by lowering chroma only (hue and lightness are the design). */
 export const ok = (L: number, C: number, h: number): Rgb => toRgb([L, fitChroma(L, C, h), h]);
 
@@ -84,8 +84,10 @@ export const CONTRAST = { text: 4.5, large: 3, graphic: 3, /** body ink: far abo
 
 // ---- ground and elevations -----------------------------------------------------------------------------
 
-/** Page ground: deep tinted near-black. `top` and `bottom` are the L of the soft vertical gradient the ground shader paints across the viewport. */
-export const GROUND = { L: 0.15, C: 0.014, top: 0.165, bottom: 0.138 } as const;
+/** The one hue of the ground, surfaces and text tints (deep blue-grey: the cool counterpart of the warm accent). */
+export const TINT_HUE = 265;
+/** Page ground: deep tinted near-black, flat (the same pixels on every page and at every scroll position). */
+export const GROUND = { L: 0.15, C: 0.014 } as const;
 
 /** Elevation steps above the ground (opaque L; the tint follows the article hue). Each also has a hairline: the border drawn on it. */
 export const ELEVATION = {
@@ -113,15 +115,16 @@ export type TextName = keyof typeof TEXT;
 
 // ---- accent --------------------------------------------------------------------------------------------
 
-export const ACCENT = { L: 0.78, C: 0.14, tintAlpha: 0.14, selectionAlpha: 0.28 } as const;
-export const ACCENT2 = { L: 0.76, C: 0.12, dh: 40 } as const;
+/** The one accent: warm amber, the hue of the room's lamps (world/scene LampColour {4, 2.4, 1.1}, NeonAmber). Used identically everywhere. */
+export const ACCENT = { L: 0.8, C: 0.125, h: 68, tintAlpha: 0.14, selectionAlpha: 0.28 } as const;
+/** The one supporting data colour a figure may use when it needs a second series (a fixed cool teal, same lightness family as the accent). */
+export const ACCENT2 = { L: 0.76, C: 0.09, h: 205 } as const;
 /** Text drawn on a filled accent. */
 export const ACCENT_INK = { L: 0.2, C: 0.01 } as const;
 /** Tinted field block (a `field` fill) and its text, plus the three neutral steps figures draw with. */
 export const FIELD = { L: 0.3, C: 0.1 } as const;
-export const NEUTRAL = { L: [0.45, 0.3, 0.15], C: 0.01 } as const;
-/** Ambient lamp behind the hero: accent at this strength (the shader mixes it, max ~0.07). */
-export const AMBIENT = 0.07;
+/** Figure neutrals, light to dark: each >= 1.5:1 against the ground (shapes), the first two carry ink text at >= 4.5:1. */
+export const NEUTRAL = { L: [0.5, 0.38, 0.32], C: 0.012 } as const;
 
 // ---- syntax (designed for the dark code panel, hue independent) -----------------------------------------
 
@@ -154,11 +157,9 @@ export const syntaxRgb = (): Record<SyntaxName, Rgb> =>
 export const syntaxHex = (): Record<SyntaxName, string> =>
 	Object.fromEntries(SYNTAX_ORDER.map((k) => [k, toHex(quant(ok(...(SYNTAX[k] as unknown as [number, number, number]))))])) as Record<SyntaxName, string>;
 
-// ---- the table for one article hue ---------------------------------------------------------------------
+// ---- the table ---------------------------------------------------------------------------------------
 
-export interface Theme {
-	hue: number;
-	/** opaque surfaces */
+export interface Theme {	/** opaque surfaces */
 	surface: Record<ElevationName, Rgb>;
 	/** the border colour of each surface (ink over it at HAIRLINE_ALPHA) */
 	hairline: Record<ElevationName, Rgb>;
@@ -168,16 +169,13 @@ export interface Theme {
 	accentTint: Rgb;
 	accentInk: Rgb;
 	selection: Rgb;
-	/** the ground shader's top and bottom stops */
-	groundTop: Rgb;
-	groundBottom: Rgb;
 	field: Rgb;
 	neutral: readonly [Rgb, Rgb, Rgb];
 	syntax: Record<SyntaxName, Rgb>;
 }
 
-/** All tokens for article hue `h`, quantised to 8 bits (what the palette and the shiki theme ship). */
-export function themeFor(h: number): Theme {
+/** All tokens, quantised to 8 bits (what the palette and the shiki theme ship). */
+function buildTheme(h: number): Theme {
 	const surface = Object.fromEntries(
 		(Object.keys(ELEVATION) as ElevationName[]).map((k) => [k, quant(ok(ELEVATION[k].L, ELEVATION[k].C, h))])
 	) as Record<ElevationName, Rgb>;
@@ -187,26 +185,24 @@ export function themeFor(h: number): Theme {
 	const hairline = Object.fromEntries(
 		(Object.keys(surface) as ElevationName[]).map((k) => [k, quant(over(text.primary, surface[k], HAIRLINE_ALPHA))])
 	) as Record<ElevationName, Rgb>;
-	const accent = quant(ok(ACCENT.L, ACCENT.C, h));
+	const accent = quant(ok(ACCENT.L, ACCENT.C, ACCENT.h));
 	return {
-		hue: h, surface, hairline, text,
+		surface, hairline, text,
 		accent,
-		accent2: quant(ok(ACCENT2.L, ACCENT2.C, wrap(h + ACCENT2.dh))),
+		accent2: quant(ok(ACCENT2.L, ACCENT2.C, ACCENT2.h)),
 		accentTint: quant(over(accent, surface.ground, ACCENT.tintAlpha)),
-		accentInk: quant(ok(ACCENT_INK.L, ACCENT_INK.C, h)),
+		accentInk: quant(ok(ACCENT_INK.L, ACCENT_INK.C, TINT_HUE)),
 		selection: quant(over(accent, surface.ground, ACCENT.selectionAlpha)),
-		groundTop: quant(ok(GROUND.top, GROUND.C, h)),
-		groundBottom: quant(ok(GROUND.bottom, GROUND.C, h)),
-		field: quant(ok(FIELD.L, FIELD.C, h)),
+		field: quant(ok(FIELD.L, FIELD.C, ACCENT.h)),
 		neutral: NEUTRAL.L.map((L) => quant(ok(L, NEUTRAL.C, h))) as unknown as readonly [Rgb, Rgb, Rgb],
 		syntax: syntaxRgb()
 	};
 }
 
+/** THE theme: the only instance. */
+export const THEME: Theme = buildTheme(TINT_HUE);
+
 // ---- WGSL snippets so the shader reads the same numbers ---------------------------------------------------
 
-/** Constants the ground shader splices in: `oklch(top|bottom, GROUND.C)` stops and the accent glow colour. */
-export const GROUND_WGSL = {
-	top: GROUND.top.toFixed(4), bottom: GROUND.bottom.toFixed(4), chroma: GROUND.C.toFixed(4),
-	accentL: ACCENT.L.toFixed(4), accentC: ACCENT.C.toFixed(4)
-} as const;
+/** Constants the ground shader splices in: the flat ground as `oklch(L, C, hue)`. */
+export const GROUND_WGSL = { L: GROUND.L.toFixed(4), chroma: GROUND.C.toFixed(4), hue: TINT_HUE.toFixed(1) } as const;

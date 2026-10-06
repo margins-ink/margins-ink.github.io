@@ -52,10 +52,8 @@ export interface PageFrame {
 	uiClip?: { x0: number; y0: number; x1: number; y1: number };
 	/** accent peak above 1.0 on extended-range canvases (hover underline, focus ring, rail head); 1 = SDR */
 	hdrGain: number;
-	/** seconds, for dithering and the ambient glow */
+	/** seconds */
 	time: number;
-	/** hue of the article accent, degrees (ambient glow behind the hero) */
-	hue: number;
 	/** false: draw nothing new (the reader decided nothing changed); the pass keeps the last frame */
 	dirty: boolean;
 }

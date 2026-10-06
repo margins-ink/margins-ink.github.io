@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { accentSrgb, cubicBezier, emPxFor, oklchToSrgb, originXFor, paletteHue, scaleSteps, snapScale, srgbHue, widthClassFor } from './metrics';
+import { cubicBezier, emPxFor, originXFor, scaleSteps, snapScale, widthClassFor } from './metrics';
 
 describe('width class', () => {
 	test('boundaries', () => {
@@ -51,25 +51,6 @@ describe('scale', () => {
 		expect(snapScale(1.2)).toBe(1.25);
 		expect(snapScale(0.5)).toBe(0.9);
 		expect(snapScale(9)).toBe(1.4);
-	});
-});
-
-describe('colour', () => {
-	test('oklch hue round trip', () => {
-		for (const h of [30, 120, 200, 265, 330]) {
-			const [r, g, b] = oklchToSrgb(0.7, 0.1, h);
-			expect(srgbHue(r, g, b)).toBeCloseTo(h, 0);
-		}
-	});
-	test('palette entry is 0xAABBGGRR', () => {
-		const [r, g, b] = oklchToSrgb(0.7, 0.1, 265);
-		const e = (0xff << 24) | (Math.round(b * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(r * 255);
-		expect(Math.abs(paletteHue(e >>> 0) - 265)).toBeLessThan(1.5);
-	});
-	test('accent is inside the gamut and bright', () => {
-		const [r, g, b] = accentSrgb(265);
-		for (const v of [r, g, b]) expect(v).toBeGreaterThanOrEqual(0);
-		expect(Math.max(r, g, b)).toBeGreaterThan(0.6);
 	});
 });
 

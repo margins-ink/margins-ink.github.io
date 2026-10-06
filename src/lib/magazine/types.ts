@@ -95,12 +95,11 @@ export const templateLayer = (name: TemplateName): Layer => ((FULL_TEMPLATES as 
 
 // ---- voice, sidecar, distill ---------------------------------------------------------------------
 
-/** Per-article art direction (scripts/magazine/voices.ts): accent hue plus the Instrument Sans display axes. */
-export interface Voice { hue: number; wdth: number; wght: number }
+/** Per-article display voice (scripts/magazine/voices.ts): the Instrument Sans axes. Colour is one system for all articles (theme.ts). */
+export interface Voice { wdth: number; wght: number }
 
 /** spread.json next to the .svx (MAGAZINE.md 1.5). */
 export interface SpreadSidecar {
-	accentHue: number;
 	display: { wdth: number; wght: number };
 	hyphenExceptions?: string[];
 }

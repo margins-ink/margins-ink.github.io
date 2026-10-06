@@ -1,7 +1,7 @@
-// RDR palette per article hue (docs/MAGAZINE.md 3.2). Build time only: the world has one look (dark). Every number lives in src/lib/reading/theme.ts
+// The RDR palette (docs/MAGAZINE.md 3.2): ONE palette for every article. Build time only: the world has one look (dark). Every number lives in src/lib/reading/theme.ts
 // (the token table); this file only maps tokens onto the 32 palette slots and fails closed: `checkPalette` throws when an entry clips sRGB or a contrast floor is missed.
 import { PAL2, PALETTE2_SIZE } from '../../src/lib/magazine/format';
-import { CONTRAST, SYNTAX_ORDER, contrast, inGamut, themeFor, toLinear, type Rgb } from '../../src/lib/reading/theme';
+import { CONTRAST, SYNTAX_ORDER, contrast, inGamut, THEME, toLinear, type Rgb } from '../../src/lib/reading/theme';
 
 export {
 	contrast, fitChroma, fromRgb, inGamut, linearToOklch, luminance, oklchToLinear, over, toRgb,
@@ -16,9 +16,9 @@ if (PAL_SYNTAX_START + SYNTAX_ORDER.length !== PALETTE2_SIZE) throw new Error('p
 
 export type PaletteEntries = Record<keyof typeof PAL2 | keyof typeof PAL_EXT, Rgb>;
 
-/** The palette for article hue `h`: the one look is dark. */
-export function paletteEntries(h: number): PaletteEntries {
-	const t = themeFor(h);
+/** The palette (the same for every article). */
+export function paletteEntries(): PaletteEntries {
+	const t = THEME;
 	return {
 		ink: t.text.primary, link: t.accent, muted: t.text.secondary, heading: t.text.primary, rule: t.hairline.ground,
 		selection: t.selection, codeBg: t.surface.code, quoteBar: t.accent,
@@ -30,8 +30,8 @@ export function paletteEntries(h: number): PaletteEntries {
 }
 
 /** Contrast floors: body ink 9:1; text 4.5:1 on every surface; graphics 3:1 (the full per-token matrix is scripts/magazine/theme.test.ts). */
-export function checkPalette(h: number, p: PaletteEntries = paletteEntries(h)): void {
-	const fail = (m: string) => { throw new Error(`palette hue ${h}: ${m}`); };
+export function checkPalette(p: PaletteEntries = paletteEntries()): void {
+	const fail = (m: string) => { throw new Error(`palette: ${m}`); };
 	for (const [name, c] of Object.entries(p)) {
 		if (!inGamut(c.map(toLinear))) fail(`${name} out of sRGB gamut`);
 	}
@@ -53,11 +53,11 @@ export function checkPalette(h: number, p: PaletteEntries = paletteEntries(h)): 
 const pack = (c: Rgb) => ((255 << 24) | (Math.round(c[2] * 255) << 16) | (Math.round(c[1] * 255) << 8) | Math.round(c[0] * 255)) >>> 0;
 
 /** RDR2 palette section: PALETTE2_SIZE words, RGBA8 as 0xAABBGGRR. Slots 0..19 from PAL2 and PAL_EXT, 20..31 the twelve syntax colours in SYNTAX_ORDER. */
-export function buildPalette(h: number): Uint32Array {
+export function buildPalette(): Uint32Array {
 	const out = new Uint32Array(PALETTE2_SIZE);
-	checkPalette(h);
-	const p = paletteEntries(h);
-	const t = themeFor(h);
+	checkPalette();
+	const p = paletteEntries();
+	const t = THEME;
 	out.fill(pack(p.ink));
 	for (const [name, i] of Object.entries({ ...PAL2, ...PAL_EXT })) out[i] = pack(p[name as keyof PaletteEntries]);
 	SYNTAX_ORDER.forEach((k, i) => { out[PAL_SYNTAX_START + i] = pack(t.syntax[k]); });

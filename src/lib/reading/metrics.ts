@@ -50,43 +50,6 @@ export const docXToViewPx = (xEm: number, emPx: number, originX: number): number
 
 // ---- accent colour ----------------------------------------------------------------------------------------------
 
-const toLin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-const toGamma = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.max(c, 0) ** (1 / 2.4) - 0.055);
-const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
-
-/** OKLCH to straight sRGB 0..1, clipped to the gamut by clamping (the build's palette script owns gamut checks). */
-export function oklchToSrgb(L: number, C: number, hueDeg: number): [number, number, number] {
-	const h = (hueDeg * Math.PI) / 180;
-	const a = C * Math.cos(h);
-	const b = C * Math.sin(h);
-	const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-	const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-	const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
-	const r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
-	const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
-	const bl = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s;
-	return [clamp01(toGamma(r)), clamp01(toGamma(g)), clamp01(toGamma(bl))];
-}
-
-/** OKLCH hue in degrees (0..360) of straight sRGB 0..1. */
-export function srgbHue(r: number, g: number, b: number): number {
-	const lr = toLin(r), lg = toLin(g), lb = toLin(b);
-	const l = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
-	const m = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
-	const s = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
-	const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
-	const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
-	const deg = (Math.atan2(B, A) * 180) / Math.PI;
-	return deg < 0 ? deg + 360 : deg;
-}
-
-/** Hue of a palette entry stored as 0xAABBGGRR. */
-export function paletteHue(entry: number): number {
-	return srgbHue((entry & 255) / 255, ((entry >>> 8) & 255) / 255, ((entry >>> 16) & 255) / 255);
-}
-
-/** The article accent oklch(0.78 0.14 hue) as straight sRGB. */
-export const accentSrgb = (hueDeg: number): [number, number, number] => oklchToSrgb(0.78, 0.14, hueDeg);
 
 /** CSS cubic-bezier easing (the 480 ms enter curve is .2,.7,.2,1): x -> y, Newton with a bisection fallback. */
 export function cubicBezier(x1: number, y1: number, x2: number, y2: number): (t: number) => number {

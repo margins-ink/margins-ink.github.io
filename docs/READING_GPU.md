@@ -92,7 +92,7 @@ the mirror link at the same index gets focus or `aria-activedescendant` so scree
 ## Colour and typography (lane C): independent of the above
 
 OKLCH token table in one place (`src/lib/reading/theme.ts`): ground (deep tinted near-black, not #000), three elevations (code panel, figure card, popover), text ramp (primary about L0.93, secondary, tertiary all >= 4.5:1 on their ground,
-large text 3:1), accent per article hue and tint family, a dark-designed syntax palette (distinct hue families for keyword, function, type, string, number, constant, comment (about 4.5:1), operator, punctuation, attribute/macro, lifetime, property).
+large text 3:1), one accent and one ground for every article (no per-article hue or tint), a dark-designed syntax palette (distinct hue families for keyword, function, type, string, number, constant, comment (about 4.5:1), operator, punctuation, attribute/macro, lifetime, property).
 A custom Shiki (TextMate grammars, build time) theme generated from the tokens replaces `github-dark`. Contrast test computes every token on its real ground and fails below threshold, with a planted-bug control (old palette). Code blocks: elevated panel, 1px hairline,
 rounded corners, language label, copy affordance (drawn by lane U), line height 1.6; ligatures `::` stays two separate colons (splice shaping at `::`), other font ligatures (`->`, `=>`, `!=`, `<=`) as the font draws them.
 Headings Inter, tracking 0 to -0.01em, no condensed wdth axis for H2/H3.

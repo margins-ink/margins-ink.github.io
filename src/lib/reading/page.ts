@@ -23,7 +23,6 @@ const OVERLAY_FLOATS = 12;
 const MAX_UI_GLYPHS = 4096;
 const UI_FLOATS = 12;
 const MIN_BUF_BYTES = 1 << 20;
-const GLOW_ALPHA = 0.07;
 
 // ---- pure helpers (tested without a GPU) ----------------------------------------------------------
 
@@ -129,17 +128,16 @@ export function blockSpan(f: Pick<PageFrame, 'visFirst' | 'visCount' | 'only'>, 
 	return [lo, Math.max(lo, hi)];
 }
 
-/** Pack the frame uniform (FRAME_VEC4 vec4f). `glow` is the ambient accent centre in document em (the hero), or null. */
-export function packFrame(f: PageFrame, canvasW: number, encode: boolean, hdrCap: number, glow: { x: number; y: number } | null, out = new Float32Array(FRAME_VEC4 * 4)): Float32Array {
+/** Pack the frame uniform (FRAME_VEC4 vec4f). */
+export function packFrame(f: PageFrame, canvasW: number, extended: boolean, hdrCap: number, out = new Float32Array(FRAME_VEC4 * 4)): Float32Array {
 	const s = canvasW / f.viewW;
-	const k = glow ? GLOW_ALPHA * Math.min(1, Math.max(0, 1 - f.scrollPx / (1.2 * f.viewH))) : 0;
 	out.set([
 		f.viewW, f.viewH, s, f.emPx,
 		f.originX, f.originY - f.scrollPx, f.foldClipEm, f.foldFadeEm,
-		1 / (f.emPx * s), encode ? 1 : 0, hdrCap, f.time,
+		1 / (f.emPx * s), extended ? 2 : 1, hdrCap, f.time,
 		f.ground.x0, f.ground.y0, f.ground.x1, f.ground.y1,
-		f.ground.radius, f.groundA, f.hue, k,
-		glow ? f.originX + glow.x * f.emPx : 0, glow ? f.originY + glow.y * f.emPx - f.scrollPx : 0, 0.5 * Math.max(f.viewW, f.viewH), 0
+		f.ground.radius, f.groundA, 0, 0,
+		0, 0, 0, 0
 	]);
 	return out;
 }
@@ -246,7 +244,6 @@ class PageImpl implements PagePass {
 	onDirty: () => void = () => {};
 
 	private model: ReadingModel | null = null;
-	private hero: { x: number; y: number } | null = null;
 	private asm: Assembled | null = null;
 	private reader: GPUBuffer | null = null;
 	private img: GPUTexture;
@@ -380,8 +377,6 @@ class PageImpl implements PagePass {
 		this.readerBytes = size;
 		this.model = model;
 		this.asm = asm;
-		const hb = model.blocks.find((b) => b.kind === BlockKind.hero) ?? model.blocks[0];
-		this.hero = hb ? { x: (hb.x0 + hb.x1) / 2, y: (hb.y0 + hb.y1) / 2 } : null;
 		this.g0 = this.makeG0();
 		this.force = true;
 		void this.loadImages(my, imageUrls);
@@ -487,7 +482,7 @@ class PageImpl implements PagePass {
 			if (ik >= 0) {
 				const em = L.rect.w / Math.max(1e-6, L.em.x1 - L.em.x0);
 				const f2: PageFrame = { ...f, emPx: em, originX: L.rect.x - L.em.x0 * em, originY: 0, scrollPx: L.em.y0 * em - L.rect.y, foldClipEm: 1e9, groundA: 0 };
-				packFrame(f2, W, !this.extended, this.extended ? Math.max(1, f.hdrGain) : 1, null, this.frameData2);
+				packFrame(f2, W, this.extended, this.extended ? Math.max(1, f.hdrGain) : 1, this.frameData2);
 				dev.queue.writeBuffer(this.frameBuf2, 0, this.frameData2);
 				runs.push({ first: ik, count: 1, alpha: L.alpha, dy: 0, dx: 0, clipBlock: -1 });
 				lb = { rect: L.rect };
@@ -497,7 +492,7 @@ class PageImpl implements PagePass {
 
 		// per-frame writes: channels, frame uniform, run segments, figure list, overlays
 		dev.queue.writeBuffer(this.reader!, CHAN_BASE * 4, f.chans.buffer as ArrayBuffer, f.chans.byteOffset, Math.min(f.chans.length, CHAN_FLOATS) * 4);
-		packFrame(f, W, !this.extended, this.extended ? Math.max(1, f.hdrGain) : 1, this.hero, this.frameData);
+		packFrame(f, W, this.extended, this.extended ? Math.max(1, f.hdrGain) : 1, this.frameData);
 		dev.queue.writeBuffer(this.frameBuf, 0, this.frameData);
 		if (runs.length > this.segCap) {
 			this.segBuf.destroy();

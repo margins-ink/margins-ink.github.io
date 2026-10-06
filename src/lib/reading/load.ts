@@ -1,6 +1,5 @@
 // Fetch one article for a width class: the index (cached), the class bin and the shared fonts bin.
 import { unpackReading, type ReadingModel } from '../magazine/format';
-import { paletteHue } from './metrics';
 import { PAL2 } from '../magazine/format';
 
 export const CLASS_NAMES = ['wide', 'mid', 'narrow'] as const;
@@ -14,7 +13,7 @@ interface IndexArticle {
 }
 export interface MagazineIndex { version: number; fonts: string; articles: IndexArticle[]; images: IndexImage[] }
 
-export interface ArticleMeta { title: string; dek: string; date: string; wordsBrief: number; wordsFull: number; opensFull: boolean; hue: number; wdth: number; wght: number; refs: { id: string; title: string; url: string }[] }
+export interface ArticleMeta { title: string; dek: string; date: string; wordsBrief: number; wordsFull: number; opensFull: boolean; wdth: number; wght: number; refs: { id: string; title: string; url: string }[] }
 export interface LoadedArticle {
 	slug: string;
 	widthClass: number;
@@ -79,7 +78,6 @@ export async function loadArticle(slug: string, widthClass: number): Promise<Loa
 		meta: {
 			title: a.title, dek: a.dek ?? '', date: a.date ?? '',
 			wordsBrief: a.briefWords ?? a.wordsBrief ?? 0, wordsFull: a.fullWords ?? a.wordsFull ?? 0, opensFull: !!a.opensFull,
-			hue: paletteHue(model.palette[PAL2.accent] ?? 0xffffffff),
 			wdth: a.wdth ?? 80, wght: a.wght ?? 600, refs: a.refs ?? []
 		}
 	};

@@ -92,3 +92,11 @@ The room is declared in Flecs script and packed by `world/src/export.rs`; `bun r
 - Page-pass lightbox: a second frame uniform buffer and bind group (`g1b`) with `emPx`, origin and scroll chosen so the image's document box maps to the target px rect; the run for the image item sits after the main runs in the same segment buffer.
 - Overlay alpha below 1 on the top bar lets article text show through behind the title; the bar is opaque.
 - Hands-off rules: lanes commit nothing and run nothing; the root rebuilds wasm (`bun run build:world`) and the magazine (`bun scripts/magazine/build.ts --preview`, deterministic: a second run gives the same hashed file names) once.
+
+## One colour, figure contrast, HDR encode (2026-10-06)
+
+- ONE colour system (theme.ts `THEME`): no per-article hue, tint, glow or gradient; the ground shader reads GROUND_WGSL constants. Never reintroduce `themeFor(h)` or a `hue` uniform.
+- The extended float16 canvas (matchMedia dynamic-range: high, Andrew's XDR display) is gamma-encoded extended sRGB: the page shader must apply `pg_srgb_enc` on both canvas kinds. Writing linear there gave a black ground, invisible grey bars and a saturated blue (#5777f7 for accent). Headless repro: `Page.addScriptToEvaluateOnNewDocument` overriding `matchMedia` for `dynamic-range: high` before load (Emulation.setEmulatedMedia does not support it). Always screenshot with and without it after a shader or palette edit.
+- Figure colours are palette names only; `fig/contrast.ts` (`figureContrast`) runs in `buildFigures` and in `scripts/magazine/tests/fig.test.ts` over every article's figures.ts (shapes 1.5:1, strokes and text 4.5:1, labels 4.5:1 on their fill) with a planted old-neutral control. Neutrals: L 0.50 / 0.38 / 0.32 (0.15 was the ground itself, invisible).
+- Scrub cursor: the OS cursor via data-URI SVG (`scrubCursor` in reader.ts), only for `FigureMode.scrub`; the drag readout is an overlay pill plus UI glyphs. Never a GPU-drawn follower.
+- Narrow screens (390 px) shrink a 36 em figure to about 9 px per em: labels read small. A narrow-specific figure layout is the proper fix and is not done.

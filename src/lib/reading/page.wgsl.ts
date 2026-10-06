@@ -3,14 +3,15 @@
  * spread shader (Slug glyph coverage, groups, strokes, shapes, paths, numerals, rects, images) copied out of
  * src/lib/gpu/room/magazine.wgsl.ts and generated from the RDR3 SCHEMA the same way, plus four render passes:
  *
- *   vs_ground / fs_ground   full screen triangle: page ground (theme.ts GROUND: tinted near-black, vertical gradient), ambient accent radial, rounded rect clip
+ *   vs_ground / fs_ground   full screen triangle: page ground (theme.ts GROUND: one flat tinted near-black), rounded rect clip
  *   vs_text / fs_text       instanced quads over a contiguous range of the items table (glyph, rect, image words)
  *   vs_fig / fs_fig         one instanced quad per visible figure block, items found through the figure cell grid
  *   vs_ovl / fs_ovl         instanced rounded rectangles (UI overlays)
  *   vs_ui / fs_ui           instanced UI glyph quads (same union glyph table and slug_cov coverage as the article text)
  *
  * Output is premultiplied alpha, blend one / one-minus-src-alpha. On an 8 bit canvas the shader gamma-encodes (blending in
- * display space like CSS text); on the extended range float16 canvas it writes linear values.
+ * display space like CSS text); the extended range float16 canvas is extended sRGB, which is also gamma encoded (values above 1 allowed), so it
+ * gets the same encode; writing linear there shows every colour about two stops too dark and too saturated (fixed 2026-10-06, found on an XDR display).
  *
  * Bindings: group 0 = reader storage buffer (6), image texture array (27), sampler (28); group 1 = frame uniform (0),
  * dynamic per-draw segment uniform (1), figure instance list (2), overlay list (3), UI glyph list (4).
@@ -680,10 +681,10 @@ ${PAGE_EVAL_WGSL}
 // Frame uniform (all vec4f):
 //   v0 = (css viewport w, css viewport h, device px per css px, css px per em)
 //   v1 = (css x of doc x = 0, css y of doc y = 0 at this frame (scroll applied), fold clip y em, fold fade em)
-//   v2 = (em per device px, encode to display space 1 | linear 0, hdr cap, time)
+//   v2 = (em per device px, canvas 1 = 8 bit | 2 = extended float16 (both gamma encoded; 2 skips the dither), hdr cap, time)
 //   v3 = ground rect (x0 y0 x1 y1 css px)
-//   v4 = (ground corner radius css px, ground alpha, hue degrees, ambient strength 0..0.07)
-//   v5 = (ambient centre x css px, y css px, radius css px, unused)
+//   v4 = (ground corner radius css px, ground alpha, unused, unused)
+//   v5 = unused
 struct FrameU { v0: vec4f, v1: vec4f, v2: vec4f, v3: vec4f, v4: vec4f, v5: vec4f };
 // per draw, dynamic offset: first item of the run, block opacity, block dy and dx in css px (dx > 0 moves the content left)
 struct SegU { first: u32, pad0: u32, alpha: f32, dy: f32, dx: f32, pad1: f32, pad2: f32, pad3: f32 };
@@ -705,7 +706,7 @@ fn pg_fold(y: f32) -> f32 { return saturate((fu.v1.z - y) / max(fu.v1.w, 1e-4));
 // straight linear colour and alpha to the premultiplied output
 fn pg_out(rgb: vec3f, a: f32) -> vec4f {
   var c = rgb;
-  if (fu.v2.y > 0.5) { c = pg_srgb_enc(c); }
+  c = pg_srgb_enc(c);
   return vec4f(c * a, a);
 }
 fn pg_hash(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453); }
@@ -865,16 +866,10 @@ fn pg_rrect_sd(p: vec2f, a: vec2f, b: vec2f, radius: f32) -> f32 {
   let cov = saturate(0.5 - sd * fu.v0.z);
   let ga = fu.v4.y * cov;
   if (ga <= 0.0) { discard; }
-  // ground: a soft vertical gradient of the tinted near-black (theme.ts GROUND), lighter at the top of the viewport
-  let gt = saturate((css.y - fu.v3.y) / max(fu.v3.w - fu.v3.y, 1.0));
-  let bg = pg_oklch(mix(${GROUND_WGSL.top}, ${GROUND_WGSL.bottom}, gt), ${GROUND_WGSL.chroma}, fu.v4.z);
-  let acc = pg_oklch(${GROUND_WGSL.accentL}, ${GROUND_WGSL.accentC}, fu.v4.z);
-  let d = length(css - fu.v5.xy) / max(fu.v5.z, 1.0);
-  let glow = 1.0 - smoothstep(0.0, 1.0, d);
-  var col = mix(bg, acc, fu.v4.w * glow);
-  if (fu.v2.y > 0.5) {
-    col = pg_srgb_enc(col) + vec3f((pg_hash(pos.xy) + pg_hash(pos.yx + 17.0) - 1.0) / 255.0);
-  }
+  // ground: ONE flat tinted near-black (theme.ts GROUND, TINT_HUE), identical on every page and at every scroll position
+  var col = pg_oklch(${GROUND_WGSL.L}, ${GROUND_WGSL.chroma}, ${GROUND_WGSL.hue});
+  col = pg_srgb_enc(col);
+  if (fu.v2.y < 1.5) { col += vec3f((pg_hash(pos.xy) + pg_hash(pos.yx + 17.0) - 1.0) / 255.0); } // dither only the 8 bit canvas
   return vec4f(col * ga, ga);
 }
 

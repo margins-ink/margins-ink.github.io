@@ -71,11 +71,11 @@ describe('fonts', () => {
 });
 
 describe('palette', () => {
-	test('every voice hue passes gamut and contrast', () => {
-		for (const v of VOICES) checkPalette(v.hue);
+	test('the palette passes gamut and contrast', () => {
+		checkPalette();
 	});
 	test('buildPalette is 32 words and deterministic', () => {
-		const a = buildPalette(265), b = buildPalette(265);
+		const a = buildPalette(), b = buildPalette();
 		expect(a.length).toBe(32);
 		expect(Array.from(a)).toEqual(Array.from(b));
 	});
@@ -86,9 +86,9 @@ describe('palette', () => {
 		expect(fitChroma(0.5, 0.05, 265)).toBe(0.05);
 	});
 	test('planted controls: a clipped entry and a low-contrast ink must fail', () => {
-		const p = paletteEntries(265);
-		expect(() => checkPalette(265, { ...p, accent: [1.2, -0.1, 0.5] })).toThrow(/gamut/);
-		expect(() => checkPalette(265, { ...p, ink: [0.6, 0.6, 0.6] })).toThrow(/contrast/);
+		const p = paletteEntries();
+		expect(() => checkPalette({ ...p, accent: [1.2, -0.1, 0.5] })).toThrow(/gamut/);
+		expect(() => checkPalette({ ...p, ink: [0.6, 0.6, 0.6] })).toThrow(/contrast/);
 		expect(contrast([0, 0, 0], [1, 1, 1])).toBeCloseTo(21, 5);
 	});
 });
@@ -96,12 +96,12 @@ describe('palette', () => {
 describe('voices', () => {
 	test('table is valid; ifd matches the doc', () => {
 		checkVoices();
-		expect(voiceFor('ifd')).toMatchObject({ hue: 265, wdth: 80, wght: 600 });
+		expect(voiceFor('ifd')).toMatchObject({ wdth: 80, wght: 600 });
 	});
-	test('controls: unknown slug, out-of-range axis and a duplicate combo fail', () => {
+	test('controls: unknown slug, out-of-range axis and a duplicate slug fail', () => {
 		expect(() => voiceFor('nope')).toThrow();
 		expect(() => voiceFor('ifd', { wdth: 60 })).toThrow();
 		const x = VOICES[0];
-		expect(() => checkVoices([x, { ...x, slug: 'other' }])).toThrow(/shares/);
+		expect(() => checkVoices([x, x])).toThrow(/duplicate/);
 	});
 });
