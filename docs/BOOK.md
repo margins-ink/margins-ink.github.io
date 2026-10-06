@@ -37,7 +37,7 @@ All time is `it.delta_time()` and every spring is the exact solution for any dt 
 ### Shader hand-off
 The page shader is the magazine lane's and gates the card on `rd0.x < 0.9`, so the exported `RS.t` keeps that contract: the card travels 0..0.899 while lifting and carrying; at the end of the carry the book enters Opening, `Hinge.pages` becomes 1, `RS.t` becomes `0.9 + 0.1 * hinge`, and the existing cover cross-fade is driven by the hinge spring (physical timing and a landing) instead of the old fly-in. The card is parked by `RS.cardOn` (was `t > 0.995`). The end pose of the card is the old reading pose (centre, half size, no rotation), so geometry matches what shipped.
 
-Known limit (needs the magazine lane, not done here): a true hinged cover with thickness needs `page_trace` to take the hinge angle (`RS.hinge`) and curl (`RS.curl`) and draw the cover board as a turning leaf; the slots are exported (43, 49) and `book.rs` models `Part` prefabs (CoverFront, CoverBack, Spine, PageBlock, FlutterSheet) with follow-springs (`PartAngle`, slots 52..55) ready for it. Until then the opening is the existing cover cross-fade timed by the hinge.
+The hinged cover is implemented: `page_trace` traces the cover board (`mg_cover` in magazine.wgsl.ts, thickness `MG_COVER_T`) swung by `RS.hinge`, active while `rd4.z` (cover) is 1 and hinge < 0.9995; the sheets behind it show past 90 degrees, with key-light shadow and strip AO (`mg_cover_vis`). The page gate is `rd0.x < 0.8995` (the carry caps t at 0.899, a lower gate flashes the spread).
 
 ### Flecs model (world/src/book.rs)
 - Singletons: `BookRig`, `ReadPose`, `BookEvents`. Tags: `WantOpen` (intent), `BookActive` (the one simulated book; every system filters on it, so shelf books cost nothing).
@@ -60,6 +60,5 @@ Known limit (needs the magazine lane, not done here): a true hinged cover with t
 6. Check the article does not render at the low shelf resolution during the lift (the render path switches to reading at the click; `rdPix` is raised after the load).
 
 ## 4. Risks
-- The hinge is still the old cross-fade (see "Known limit"): the real hinged cover and first-spread fan need `page_trace` to read `RS.hinge`.
 - Exact Flecs API forms were written from the repo's existing patterns without a compile.
 - Tuning numbers (`BookRig`) are first guesses; the fast loop is to edit `BookRig::default()`, rebuild the wasm, and look.

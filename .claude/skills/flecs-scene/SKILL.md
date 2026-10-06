@@ -47,3 +47,17 @@ The room is declared in Flecs script and packed by `world/src/export.rs`; `bun r
 - Cab-list hit distances are measured from the eye, room hits from the front plane (offset tp); subtract tp before comparing.
 - A WebGPU page that never reaches "room: lightmap texels" with `requestDevice` pending means the browser GPU process is wedged (Dia/Chrome GPU helper at 100%+ CPU for an hour), not a code bug: close leaked localhost tabs, kill the `--type=gpu-process` helper, retry. Screenshot tools must close their tabs.
 - Failed pipeline setup returned null silently; room.ts now logs `room: pipeline setup failed`.
+
+
+## Traps learned (hinged cover, elevator, testing; 2026-10-06)
+
+- A WGSL edit that references an undefined name makes the whole pipeline fail and `/` goes black. Shot-check `/` and `/thoughts/ifd` after every shader edit; init failures now log `console.error` (`room:` / `world:` prefix).
+- Page gate is `rd0.x < 0.8995`: the carry caps book t at 0.899, so a gate at 0.899 flashes the full spread at the carry end.
+- Reading-pose shading is one deterministic sample with no denoise: any new light term must be noise-free (the cover uses 6 fixed taps).
+- Shared `LS` stride: index `lvl[level * LS + 1u]`, never a literal stride.
+- Elevator CabSeam (role 10) produced the white vertical line through the door gap; it was deleted. A thin bright slab between doors is the first suspect for such a line.
+- Opening a second article while one is open snapped every channel: `openArticle` now closes first and polls `RS.phase === 0` before opening. A click during carry reverses the book (continuous), it does not redirect.
+- Edit files with python, not BSD `sed` (this Mac). Open a book in tests by waiting for `a.spot` (created once the lens is above 0.97), with timeouts.
+- Detent tests: scroll needs about 500 ms before polling for rest. Latch/detent result 14/14 at random offsets.
+- DEV probes in room.ts: `__dbg` (`hinge` override, `timeScale`, `audio` event log), `__rs()`, `__book()`; use timeScale for frame-by-frame strips.
+- CDP testing runs in a separate headless Chrome, never Andrew's browser: `chrome --headless=new --remote-debugging-port=9333 --user-data-dir=/Volumes/Projects/tmp/chrome-cdp --enable-unsafe-webgpu --use-angle=metal`; scripts read `CDP_PORT` (default 9333). Kill it when done.
