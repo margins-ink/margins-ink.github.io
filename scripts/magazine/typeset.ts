@@ -788,7 +788,6 @@ function kpItems(env: Env, seg: Seg, o: BreakOpts): Item[] {
 	seg.words.forEach((w, wi) => {
 		if (wi > 0) {
 			const g = seg.gaps[wi - 1];
-			items.push({ t: 'pen', w: 0, p: INF } as Item);
 			items.push({ t: 'glue', w: g.w, stretch: o.justify ? g.w * 0.48 : 0, shrink: o.justify ? g.w * 0.32 : 0, text: ' ', gap: g.items } as KGlue);
 		}
 		const cuts = cutsOf(w.items, o.hyphenator ?? null);

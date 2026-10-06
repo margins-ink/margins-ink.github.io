@@ -6,7 +6,7 @@ import { template } from '../../../src/lib/magazine/types';
 // diagrams fr (11), captions 3, quote 7, folio 4 = 35.
 export const duo = template('duo', {
 	cols: 12,
-	rows: ['3b', '7b', 'fr', '3b', '7b', '4b'],
+	rows: ['3b', '7b', 'fr', '7b', '6b', '4b'],
 	areas: `
     . . . . . . | . . . . . .
     H H H H H H | D D D D D D
@@ -28,7 +28,7 @@ export const duo = template('duo', {
 	fit: { tracking: [-0.005, 0.005], leading: [0.98, 1.02], maxStretch: 1 },
 	narrow: {
 		cols: 6,
-		rows: ['3b', '5b', '5b', 'fr', '2b', 'fr', '2b', '5b', '4b'],
+		rows: ['3b', '5b', '5b', 'fr', '5b', 'fr', '5b', '5b', '4b'],
 		areas: `
     . . . . . .
     H H H H H H

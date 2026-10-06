@@ -120,7 +120,7 @@ const DISPLAY = GlyphFlag.display;
 
 let figureSerial = 0;
 /** Place a figure's art inside `rect` (contain, centred), numbering its figure record. */
-function figureInto(w: Writer, art: FigureArt, rect: Rect, maxScale = 1.15) {
+function figureInto(w: Writer, art: FigureArt, rect: Rect, maxScale = 3) {
 	const [fw, fh] = art.size;
 	const s = Math.min((rect.x1 - rect.x0) / fw, (rect.y1 - rect.y0) / fh, maxScale);
 	const dx = rect.x0 + ((rect.x1 - rect.x0) - fw * s) / 2, dy = rect.y0 + ((rect.y1 - rect.y0) - fh * s) / 2;
