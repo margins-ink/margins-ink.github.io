@@ -17,7 +17,7 @@
 	overflow: hidden;
 	color-scheme: dark;
 	color: var(--ink, oklch(0.93 0.008 var(--hue)));
-	background: var(--bg, oklch(0.165 0.012 var(--hue)));
+	background: var(--bg, oklch(0.15 0.014 var(--hue)));
 	font-family: Inter, system-ui, sans-serif;
 	font-synthesis: none;
 	-webkit-font-smoothing: antialiased;
@@ -144,13 +144,13 @@
 /* ==== chrome (chrome lane): bar, toc, Aa menu, popovers, lightbox, toast, copy button, figure strip ============ */
 /* One look, dark only. The palette of docs/READING.md section 2.2 as variables on .reader, driven by the article hue. */
 .reader {
-	--bg: oklch(0.165 0.012 var(--hue));
-	--surface: oklch(0.205 0.012 var(--hue));
-	--surface-2: oklch(0.245 0.014 var(--hue));
+	--bg: oklch(0.15 0.014 var(--hue)); /* theme.ts GROUND */
+	--surface: oklch(0.2 0.014 var(--hue)); /* ELEVATION.code */
+	--surface-2: oklch(0.23 0.015 var(--hue)); /* ELEVATION.card; popover is 0.26 */
 	--ink: oklch(0.93 0.008 var(--hue));
-	--ink-2: oklch(0.76 0.01 var(--hue));
-	--ink-3: oklch(0.64 0.012 var(--hue));
-	--hair: oklch(1 0 0 / 0.08);
+	--ink-2: oklch(0.78 0.009 var(--hue));
+	--ink-3: oklch(0.665 0.011 var(--hue));
+	--hair: oklch(0.93 0.008 var(--hue) / 0.11);
 	--accent: oklch(0.78 0.14 var(--hue));
 	--accent-2: oklch(0.74 0.11 calc(var(--hue) + 40));
 	--accent-wash: oklch(0.78 0.14 var(--hue) / 0.14);

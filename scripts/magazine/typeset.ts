@@ -3,6 +3,8 @@
 // and the Knuth-Plass paragraph path (typesetPara) used for prose and headings. Everything is em of the sheet,
 // y down, glyph y is the baseline. Moved from scripts/reader/layout.ts when the column reader was deleted.
 import { EXTRA_BIT, GlyphFlag, LinkKind, Pal, RectKind } from '../../src/lib/reader/format';
+import { PAL_EXT } from './palette';
+import { UNIT } from '../../src/lib/magazine/format';
 import { F, type FontSet, type GlyphTableBuilder } from '../reader/fonts';
 import type { Block, Run } from '../reader/parse';
 import { mathObject, type MathObj } from '../reader/math';
@@ -18,7 +20,10 @@ export const CLASSES: WidthClass[] = [
 ];
 export const LINE_H = 1.62;
 export const CODE_SIZE = 0.875;
-export const CODE_LH = 1.4;
+/** Code line pitch: 1.6 x CODE_SIZE (docs/READING.md 2.1), in em of the sheet. */
+export const CODE_LH = 1.6 * CODE_SIZE;
+/** Code panel: corner radius, the label row above the first line, and the top right corner kept free for the copy button (em). */
+export const CODE_PANEL = { radius: 0.6, padX: 0.95, padY: 0.9, labelRow: 0.62, labelSize: 0.7, copyW: 2.6, copyH: 1.9 } as const;
 
 // ---- sinks ---------------------------------------------------------------------------------------
 
@@ -192,7 +197,7 @@ export function makeSegs(env: Env, runs: Run[], bs: number, where: string, textP
 		const text = r.text ?? '';
 		if (!text) return;
 		const font = env.fonts.fonts[r.font];
-		const shaped = font.shape(text);
+		const shaped = font.shapeCode(text);
 		// a cluster per UTF-16 unit: glyph i is character i, so the breaker may hyphenate and hang punctuation by character
 		const oneToOne = shaped.length === text.length && shaped.every((g, i) => g.cluster === i);
 		const colour = colourOf(env, r.color);
@@ -532,13 +537,16 @@ function layoutList(env: Env, bl: Extract<Block, { t: 'list' }>, ctx: Ctx, where
 
 export function layoutCode(env: Env, bl: Extract<Block, { t: 'code' }>, ctx: Ctx): Blk {
 	const b = emptyBlk();
-	const padX = 0.8, padY = 0.8;
+	const { padX, padY } = CODE_PANEL;
 	const font = env.fonts.fonts[F.code];
+	// language label, top left of the panel (caption style, ink-3); its text precedes the source in the sink as a hung marker so copy and find never see it
+	const label = bl.lang && bl.lang !== 'text' ? bl.lang : '';
+	if (label) env.text.append(label + '\n');
 	const base0 = env.text.append(bl.source + '\n\n');
 	const pre = utf8Prefix(bl.source);
-	let y = padY;
+	let y = padY + (label ? CODE_PANEL.labelRow : 0);
 	let charBase = 0;
-	bl.lines.forEach((runs, li) => {
+	bl.lines.forEach((runs) => {
 		const text = runs.map((r) => r.text ?? '').join('');
 		const cols: Run['color'][] = [];
 		for (const r of runs) for (let k = 0; k < (r.text?.length ?? 0); k++) cols.push(r.color);
@@ -547,7 +555,7 @@ export function layoutCode(env: Env, bl: Extract<Block, { t: 'code' }>, ctx: Ctx
 		const ln: Ln = { yTop: y, yBot: y + lh, x0: ctx.x0 + padX, x1: ctx.x0 + padX, base, glyphs: [], off: base0 + pre[charBase], canBreakBefore: false };
 		let x = ctx.x0 + padX;
 		if (text) {
-			for (const g of font.shape(text)) {
+			for (const g of font.shapeCode(text)) {
 				const ch = text[g.cluster];
 				let adv = g.xAdvance * CODE_SIZE;
 				let fidx: number = F.code, gid = g.gid;
@@ -566,10 +574,26 @@ export function layoutCode(env: Env, bl: Extract<Block, { t: 'code' }>, ctx: Ctx
 		b.lines.push(ln);
 		y += lh;
 		charBase += text.length + 1;
-		void li;
 	});
-	b.h = y + padY;
-	b.rects.push({ x0: ctx.x0, x1: ctx.x0 + ctx.width, y0: 0, y1: b.h, colour: Pal.codeBg, kind: RectKind.codeBg, radius: 0.5 });
+	if (label && b.lines.length) {
+		const sans = env.fonts.fonts[F.sans];
+		const size = CODE_PANEL.labelSize;
+		const first = b.lines[0];
+		const pgs: PG[] = [];
+		let lx = ctx.x0 + padX;
+		const labelBase = padY * 0.5 + 0.42; // cap top sits half a pad below the panel edge
+		for (const g of sans.shape(label)) {
+			const gi = glyphIndex(env, F.sans, g.gid);
+			// glyph offsets point at the first source character: a click on the label lands at the start of the code, never in the hung label bytes
+			if (gi !== null) pgs.push({ x: lx + g.xOffset * size, y: labelBase, glyphId: gi, size, colour: PAL_EXT.ink3, flags: 0, off: first.off });
+			lx += g.xAdvance * size;
+		}
+		first.glyphs = [...pgs, ...first.glyphs];
+		first.markerLen = Buffer.byteLength(label) + 1;
+	}
+	b.h = Math.ceil((y + padY) / UNIT - 1e-6) * UNIT; // the panel fills its block: block heights round up to a unit
+	// exactly one codeBg rect, first: rounded panel; the page shader draws its 1px hairline (palette `rule`) on the same rect
+	b.rects.push({ x0: ctx.x0, x1: ctx.x0 + ctx.width, y0: 0, y1: b.h, colour: Pal.codeBg, kind: RectKind.codeBg, radius: CODE_PANEL.radius });
 	const n = b.lines.length;
 	b.lines.forEach((l, k) => (l.canBreakBefore = k >= 2 && n - k >= 2));
 	b.before = 0.5; b.after = 1.2;
@@ -614,7 +638,7 @@ export function layoutCodeGrid(env: Env, bl: Extract<Block, { t: 'code' }>, widt
 			const ln: Ln = { yTop: y, yBot: y + LINE_H, x0, x1: x0, base, glyphs: [], off: base0 + pre[charBase + a], canBreakBefore: false };
 			let x = x0;
 			if (piece.trim().length) {
-				for (const g of font.shape(piece)) {
+				for (const g of font.shapeCode(piece)) {
 					const ch = piece[g.cluster];
 					let gadv = g.xAdvance * CODE_SIZE;
 					let fidx: number = F.code, gid = g.gid;
@@ -636,7 +660,7 @@ export function layoutCodeGrid(env: Env, bl: Extract<Block, { t: 'code' }>, widt
 		charBase += text.length + 1;
 	}
 	b.h = y + (panel ? 0 : LINE_H * 0.25);
-	if (!panel) b.rects.push({ x0: 0, x1: width, y0: 0, y1: b.h, colour: Pal.codeBg, kind: RectKind.codeBg });
+	if (!panel) b.rects.push({ x0: 0, x1: width, y0: 0, y1: b.h, colour: Pal.codeBg, kind: RectKind.codeBg, radius: CODE_PANEL.radius });
 	return b;
 }
 

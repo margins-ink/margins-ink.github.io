@@ -232,7 +232,8 @@ export function flowArticle(inp: FlowInput): FlowOut {
 	const noted = new Set<string>();
 	const hasBrief = !!p.distill;
 	const total = p.blocks.filter((b) => b.t === 'heading' && b.depth === 2).length;
-	const dispRuns = (runs: Run[]): Run[] => runs.map((r) => (r.inlineCode ? r : { ...r, font: D, flags: r.flags | GlyphFlag.display, color: PAL2.heading }));
+	// h2: Inter 600 (opsz 28), tracking 0 (docs/READING.md 2.1); the condensed display voice stays on the hero
+	const headRuns = (runs: Run[]): Run[] => runs.map((r) => (r.inlineCode ? r : { ...r, font: F.head, color: PAL2.heading }));
 
 	// paragraph through the K-P breaker, ragged right; appends the paragraph text and a separator to the sink
 	const para = (runs: Run[], width: number, bs: number, lh: number, font: number): Blk => {
@@ -350,9 +351,9 @@ export function flowArticle(inp: FlowInput): FlowOut {
 		pg.place(lab, { kind: BlockKind.label, before: SP.s7, after: SP.s2, size: 0.8, font: LineFont.code, start: st, flags });
 		if (heading) {
 			const hs = env.text.len;
-			const hb = para(dispRuns(heading), W, headingSize, up(headingSize * 1.15), D);
+			const hb = para(headRuns(heading), W, headingSize, up(headingSize * 1.1), F.head);
 			if (id) hb.anchors.push({ id, y: 0 });
-			pg.place(hb, { kind: BlockKind.heading, level: 2, before: 0, after: SP.s3, size: headingSize, font: LineFont.display, start: hs, anchor: id, flags });
+			pg.place(hb, { kind: BlockKind.heading, level: 2, before: 0, after: SP.s3, size: headingSize, font: LineFont.bold, start: hs, anchor: id, flags });
 		}
 	};
 

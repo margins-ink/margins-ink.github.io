@@ -9,6 +9,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import YAML from 'yaml';
 import { codeToTokens } from 'shiki';
+import { readerTheme } from './shiki-theme';
 import { Pal, GlyphFlag } from '../../src/lib/reader/format';
 import { F } from './fonts';
 import { extractDirectives, directiveFromComment, parseDistill, bodyOf, type DirectiveEvent, type DistillBlock, type FigPlace } from '../magazine/parse-directives';
@@ -218,16 +219,19 @@ function normalise(runs: Run[]): Run[] {
 
 // ---- shiki ---------------------------------------------------------------------------------------
 
+/** Custom Shiki theme generated from the token table (shiki-theme.ts); tokens carry exactly the twelve SYNTAX hex colours. */
+const THEME = readerTheme();
+
 const LANG_ALIAS: Record<string, string> = { sh: 'bash', shell: 'bash', zsh: 'bash', js: 'javascript', ts: 'typescript', rs: 'rust', yml: 'yaml' };
 
 async function shikiRuns(ctx: Ctx, code: string, langIn: string, base: Style, block: boolean): Promise<Run[][]> {
 	const lang = LANG_ALIAS[langIn] ?? langIn;
 	let tokens;
 	try {
-		tokens = (await codeToTokens(code, { lang: lang || 'text', themes: { dark: 'github-dark' }, defaultColor: false })).tokens;
+		tokens = (await codeToTokens(code, { lang: lang || 'text', themes: { dark: THEME }, defaultColor: false })).tokens;
 	} catch (e) {
 		console.warn(`reader: shiki cannot highlight lang "${lang}" at ${ctx.file}; falling back to plain text`);
-		tokens = (await codeToTokens(code, { lang: 'text', themes: { dark: 'github-dark' }, defaultColor: false })).tokens;
+		tokens = (await codeToTokens(code, { lang: 'text', themes: { dark: THEME }, defaultColor: false })).tokens;
 	}
 	void block;
 	return tokens.map((line) =>

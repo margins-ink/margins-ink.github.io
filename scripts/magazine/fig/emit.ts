@@ -194,7 +194,7 @@ export function emitFigure(env: FigEnv, figId: string, spec: FigureSpec, cf: Com
 		const font = env.fonts.fonts[fi];
 		const out: { gid: number; fi: number; x: number; y: number }[] = [];
 		let w = 0;
-		for (const g of font.shape(text)) {
+		for (const g of font.shapeCode(text)) {
 			let gid = g.gid, f = fi, adv = g.xAdvance * size;
 			if (gid === 0 && text[g.cluster] !== ' ') {
 				const cp = text.codePointAt(g.cluster)!;

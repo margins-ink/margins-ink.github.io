@@ -74,11 +74,13 @@ export const FONT_SPECS: FontSpec[] = [
 	{ name: 'Noto Emoji 400', file: 'NotoEmoji.ttf', variations: { wght: 400 }, features: ['kern'], defaultInstance: false },
 	{ name: 'Instrument Sans wdth 80 wght 600', file: 'InstrumentSans.ttf', variations: { wdth: 80, wght: 600 }, features: ['kern', 'liga'], defaultInstance: false },
 	// coverage fallback for glyphs the mono family lacks (box drawing, maths): Fira Code is OFL, vendored, and has the same 0.6 em advance as Berkeley Mono
-	{ name: 'Fira Code 400', file: 'FiraCode.ttf', variations: { wght: 400 }, features: ['kern'], defaultInstance: false }
+	{ name: 'Fira Code 400', file: 'FiraCode.ttf', variations: { wght: 400 }, features: ['kern'], defaultInstance: false },
+	// section headings (h2): Inter 600 at its display optical size, tracking 0, never the condensed Instrument Sans axis (that voice is the hero's)
+	{ name: 'Inter 600 opsz 28', file: 'Inter.ttf', variations: { wght: 600, opsz: 28 }, features: INTER, defaultInstance: false }
 ];
 // Indices into FONT_SPECS. `sans` is the label face (Inter 500); `display` is the default display instance;
 // per-article display instances are appended by FontSet.display().
-export const F = { body: 0, italic: 1, bold: 2, sans: 3, code: 4, codeBold: 5, emoji: 6, display: 7, fallback: 8 } as const;
+export const F = { body: 0, italic: 1, bold: 2, sans: 3, code: 4, codeBold: 5, emoji: 6, display: 7, fallback: 8, head: 9 } as const;
 /** Template font roles (src/lib/magazine/types.ts FontRole) to font index; display roles use FontSet.display(). */
 export const ROLE_FONT = { body: F.body, label: F.sans, code: F.code, display: F.display, pullquote: F.display, numeral: F.display } as const;
 /** Instrument Sans axis limits (METADATA.pb read 2026-10-06). */
@@ -144,6 +146,29 @@ export class LoadedFont {
 			gid: g.codepoint, cluster: g.cluster, xAdvance: pos[i].xAdvance / this.upem, xOffset: pos[i].xOffset / this.upem, yOffset: pos[i].yOffset / this.upem
 		}));
 		buf.destroy?.();
+		return out;
+	}
+
+	/**
+	 * Shape source code: like `shape`, but `::` stays two separate plain colons (Rust paths read as `a::b`, not as the font's merged two-cell glyph).
+	 * Each colon of a `::` is shaped alone (a colon next to `<` or another colon would otherwise still pick the ligature form, e.g. `::<T>`), the
+	 * text between pairs is shaped as one piece, so `->`, `=>`, `!=`, `<=`, `>=` and the rest are drawn as the font draws them. Clusters are offset
+	 * back into `text`. Fonts without ligatures shape in one call.
+	 */
+	shapeCode(text: string): Shaped[] {
+		if (!this.spec.ligatures || !text.includes('::')) return this.shape(text);
+		const out: Shaped[] = [];
+		const put = (from: number, to: number) => {
+			if (to > from) for (const g of this.shape(text.slice(from, to))) out.push({ ...g, cluster: g.cluster + from });
+		};
+		let at = 0;
+		for (let i = text.indexOf('::'); i >= 0; i = text.indexOf('::', at)) {
+			put(at, i);
+			put(i, i + 1);
+			put(i + 1, i + 2);
+			at = i + 2;
+		}
+		put(at, text.length);
 		return out;
 	}
 

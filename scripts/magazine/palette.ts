@@ -1,138 +1,65 @@
-// OKLCH palette per article hue (docs/MAGAZINE.md 3.2). Build time only: the world has one look (dark). Fail closed: `checkPalette` throws when an entry clips sRGB or a
-// contrast floor is missed. Chroma is capped per hue (`fitChroma`) so requested accents stay inside the gamut.
+// RDR palette per article hue (docs/MAGAZINE.md 3.2). Build time only: the world has one look (dark). Every number lives in src/lib/reading/theme.ts
+// (the token table); this file only maps tokens onto the 32 palette slots and fails closed: `checkPalette` throws when an entry clips sRGB or a contrast floor is missed.
 import { PAL2, PALETTE2_SIZE } from '../../src/lib/magazine/format';
+import { CONTRAST, SYNTAX_ORDER, contrast, inGamut, themeFor, toLinear, type Rgb } from '../../src/lib/reading/theme';
 
-export type Rgb = readonly [number, number, number]; // sRGB 0..1, gamma encoded
-export type Oklch = readonly [number, number, number]; // L 0..1, C, h degrees
+export {
+	contrast, fitChroma, fromRgb, inGamut, linearToOklch, luminance, oklchToLinear, over, toRgb,
+	type Oklch, type Rgb
+} from '../../src/lib/reading/theme';
 
 /** Slots the type lane adds beyond PAL2 (PAL2 is owned by the contract lane): text colour on a `field` block. */
 export const PAL_EXT = { fieldInk: 18, ink3: 19 } as const;
-/** First slot free for the compile lane's quantised syntax colours. */
+/** First slot free for the syntax colours: SYNTAX_ORDER[k] lives in slot PAL_SYNTAX_START + k (12 slots to the end of the palette). */
 export const PAL_SYNTAX_START = 20;
-
-// ---- OKLab (Ottosson 2020, public domain reference) ----------------------------------------------------
-
-const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-const toGamma = (c: number) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
-
-/** OKLCH to linear sRGB, unclamped (components outside [0,1] mean out of gamut). */
-export function oklchToLinear([L, C, h]: Oklch): [number, number, number] {
-	const a = C * Math.cos((h * Math.PI) / 180), b = C * Math.sin((h * Math.PI) / 180);
-	const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-	const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-	const s_ = L - 0.0894841775 * a - 1.291485548 * b;
-	const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
-	return [
-		4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-		-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-		-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
-	];
-}
-
-export function linearToOklch([r, g, b]: readonly [number, number, number]): Oklch {
-	const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
-	const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
-	const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-	const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
-	const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
-	const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
-	const deg = (Math.atan2(B, A) * 180) / Math.PI;
-	return [L, Math.hypot(A, B), deg < 0 ? deg + 360 : deg];
-}
-
-const EPS = 1e-4;
-export const inGamut = (lin: readonly number[]) => lin.every((c) => c >= -EPS && c <= 1 + EPS);
-
-/** Largest chroma <= C that keeps (L, c, h) inside sRGB (bisection). */
-export function fitChroma(L: number, C: number, h: number): number {
-	if (inGamut(oklchToLinear([L, C, h]))) return C;
-	let lo = 0, hi = C;
-	for (let i = 0; i < 24; i++) {
-		const mid = (lo + hi) / 2;
-		if (inGamut(oklchToLinear([L, mid, h]))) lo = mid; else hi = mid;
-	}
-	return lo;
-}
-
-export const toRgb = (c: Oklch): Rgb => oklchToLinear(c).map((v) => toGamma(Math.min(1, Math.max(0, v)))) as unknown as Rgb;
-export const fromRgb = (c: Rgb): Oklch => linearToOklch(c.map(toLinear) as unknown as [number, number, number]);
-export const luminance = (c: Rgb): number => { const [r, g, b] = c.map(toLinear); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
-/** WCAG 2 contrast ratio. */
-export function contrast(a: Rgb, b: Rgb): number {
-	const x = luminance(a), y = luminance(b);
-	return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
-}
-/** `fg` at `alpha` over `bg`, mixed in linear light. */
-export function over(fg: Rgb, bg: Rgb, alpha: number): Rgb {
-	return fg.map((v, i) => toGamma(toLinear(v) * alpha + toLinear(bg[i]) * (1 - alpha))) as unknown as Rgb;
-}
-
-// ---- the palette ---------------------------------------------------------------------------------------
+if (PAL_SYNTAX_START + SYNTAX_ORDER.length !== PALETTE2_SIZE) throw new Error('palette: the syntax table must fill the slots after PAL_SYNTAX_START exactly');
 
 export type PaletteEntries = Record<keyof typeof PAL2 | keyof typeof PAL_EXT, Rgb>;
 
-const wrap = (h: number) => ((h % 360) + 360) % 360;
-const ok = (L: number, C: number, h: number): Rgb => toRgb([L, fitChroma(L, C, h), h]);
-
-/** The palette for article hue `h`: the one look is dark (section 3.2 numbers, dark column). */
+/** The palette for article hue `h`: the one look is dark. */
 export function paletteEntries(h: number): PaletteEntries {
-	const paper = ok(0.165, 0.012, h);
-	const ink = ok(0.93, 0.008, h);
-	const accent = ok(0.76, 0.15, h);
-	const accent2 = ok(0.76, 0.12, wrap(h + 40));
-	const accentTint = over(accent, paper, 0.12);
-	const field = ok(0.3, 0.1, h);
-	const neutral = [0.45, 0.3, 0.15];
+	const t = themeFor(h);
 	return {
-		ink, link: accent, muted: ok(0.76, 0.008, h), heading: ink, rule: over(ink, paper, 0.18),
-		selection: over(accent, paper, 0.28), codeBg: ok(0.205, 0.012, h), quoteBar: accent,
-		accent, accent2, accentTint,
-		// text on an accent fill (an accent fill is L 0.76): deep ink
-		accentInk: ok(0.2, 0.01, h),
-		neutral1: ok(neutral[0], 0.01, h), neutral2: ok(neutral[1], 0.01, h), neutral3: ok(neutral[2], 0.01, h),
-		panel: ok(0.205, 0.012, h), field, paper,
-		// text on a `field` block (L 0.30)
-		fieldInk: ink,
-		// tertiary text (captions' labels, meta): ink-3
-		ink3: ok(0.62, 0.008, h)
+		ink: t.text.primary, link: t.accent, muted: t.text.secondary, heading: t.text.primary, rule: t.hairline.ground,
+		selection: t.selection, codeBg: t.surface.code, quoteBar: t.accent,
+		accent: t.accent, accent2: t.accent2, accentTint: t.accentTint, accentInk: t.accentInk,
+		neutral1: t.neutral[0], neutral2: t.neutral[1], neutral3: t.neutral[2],
+		panel: t.surface.card, field: t.field, paper: t.surface.ground,
+		fieldInk: t.text.primary, ink3: t.text.tertiary
 	};
 }
 
-/** Contrast floors (MAGAZINE.md 3.2 and 6 A5): body 9:1; graphics 3:1; text 4.5:1. */
+/** Contrast floors: body ink 9:1; text 4.5:1 on every surface; graphics 3:1 (the full per-token matrix is scripts/magazine/theme.test.ts). */
 export function checkPalette(h: number, p: PaletteEntries = paletteEntries(h)): void {
 	const fail = (m: string) => { throw new Error(`palette hue ${h}: ${m}`); };
 	for (const [name, c] of Object.entries(p)) {
-		const lin = c.map(toLinear);
-		if (!inGamut(lin)) fail(`${name} out of sRGB gamut`);
+		if (!inGamut(c.map(toLinear))) fail(`${name} out of sRGB gamut`);
 	}
 	const need = (what: string, a: Rgb, b: Rgb, min: number) => { const r = contrast(a, b); if (r < min) fail(`${what} contrast ${r.toFixed(2)} < ${min}`); };
-	need('ink on paper', p.ink, p.paper, 9);
-	need('muted on paper', p.muted, p.paper, 4.5);
-	need('link on paper', p.link, p.paper, 4.5);
-	need('ink3 on paper', p.ink3, p.paper, 4.5);
-	need('ink on panel', p.ink, p.panel, 9);
-	need('accent graphics on paper', p.accent, p.paper, 3);
-	need('accent2 graphics on paper', p.accent2, p.paper, 3);
-	need('accentInk on accent', p.accentInk, p.accent, 4.5);
-	need('fieldInk on field', p.fieldInk, p.field, 4.5);
+	need('ink on paper', p.ink, p.paper, CONTRAST.body);
+	need('muted on paper', p.muted, p.paper, CONTRAST.text);
+	need('link on paper', p.link, p.paper, CONTRAST.text);
+	need('ink3 on paper', p.ink3, p.paper, CONTRAST.text);
+	need('ink on code panel', p.ink, p.codeBg, CONTRAST.body);
+	need('ink3 on code panel', p.ink3, p.codeBg, CONTRAST.text);
+	need('ink3 on card', p.ink3, p.panel, CONTRAST.text);
+	need('accent graphics on paper', p.accent, p.paper, CONTRAST.graphic);
+	need('accent2 graphics on paper', p.accent2, p.paper, CONTRAST.graphic);
+	need('accentInk on accent', p.accentInk, p.accent, CONTRAST.text);
+	need('fieldInk on field', p.fieldInk, p.field, CONTRAST.text);
 	need('neutral1 on paper', p.neutral1, p.paper, 1.5);
 }
 
 const pack = (c: Rgb) => ((255 << 24) | (Math.round(c[2] * 255) << 16) | (Math.round(c[1] * 255) << 8) | Math.round(c[0] * 255)) >>> 0;
 
-/**
- * RDR2 palette section: PALETTE2_SIZE words, RGBA8 as 0xAABBGGRR. Slots 0..18 are filled;
- * `syntax` (compile lane) supplies slots PAL_SYNTAX_START.. , rest stay ink.
- */
-export function buildPalette(h: number, syntax: readonly Rgb[] = []): Uint32Array {
+/** RDR2 palette section: PALETTE2_SIZE words, RGBA8 as 0xAABBGGRR. Slots 0..19 from PAL2 and PAL_EXT, 20..31 the twelve syntax colours in SYNTAX_ORDER. */
+export function buildPalette(h: number): Uint32Array {
 	const out = new Uint32Array(PALETTE2_SIZE);
 	checkPalette(h);
 	const p = paletteEntries(h);
+	const t = themeFor(h);
 	out.fill(pack(p.ink));
 	for (const [name, i] of Object.entries({ ...PAL2, ...PAL_EXT })) out[i] = pack(p[name as keyof PaletteEntries]);
-	syntax.forEach((c, k) => {
-		if (PAL_SYNTAX_START + k >= PALETTE2_SIZE) throw new Error('palette: too many syntax colours');
-		out[PAL_SYNTAX_START + k] = pack(c);
-	});
+	SYNTAX_ORDER.forEach((k, i) => { out[PAL_SYNTAX_START + i] = pack(t.syntax[k]); });
 	return out;
 }
