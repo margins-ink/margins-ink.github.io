@@ -68,9 +68,10 @@ type Fields = readonly (readonly [string, FT])[];
 const SZ: Record<FT, number> = { f32: 4, u32: 4, i32: 4, u16: 2, i16: 2, u8: 1, f16: 2 };
 
 export const SCHEMA = {
+	// layer: 0 distilled, 1 full text (MAGAZINE.md 1.6); template: see templateId() in ./types
 	spread: [['x', 'f32'], ['w', 'f32'], ['h', 'f32'], ['template', 'u16'], ['gridCols', 'u8'], ['gridRows', 'u8'],
-		['firstItem', 'u32'], ['itemCount', 'u32'], ['firstCell', 'u32'], ['tone565', 'u16'], ['materialMask', 'u8'], ['accentIdx', 'u8'],
-		['firstLine', 'u32'], ['lineCount', 'u32']],
+		['firstItem', 'u32'], ['itemCount', 'u32'], ['firstCell', 'u32'], ['tone565', 'u16'], ['materialMask', 'u8'], ['accentIdx', 'u8'], ['layer', 'u8'],
+['firstLine', 'u32'], ['lineCount', 'u32']],
 	glyph: [['x', 'f32'], ['y', 'f32'], ['glyphId', 'u32'], ['size', 'f16'], ['colour', 'u8'], ['flags', 'u8'], ['charOffset', 'u32'], ['group', 'u16'], ['frame', 'u16']],
 	rect: [['x0', 'f32'], ['y0', 'f32'], ['x1', 'f32'], ['y1', 'f32'], ['colour', 'u8'], ['kind', 'u8'], ['group', 'u16']],
 	image: [['x0', 'f32'], ['y0', 'f32'], ['x1', 'f32'], ['y1', 'f32'], ['imageId', 'u16'], ['radius', 'u8'], ['pad', 'u8'], ['altOffset', 'u32']],
@@ -309,5 +310,43 @@ export function unpackMagazine(bytes: Uint8Array): MagazineModel {
 		lines: tbl(Sec2.lines, 'line'), links: tbl(Sec2.links, 'link'), anchors: tbl(Sec2.anchors, 'anchor'),
 		extra: { dir: u32v(Sec2.exDir), curves: u16v(Sec2.exCurves), bands: u32v(Sec2.exBands) },
 		text: sec(Sec2.text).bytes.slice(), strings: sec(Sec2.strings).bytes.slice(), palette: u32v(Sec2.palette).slice()
+	};
+}
+
+// ---- sample buffer -------------------------------------------------------------------------------
+
+/**
+ * A small valid model with one distilled spread (layer 0, `duo`) and one full text spread (layer 1,
+ * `text`): glyph, shape, stroke, group, numeral, one figure. For tests and for lanes that need bytes
+ * before the compiler exists. Template ids are templateId() from ./types (duo 0, text 4).
+ */
+export function sampleMagazine(): MagazineModel {
+	return {
+		widthClass: 0, emPx0: 16, spreadW: 80, spreadH: 56, sheetW: 40, marginOuter: 4.5, marginSpine: 3.5, gutter: 1.2,
+		cellW: 6, cellH: 1.6, plainTextBytes: 5,
+		spreads: [
+			{ x: 0, w: 80, h: 56, template: 0, gridCols: 1, gridRows: 2, firstItem: 0, itemCount: 4, firstCell: 0, tone565: 0xf79e, materialMask: 3, accentIdx: 8, layer: 0, firstLine: 0, lineCount: 1 },
+			{ x: 0, w: 80, h: 56, template: 4, gridCols: 1, gridRows: 2, firstItem: 4, itemCount: 0, firstCell: 2, tone565: 0xf79e, materialMask: 1, accentIdx: 8, layer: 1, firstLine: 1, lineCount: 0 }
+		],
+		cells: [{ start: 0, count: 4 }, { start: 4, count: 0 }, { start: 4, count: 0 }, { start: 4, count: 0 }],
+		items: [packItem(ItemType.glyph, 0), packItem(ItemType.shape, 0), packItem(ItemType.stroke, 0), packItem(ItemType.group, 0)],
+		glyphs: [{ x: 4.5, y: 4.8, glyphId: 0x80000001, size: 4.2, colour: 3, flags: 16, charOffset: 0, group: NONE16, frame: 2 }],
+		rects: [], images: [],
+		shapes: [{ x0: 8, y0: 3, x1: 18, y1: 7, kind: ShapeKind.rrect, colour: 8, colour2: 13, flags: 0, radius: 0.4, param: 0, group: 0, chan: 1, mixChan: NO_CHAN, aux: 0 }],
+		paths: [],
+		strokes: [{ firstSeg: 0, segCount: 1, width: 0.18, flags: 0, colour: 8, group: 0, dashOn: 0.6, dashOff: 0.4, phaseChan: 0, trimT0Chan: NO_CHAN, trimT1Chan: 2, widthChan: NO_CHAN, colour2: 0, mixChan: NO_CHAN }],
+		segs: [{ x0: 18, y0: 1, x1: 18, y1: 6, x2: 18, y2: 12, cum: 0, len: 11 }],
+		groups: [{ parent: -1, txChan: NO_CHAN, tyChan: NO_CHAN, rotChan: NO_CHAN, scaleChan: 3, opacityChan: NO_CHAN, tx: 0, ty: 0, rot: 0, scale: 1, opacity: 1, pivotX: 9, pivotY: 5 }],
+		numerals: [{ x: 60, y: 30, cellW: 6.5, size: 14, colour: 13, style: 1, digits: 3, digitSet: 0, chan: 4, group: NONE16 }],
+		digitSets: [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]],
+		chans: [{ firstKey: 0, keyCount: 2 }],
+		keys: [{ t: 0, v: 0, ease: 0 }, { t: 14, v: 72, ease: 5 }],
+		figures: [{ id: 0, firstChan: 0, chanCount: 1, mode: 0, duration: 14, poster: 11, alt: 6, describe: 12, x0: 0, y0: 0, x1: 72, y1: 26, spread: 0 }],
+		lines: [{ yTop: 4, yBot: 5.6, x0: 4.5, x1: 36, firstGlyph: 0, glyphCount: 1, charOffset: 0, frame: 2 }],
+		links: [{ x0: 4.5, y0: 4, x1: 9, y1: 5.6, kind: 1, offset: 3, spread: 0 }],
+		anchors: [{ idOffset: 0, spread: 1, y: 4 }],
+		extra: { dir: new Uint32Array(8), curves: new Uint16Array(8), bands: new Uint32Array(2) },
+		text: new TextEncoder().encode('Hello'), strings: new TextEncoder().encode('a\0b\0'),
+		palette: Uint32Array.from({ length: 2 * PALETTE2_SIZE }, (_, i) => 0xff000000 | i)
 	};
 }
