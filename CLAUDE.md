@@ -6,6 +6,10 @@ We use pnpm; NEVER use npm
 
 The page is the WebGPU render and nothing else. The DOM holds the document shell (`<title>`, description, canonical, Open Graph and Twitter tags from frontmatter via `src/lib/meta.ts`, favicon), one `<canvas>` per mode and, only when `navigator.gpu` is missing or init fails (or in `<noscript>`), one centered line "This site is drawn with WebGPU. Your browser can not run it yet." (`app.html`, `window.__gpuError`). Route `+page.svx` files are SOURCE for `scripts/magazine` and are compiled by `src/lib/frontmatter-preprocess.js` to their frontmatter only: SvelteKit never renders the body. Do not add DOM text, a hidden mirror, an `inert` fallback article or a no-WebGPU article path. The e2e check in `tests/e2e/reading/checks.ts` (section 4) fails on any text node or content element in the body. Cost (Andrew's explicit decision): screen readers, search-engine body indexing, Reader Mode and no-WebGPU clients get nothing.
 
+## Dev error overlay (agents: read this first when debugging a browser error)
+
+In `vite dev` only (`import.meta.env.DEV` in `+layout.svelte`; absent from the production bundle, verified by grep), `src/lib/dev/errors.ts` hooks console.error/warn, window error and unhandledrejection and shows a bottom-left DOM badge (click for the panel, Copy all/Clear/Dismiss). Every new error is also POSTed to `scripts/dev-errors.ts` which appends JSON lines to `/Volumes/Projects/tmp/site-browser-errors.log`: `tail` it before asking for the console. Call `reportError(source, err)` from `$lib/dev/errors` for anything not going through console.error.
+
 Make sure always use current date (get with CLI command)
 
 ## SvelteKit Patterns
