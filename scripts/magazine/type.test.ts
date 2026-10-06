@@ -2,13 +2,29 @@
 import { describe, expect, test } from 'bun:test';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { DISPLAY_AXES, F, FONT_SPECS, FontSet, GlyphTableBuilder, MAG_FONT_DIR, fontPath } from '../reader/fonts';
-import { buildPalette, checkPalette, contrast, fitChroma, inGamut, oklchToLinear, schemeEntries } from './palette';
+import { DISPLAY_AXES, F, FONT_SPECS, FontSet, GlyphTableBuilder, LoadedFont, MAG_FONT_DIR, MONO, fontPath } from '../reader/fonts';
+import { buildPalette, checkPalette, contrast, fitChroma, inGamut, oklchToLinear, paletteEntries } from './palette';
 import { VOICES, checkVoices, voiceFor } from './voices';
 
 const sha = (f: string) => crypto.createHash('sha256').update(fs.readFileSync(fontPath(f))).digest('hex');
 
 describe('fonts', () => {
+	test('the monospace slot substitutes every ligature sequence (build guard)', () => {
+		const set = new FontSet(); // the constructor runs checkLigatures on every ligature font
+		const mono = set.fonts[F.code];
+		expect(mono.spec.name).toContain(MONO.name);
+		for (const seq of ['=>', '->', '!=', '==', '<=', '::']) {
+			const on = mono.shape(seq), off = mono.shape(seq, [], ['liga', 'calt', 'clig']);
+			expect(on.map((g) => g.gid)).not.toEqual(off.map((g) => g.gid));
+			expect(on.map((g) => g.cluster)).toEqual([0, 1]); // clusters stay at character boundaries (selection and copy)
+			expect(on.every((g) => Math.abs(g.xAdvance - on[0].xAdvance) < 1e-6)).toBe(true); // monospace advances
+		}
+	});
+	test('control: a font that declares ligatures but does not substitute them fails the build', () => {
+		const inst = FONT_SPECS.find((s) => s.file === 'InstrumentSans.ttf')!;
+		const bad = new LoadedFont({ ...inst, ligatures: true });
+		expect(() => bad.checkLigatures()).toThrow(/same glyphs/);
+	});
 	test('stored bytes match SOURCE.md hashes', () => {
 		const src = fs.readFileSync(`${MAG_FONT_DIR}/SOURCE.md`, 'utf8');
 		for (const f of ['Inter.ttf', 'Inter-Italic.ttf', 'InstrumentSans.ttf', 'InstrumentSans-Italic.ttf']) expect(src).toContain(sha(f));
@@ -55,14 +71,13 @@ describe('fonts', () => {
 });
 
 describe('palette', () => {
-	test('every voice hue passes gamut and contrast in both schemes', () => {
-		for (const v of VOICES) for (const sc of ['light', 'dark'] as const) checkPalette(v.hue, sc);
+	test('every voice hue passes gamut and contrast', () => {
+		for (const v of VOICES) checkPalette(v.hue);
 	});
-	test('buildPalette is 64 words, deterministic, light differs from dark', () => {
+	test('buildPalette is 32 words and deterministic', () => {
 		const a = buildPalette(265), b = buildPalette(265);
-		expect(a.length).toBe(64);
+		expect(a.length).toBe(32);
 		expect(Array.from(a)).toEqual(Array.from(b));
-		expect(a[0]).not.toBe(a[32]);
 	});
 	test('fitChroma caps an out-of-gamut request and keeps an in-gamut one', () => {
 		const c = fitChroma(0.76, 0.4, 148);
@@ -71,9 +86,9 @@ describe('palette', () => {
 		expect(fitChroma(0.5, 0.05, 265)).toBe(0.05);
 	});
 	test('planted controls: a clipped entry and a low-contrast ink must fail', () => {
-		const p = schemeEntries(265, 'light');
-		expect(() => checkPalette(265, 'light', { ...p, accent: [1.2, -0.1, 0.5] })).toThrow(/gamut/);
-		expect(() => checkPalette(265, 'light', { ...p, ink: [0.6, 0.6, 0.6] })).toThrow(/contrast/);
+		const p = paletteEntries(265);
+		expect(() => checkPalette(265, { ...p, accent: [1.2, -0.1, 0.5] })).toThrow(/gamut/);
+		expect(() => checkPalette(265, { ...p, ink: [0.6, 0.6, 0.6] })).toThrow(/contrast/);
 		expect(contrast([0, 0, 0], [1, 1, 1])).toBeCloseTo(21, 5);
 	});
 });

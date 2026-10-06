@@ -15,12 +15,12 @@ import { extractDirectives, directiveFromComment, parseDistill, bodyOf, type Dir
 
 export const slugify = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
-/** A styled run of inline content. Colour is a palette index, or a shiki [light,dark] pair resolved later. */
+/** A styled run of inline content. Colour is a palette index, or a shiki dark-theme colour resolved later. */
 export interface Run {
 	text?: string;
 	font: number;
 	size: number; // relative to the block's em
-	color: number | { light: string; dark: string };
+	color: number | { dark: string };
 	flags: number; // GlyphFlag bits
 	href?: string;
 	inlineCode?: boolean;
@@ -59,7 +59,7 @@ export interface Parsed {
 	body: string;
 	/** the frontmatter `distill` block (MAGAZINE.md 1.7), shape-checked only */
 	distill?: DistillBlock;
-	/** every [light,dark] shiki colour pair used (for palette quantisation) with counts */
+	/** every shiki dark-theme colour used (for palette quantisation) with counts */
 	shikiPairs: Map<string, number>;
 }
 
@@ -224,21 +224,20 @@ async function shikiRuns(ctx: Ctx, code: string, langIn: string, base: Style, bl
 	const lang = LANG_ALIAS[langIn] ?? langIn;
 	let tokens;
 	try {
-		tokens = (await codeToTokens(code, { lang: lang || 'text', themes: { light: 'github-light', dark: 'github-dark' }, defaultColor: false })).tokens;
+		tokens = (await codeToTokens(code, { lang: lang || 'text', themes: { dark: 'github-dark' }, defaultColor: false })).tokens;
 	} catch (e) {
 		console.warn(`reader: shiki cannot highlight lang "${lang}" at ${ctx.file}; falling back to plain text`);
-		tokens = (await codeToTokens(code, { lang: 'text', themes: { light: 'github-light', dark: 'github-dark' }, defaultColor: false })).tokens;
+		tokens = (await codeToTokens(code, { lang: 'text', themes: { dark: 'github-dark' }, defaultColor: false })).tokens;
 	}
 	void block;
 	return tokens.map((line) =>
 		line.map((tk) => {
 			const st: any = tk.htmlStyle ?? {};
-			const light = st['--shiki-light'], dark = st['--shiki-dark'];
+			const dark = st['--shiki-dark'];
 			let color: Run['color'] = base.color;
-			if (light && dark) {
-				color = { light, dark };
-				const key = `${light}|${dark}`;
-				ctx.pairs.set(key, (ctx.pairs.get(key) ?? 0) + tk.content.length);
+			if (dark) {
+				color = { dark };
+				ctx.pairs.set(dark, (ctx.pairs.get(dark) ?? 0) + tk.content.length);
 			}
 			const r = textRun(tk.content, base);
 			r.color = color;

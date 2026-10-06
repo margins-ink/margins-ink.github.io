@@ -13,7 +13,7 @@ const mkBuilder = () => {
 
 const ctx = (): EmitContext => ({
 	widthClass: 0, sheetW: 40, marginOuter: 5, marginSpine: 4, gutter: 1.2, extra: mkBuilder(), union: mkBuilder(),
-	text: new TextEncoder().encode('hi'), strings: new Uint8Array([0]), palette: Uint32Array.from({ length: 2 * PALETTE2_SIZE }, (_, i) => 0xff000000 | (i * 0x010101)), digitSets: []
+	text: new TextEncoder().encode('hi'), strings: new Uint8Array([0]), palette: Uint32Array.from({ length: PALETTE2_SIZE }, (_, i) => 0xff000000 | (i * 0x010101)), digitSets: []
 });
 const meta = (layer: 0 | 1) => ({ layer, template: 0, w: 80, h: 56, materialMask: 1, accentIdx: PAL2.accent });
 

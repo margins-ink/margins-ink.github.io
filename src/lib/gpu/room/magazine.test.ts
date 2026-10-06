@@ -31,7 +31,7 @@ const model = (): MagazineModel => ({
 	lines: [], links: [], anchors: [],
 	extra: { dir: new Uint32Array(8), curves: new Uint16Array(8), bands: new Uint32Array(2) },
 	text: new TextEncoder().encode('Hello'), strings: new TextEncoder().encode('a\0'),
-	palette: Uint32Array.from({ length: 2 * PALETTE2_SIZE }, (_, i) => 0xff000000 | i)
+	palette: Uint32Array.from({ length: PALETTE2_SIZE }, (_, i) => 0xff000000 | i)
 });
 
 const fontsBin = () =>

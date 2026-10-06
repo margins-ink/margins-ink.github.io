@@ -13,11 +13,37 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 export const FONT_DIR = path.join(ROOT, 'docs/upstream/reader/fonts'); // Fira Code, Noto Emoji (and the retired Newsreader files)
 export const MAG_FONT_DIR = path.join(ROOT, 'docs/upstream/magazine/fonts'); // Inter, Instrument Sans (MAGAZINE.md 3.1)
 
-/** Absolute path of a font file: the magazine dir first, then the reader dir. */
+/** Commercial fonts (Berkeley Mono): gitignored, never committed, copied here by hand (docs/upstream/magazine/SOURCE.md, open item). */
+export const PRIVATE_FONT_DIR = path.join(ROOT, 'fonts-private');
+
+/** Absolute path of a font file: private dir, then the magazine dir, then the reader dir. */
 export function fontPath(file: string): string {
-	const m = path.join(MAG_FONT_DIR, file);
-	return fs.existsSync(m) ? m : path.join(FONT_DIR, file);
+	for (const d of [PRIVATE_FONT_DIR, MAG_FONT_DIR]) {
+		const m = path.join(d, file);
+		if (fs.existsSync(m)) return m;
+	}
+	return path.join(FONT_DIR, file);
 }
+
+/**
+ * The monospace family slot. ONE line to swap: change `MONO_FAMILY`. Berkeley Mono is commercial and lives in the gitignored
+ * fonts-private/ dir; when its files are absent (CI, a fresh clone) the slot falls back to Fira Code (OFL, vendored) with a warning,
+ * and a build that must be Berkeley passes MAGAZINE_REQUIRE_BERKELEY=1. Both shape ligatures through `calt`.
+ */
+export const MONO_FAMILY: 'berkeley' | 'fira' = 'berkeley';
+const MONO_FILES = {
+	berkeley: { name: 'Berkeley Mono', regular: 'BerkeleyMono-Regular.otf', bold: 'BerkeleyMono-Bold.otf', variations: [{}, {}] as Record<string, number>[], features: ['kern', 'liga', 'calt', 'clig'] },
+	fira: { name: 'Fira Code', regular: 'FiraCode.ttf', bold: 'FiraCode.ttf', variations: [{ wght: 400 }, { wght: 500 }] as Record<string, number>[], features: ['kern', 'liga', 'calt', 'clig'] }
+};
+function monoFamily() {
+	if (MONO_FAMILY === 'fira') return MONO_FILES.fira;
+	const f = MONO_FILES.berkeley;
+	if (fs.existsSync(path.join(PRIVATE_FONT_DIR, f.regular)) && fs.existsSync(path.join(PRIVATE_FONT_DIR, f.bold))) return f;
+	if (process.env.MAGAZINE_REQUIRE_BERKELEY) throw new Error(`Berkeley Mono missing from ${PRIVATE_FONT_DIR}`);
+	console.warn(`[fonts] ${f.name} not in ${PRIVATE_FONT_DIR}: falling back to ${MONO_FILES.fira.name}`);
+	return MONO_FILES.fira;
+}
+export const MONO = monoFamily();
 
 export interface FontSpec {
 	name: string;
@@ -26,7 +52,12 @@ export interface FontSpec {
 	features: string[]; // OpenType features switched on (value 1)
 	/** also usable as an opentype.js reference when the variations equal the font defaults */
 	defaultInstance: boolean;
+	/** the font declares programming ligatures (liga/calt); the build checks the sequences in LIGATURE_TESTS really substitute */
+	ligatures?: boolean;
 }
+
+/** Sequences every ligature font must substitute (the build fails if one shapes to the same glyphs with the features off). */
+export const LIGATURE_TESTS = ['=>', '->', '!=', '==', '<=', '::'];
 
 // One sans family (MAGAZINE.md direction 2026-10-06): Inter for body and UI, Instrument Sans for display.
 // Inter opsz 14 is the axis default (and what CSS opsz:auto gives at reading size). Inter has no `liga`
@@ -38,20 +69,22 @@ export const FONT_SPECS: FontSpec[] = [
 	{ name: 'Inter Italic 400', file: 'Inter-Italic.ttf', variations: { wght: 400, opsz: 14 }, features: INTER, defaultInstance: true },
 	{ name: 'Inter 600', file: 'Inter.ttf', variations: { wght: 600, opsz: 14 }, features: INTER, defaultInstance: false },
 	{ name: 'Inter 500', file: 'Inter.ttf', variations: { wght: 500, opsz: 14 }, features: INTER, defaultInstance: false },
-	{ name: 'Fira Code 400', file: 'FiraCode.ttf', variations: { wght: 400 }, features: ['kern', 'liga', 'calt'], defaultInstance: false },
-	{ name: 'Fira Code 500', file: 'FiraCode.ttf', variations: { wght: 500 }, features: ['kern', 'liga', 'calt'], defaultInstance: false },
+	{ name: `${MONO.name} 400`, file: MONO.regular, variations: MONO.variations[0], features: MONO.features, defaultInstance: false, ligatures: true },
+	{ name: `${MONO.name} bold`, file: MONO.bold, variations: MONO.variations[1], features: MONO.features, defaultInstance: false, ligatures: true },
 	{ name: 'Noto Emoji 400', file: 'NotoEmoji.ttf', variations: { wght: 400 }, features: ['kern'], defaultInstance: false },
-	{ name: 'Instrument Sans wdth 80 wght 600', file: 'InstrumentSans.ttf', variations: { wdth: 80, wght: 600 }, features: ['kern', 'liga'], defaultInstance: false }
+	{ name: 'Instrument Sans wdth 80 wght 600', file: 'InstrumentSans.ttf', variations: { wdth: 80, wght: 600 }, features: ['kern', 'liga'], defaultInstance: false },
+	// coverage fallback for glyphs the mono family lacks (box drawing, maths): Fira Code is OFL, vendored, and has the same 0.6 em advance as Berkeley Mono
+	{ name: 'Fira Code 400', file: 'FiraCode.ttf', variations: { wght: 400 }, features: ['kern'], defaultInstance: false }
 ];
 // Indices into FONT_SPECS. `sans` is the label face (Inter 500); `display` is the default display instance;
 // per-article display instances are appended by FontSet.display().
-export const F = { body: 0, italic: 1, bold: 2, sans: 3, code: 4, codeBold: 5, emoji: 6, display: 7 } as const;
+export const F = { body: 0, italic: 1, bold: 2, sans: 3, code: 4, codeBold: 5, emoji: 6, display: 7, fallback: 8 } as const;
 /** Template font roles (src/lib/magazine/types.ts FontRole) to font index; display roles use FontSet.display(). */
 export const ROLE_FONT = { body: F.body, label: F.sans, code: F.code, display: F.display, pullquote: F.display, numeral: F.display } as const;
 /** Instrument Sans axis limits (METADATA.pb read 2026-10-06). */
 export const DISPLAY_AXES = { wdth: [75, 100], wght: [400, 700] } as const;
 /** Fonts tried, in order, for a character the run's own font lacks. */
-const FALLBACKS = [F.code, F.emoji];
+const FALLBACKS = [F.code, F.fallback, F.emoji];
 
 export interface Shaped {
 	gid: number;
@@ -102,7 +135,8 @@ export class LoadedFont {
 		buf.addText(text);
 		buf.guessSegmentProperties();
 		buf.setClusterLevel(1 as any); // monotone graphemes: clusters stay at char granularity
-		const feats = [...this.features.filter((f) => !disable.includes(f.tag)), ...extraFeatures.map((t) => new hb.Feature(t, 1))];
+		// a disabled tag is set to 0 (not dropped): harfbuzz switches liga, calt and clig on by default
+		const feats = [...this.features.filter((f) => !disable.includes(f.tag)), ...disable.map((t) => new hb.Feature(t, 0)), ...extraFeatures.map((t) => new hb.Feature(t, 1))];
 		hb.shape(this.font, buf, feats);
 		const infos = buf.getGlyphInfos();
 		const pos = buf.getGlyphPositions();
@@ -111,6 +145,21 @@ export class LoadedFont {
 		}));
 		buf.destroy?.();
 		return out;
+	}
+
+	/**
+	 * Build-time guard for a font that declares ligatures: every sequence in LIGATURE_TESTS must shape to different glyphs with
+	 * liga/calt/clig on than off, else the font (or our feature list) silently renders N separate glyphs. Also checks that every
+	 * glyph keeps a cluster inside its sequence (selection and copy map glyphs back to characters through clusters).
+	 */
+	checkLigatures(): void {
+		if (!this.spec.ligatures) return;
+		for (const seq of LIGATURE_TESTS) {
+			const on = this.shape(seq), off = this.shape(seq, [], ['liga', 'calt', 'clig']);
+			const same = on.length === off.length && on.every((g, i) => g.gid === off[i].gid);
+			if (same) throw new Error(`${this.spec.name}: "${seq}" shapes to the same glyphs with ligatures on and off (${on.map((g) => g.gid).join(',')}); a ligature font must substitute it`);
+			if (on.some((g) => g.cluster < 0 || g.cluster >= seq.length)) throw new Error(`${this.spec.name}: "${seq}" has a cluster outside the string`);
+		}
 	}
 
 	outline(gid: number): Contour[] {
@@ -128,6 +177,10 @@ export class LoadedFont {
 
 export class FontSet {
 	fonts: LoadedFont[] = FONT_SPECS.map((s) => new LoadedFont(s));
+
+	constructor() {
+		for (const f of this.fonts) f.checkLigatures();
+	}
 	private displays = new Map<string, number>();
 
 	/**

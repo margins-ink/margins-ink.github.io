@@ -101,7 +101,7 @@ export const emptyBlk = (): Blk => ({ h: 0, lines: [], rects: [], images: [], li
 
 export interface Ctx { x0: number; width: number }
 
-export const colourOf = (env: Env, c: Run['color']) => (typeof c === 'number' ? c : env.shikiIdx.get(`${c.light}|${c.dark}`) ?? Pal.ink);
+export const colourOf = (env: Env, c: Run['color']) => (typeof c === 'number' ? c : env.shikiIdx.get(c.dark) ?? Pal.ink);
 
 // ---- words ----------------------------------------------------------------------------------------
 
@@ -552,7 +552,7 @@ function layoutCode(env: Env, bl: Extract<Block, { t: 'code' }>, ctx: Ctx): Blk 
 					const cp = text.codePointAt(g.cluster)!;
 					const fb = env.fonts.fallback(cp);
 					if (fb) { fidx = fb.font; gid = fb.gid; adv = fb.adv * CODE_SIZE; }
-					else env.missing.add(`Fira Code 400: U+${cp.toString(16).toUpperCase()} "${String.fromCodePoint(cp)}" (code block)`);
+					else env.missing.add(`${font.spec.name}: U+${cp.toString(16).toUpperCase()} "${String.fromCodePoint(cp)}" (code block)`);
 				}
 				const gi = glyphIndex(env, fidx, gid);
 				if (gi !== null) ln.glyphs.push({ x: x + g.xOffset * CODE_SIZE, y: base - g.yOffset * CODE_SIZE, glyphId: gi, size: CODE_SIZE, colour: colourOf(env, cols[g.cluster] ?? Pal.ink), flags: GlyphFlag.code, off: base0 + pre[charBase + g.cluster] });
@@ -619,7 +619,7 @@ export function layoutCodeGrid(env: Env, bl: Extract<Block, { t: 'code' }>, widt
 						const cp = piece.codePointAt(g.cluster)!;
 						const fb = env.fonts.fallback(cp);
 						if (fb) { fidx = fb.font; gid = fb.gid; gadv = fb.adv * CODE_SIZE; }
-						else env.missing.add(`Fira Code 400: U+${cp.toString(16).toUpperCase()} "${String.fromCodePoint(cp)}" (code block)`);
+						else env.missing.add(`${font.spec.name}: U+${cp.toString(16).toUpperCase()} "${String.fromCodePoint(cp)}" (code block)`);
 					}
 					const gi = glyphIndex(env, fidx, gid);
 					if (gi !== null) ln.glyphs.push({ x: x + g.xOffset * CODE_SIZE, y: base - g.yOffset * CODE_SIZE, glyphId: gi, size: CODE_SIZE, colour: colourOf(env, colours[a + g.cluster] ?? Pal.ink), flags: GlyphFlag.code, off: base0 + pre[charBase + a + g.cluster] });

@@ -18,7 +18,7 @@
  * Scene uniform fields (vec4f each, 24 floats from rd0; host fills them with writeRd in magazine.ts):
  *   rd0 = (k reading blend, magazine obj index or -1, em in metres, turn progress 0..1)
  *   rd1 = (spine world x, world y of the sheet top edge, spine plane z, turn dir -1 | 0 | +1)
- *   rd2 = (spread index shown, hover kind 0 link | 1 figure, hovered spread + 1 (0 none), dark 0|1)
+ *   rd2 = (spread index shown, hover kind 0 link | 1 figure, hovered spread + 1 (0 none), unused (the world has one look: dark))
  *   rd3 = hover rect in spread em (x0 y0 x1 y1)
  *   rd4 = (corner peel 0..1 or -1 for no corner, unused, unused, unused)
  *   rd5 = (bow radians, gutter shadow strength, paper gain, unused)
@@ -76,7 +76,6 @@ const MG_NONE16 = 0xffffu;
 const PAL_PAPER = 17u;
 
 // per-call state the host sets before spread_albedo (private, so the preview page can set it without the scene uniform)
-var<private> mg_dark: f32 = 0.0;
 var<private> mg_hov_spread: u32 = 0u;
 var<private> mg_hov_rect: vec4f = vec4f(0.0);
 var<private> mg_hov_kind: f32 = 0.0; // 0 link, 1 figure (scrubbable, drawn as a frame)
@@ -104,7 +103,7 @@ fn mg_cv(ci: i32, k: f32) -> f32 {
 }
 
 fn mg_pal(i: u32) -> vec4f {
-  let c = unpack4x8unorm(reader[reader[MH_PALETTE] + select(0u, 32u, mg_dark > 0.5) + (i & 31u)]);
+  let c = unpack4x8unorm(reader[reader[MH_PALETTE] + (i & 31u)]);
   return vec4f(pow(c.rgb, vec3f(2.2)), c.a);
 }
 fn mg_mixc(c1: u32, c2: u32, mixch: i32) -> vec4f {
@@ -446,7 +445,7 @@ fn mg_image(ix: u32, p0: vec2f, fw0: f32) -> vec4f {
   let ddy = vec2f(0.0, fw0 / (b.y - a.y) * us.y);
   let sm = textureSampleGrad(reader_img, img_s, clamp(uv, vec2f(0.0), vec2f(1.0)) * us, slot, ddx, ddy);
   var im = sm.rgb;
-  if (mg_dark > 0.5) { im *= 0.9; }
+  im *= 0.9;
   return vec4f(im, cov * sm.a);
 }
 
@@ -681,7 +680,7 @@ struct MgOut { col: vec3f, coat: f32 };
 
 fn mg_paper() -> vec3f {
   let pp = mg_pal(PAL_PAPER);
-  let fallback = select(vec3f(0.87, 0.835, 0.76), vec3f(0.0125, 0.0105, 0.009), mg_dark > 0.5);
+  let fallback = vec3f(0.0125, 0.0105, 0.009);
   return select(fallback, pp.rgb, pp.a > 0.5) * mg_gain;
 }
 
@@ -880,7 +879,6 @@ fn page_shade(ph: PHit, wp: vec3f, level: u32) -> PShade {
   let shh = mg_f(MH_SPREADH);
   let single = reader[MH_SINGLE] != 0u;
   let spx = select(sw, 0.0, single);
-  mg_dark = sc.rd2.w;
   mg_hov_spread = u32(max(sc.rd2.z, 0.0));
   mg_hov_rect = sc.rd3;
   mg_hov_kind = sc.rd2.y;

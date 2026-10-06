@@ -64,13 +64,13 @@ const hexRGB = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 
 const toRgb = (h: string): Rgb => hexRGB(h).map((v) => v / 255) as unknown as Rgb;
 export const SYNTAX_BASE = PAL_SYNTAX_START;
 
-/** Greedy palette quantisation: the most-used shiki [light,dark] pairs get the syntax slots, the rest map to the nearest. */
+/** Greedy palette quantisation: the most-used shiki (github-dark) colours get the syntax slots, the rest map to the nearest. */
 export function quantiseSyntax(pairs: Map<string, number>) {
 	const entries = [...pairs.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
 	const reps = entries.slice(0, PALETTE2_SIZE - SYNTAX_BASE).map(([k]) => k);
 	const dist = (a: string, b: string) => {
-		const [al, ad] = a.split('|').map(hexRGB), [bl, bd] = b.split('|').map(hexRGB);
-		return al.reduce((s, v, i) => s + (v - bl[i]) ** 2, 0) + ad.reduce((s, v, i) => s + (v - bd[i]) ** 2, 0);
+		const ar = hexRGB(a), br = hexRGB(b);
+		return ar.reduce((s, v, i) => s + (v - br[i]) ** 2, 0);
 	};
 	const idx = new Map<string, number>();
 	for (const [k] of entries) {
@@ -78,7 +78,7 @@ export function quantiseSyntax(pairs: Map<string, number>) {
 		reps.forEach((r, i) => { const d = dist(k, r); if (d < bd) { bd = d; best = i; } });
 		idx.set(k, SYNTAX_BASE + best);
 	}
-	return { syntax: reps.map((r) => { const [light, dark] = r.split('|'); return { light, dark }; }), idx };
+	return { syntax: reps.map((r) => ({ dark: r })), idx };
 }
 
 function sidecar(dir: string): { accentHue?: number; hyphenExceptions?: string[]; display?: { wdth?: number; wght?: number } } {
@@ -121,7 +121,7 @@ export const wordCount = (bl: Block[]) => (blockText(bl).match(/\S+/g) ?? []).le
 export interface BuildOpts { force?: boolean; only?: string; preview?: boolean; quiet?: boolean; thoughts?: string; outDir?: string }
 export interface BuildResult { skipped: boolean; index: any; files: { name: string; bytes: number; brotli: number }[]; ms: number }
 
-interface Shared { fonts: FontSet; union: GlyphTableBuilder; missing: Set<string>; images: ImageStore; shikiIdx: Map<string, number>; syntax: { light: string; dark: string }[] }
+interface Shared { fonts: FontSet; union: GlyphTableBuilder; missing: Set<string>; images: ImageStore; shikiIdx: Map<string, number>; syntax: { dark: string }[] }
 
 interface Laid { spreads: SpreadContent[]; env: Env; palette: Uint32Array; state: DistillState }
 
@@ -138,7 +138,7 @@ async function layOut(sh: Shared, p: Parsed, cls: MagClass, state: DistillState,
 	const dir = path.dirname(p.file);
 	const side = sidecar(dir);
 	const voice = voiceOf(p.slug, side);
-	const palette = buildPalette(side.accentHue ?? voice.hue, sh.syntax.map((x) => [toRgb(x.light), toRgb(x.dark)] as const));
+	const palette = buildPalette(side.accentHue ?? voice.hue, sh.syntax.map((x) => toRgb(x.dark)));
 	const env: Env = {
 		fonts: sh.fonts, union: sh.union, extra: new GlyphTableBuilder(), cls, digitSets: [], shikiIdx: sh.shikiIdx, images: sh.images,
 		strings: new StringSink(), text: new TextSink(), slug: p.slug, missing: sh.missing,

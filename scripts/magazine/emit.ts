@@ -331,6 +331,6 @@ export function emitMagazine(spreads: SpreadContent[], ctx: EmitContext, where: 
 		digitSets: ctx.digitSets, chans: s.chans, keys: s.keys, figures: s.figures, lines: s.lines, links: s.links, anchors: s.anchors,
 		extra: ctx.extra.finish(), text: ctx.text, strings: ctx.strings, palette: ctx.palette
 	};
-	if (model.palette.length !== 2 * PALETTE2_SIZE) throw new Error(`${where}: palette must have ${2 * PALETTE2_SIZE} entries`);
+	if (model.palette.length !== PALETTE2_SIZE) throw new Error(`${where}: palette must have ${PALETTE2_SIZE} entries`);
 	return { model, spreadLayers: recs.map((r) => r.layer as 0 | 1), bytes: packMagazine(model) };
 }

@@ -216,7 +216,7 @@ export function lintDistill(b: DistillBlock, post: Post, opts: LintOptions = {})
 	// 1. verbatim substring of the post after Markdown stripping and whitespace normalisation
 	for (const s of all) {
 		if (synth.has(s.path) || s.path === 'quote.from') continue;
-		const t = normalise(s.text);
+		const t = normalise(s.text.replace(/`/g, '')); // `code` spans are Markdown in the copy too
 		if (!post.corpus.includes(t)) err(s.path, `not a verbatim substring of the post: "${t.length > 80 ? t.slice(0, 77) + '...' : t}" (list the path in synth if it is deliberately synthesised)`);
 	}
 	if (b.quote?.from && !synth.has('quote.from') && !post.headings.includes(normalise(b.quote.from))) err('quote.from', `"${b.quote.from}" is not a section heading of the post`);

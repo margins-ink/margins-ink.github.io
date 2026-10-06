@@ -14,7 +14,7 @@ distill:
     from: "The frame is the evaluator"
   captions:
     - fig: eval-timeline
-      text: "When a thunk demands the contents of ${drv}/foo, the evaluator stops, calls out to the daemon, waits for the build, resumes."
+      text: "When a thunk demands the contents of `${drv}/foo`, the evaluator stops, calls out to the daemon, waits for the build, resumes."
     - fig: eval-graph
       text: "Eval and build are nodes in one graph. The graph grows as eval discovers more of it. A thunk that needs a build emits a request and yields."
     - fig: eval-graph

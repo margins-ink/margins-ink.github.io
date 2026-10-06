@@ -1,5 +1,4 @@
-// OKLCH palette per article hue (docs/MAGAZINE.md 3.2). Build time only: the shader flips light and dark with a
-// uniform, so both columns are baked here. Fail closed: `checkPalette` throws when an entry clips sRGB or a
+// OKLCH palette per article hue (docs/MAGAZINE.md 3.2). Build time only: the world has one look (dark). Fail closed: `checkPalette` throws when an entry clips sRGB or a
 // contrast floor is missed. Chroma is capped per hue (`fitChroma`) so requested accents stay inside the gamut.
 import { PAL2, PALETTE2_SIZE } from '../../src/lib/magazine/format';
 
@@ -70,44 +69,42 @@ export function over(fg: Rgb, bg: Rgb, alpha: number): Rgb {
 
 // ---- the palette ---------------------------------------------------------------------------------------
 
-export type Scheme = 'light' | 'dark';
 export type PaletteEntries = Record<keyof typeof PAL2 | keyof typeof PAL_EXT, Rgb>;
 
 const wrap = (h: number) => ((h % 360) + 360) % 360;
 const ok = (L: number, C: number, h: number): Rgb => toRgb([L, fitChroma(L, C, h), h]);
 
-/** One scheme of the palette for article hue `h` (section 3.2 numbers). */
-export function schemeEntries(h: number, scheme: Scheme): PaletteEntries {
-	const dark = scheme === 'dark';
-	const paper = dark ? ok(0.2, 0.012, h) : ok(0.965, 0.012, h);
-	const ink = dark ? ok(0.93, 0.008, h) : ok(0.2, 0.01, h);
-	const accent = dark ? ok(0.76, 0.15, h) : ok(0.52, 0.19, h);
-	const accent2 = ok(dark ? 0.76 : 0.52, 0.12, wrap(h + 40));
+/** The palette for article hue `h`: the one look is dark (section 3.2 numbers, dark column). */
+export function paletteEntries(h: number): PaletteEntries {
+	const paper = ok(0.2, 0.012, h);
+	const ink = ok(0.93, 0.008, h);
+	const accent = ok(0.76, 0.15, h);
+	const accent2 = ok(0.76, 0.12, wrap(h + 40));
 	const accentTint = over(accent, paper, 0.12);
-	const field = dark ? ok(0.3, 0.1, h) : accent;
-	const neutral = dark ? [0.45, 0.3, 0.15] : [0.55, 0.7, 0.85];
+	const field = ok(0.3, 0.1, h);
+	const neutral = [0.45, 0.3, 0.15];
 	return {
 		ink, link: accent, muted: over(ink, paper, 0.88), heading: ink, rule: over(ink, paper, 0.18),
-		selection: over(accent, paper, 0.28), codeBg: dark ? ok(0.25, 0.012, h) : ok(0.935, 0.012, h), quoteBar: accent,
+		selection: over(accent, paper, 0.28), codeBg: ok(0.25, 0.012, h), quoteBar: accent,
 		accent, accent2, accentTint,
-		// text on an accent fill: paper in light, deep ink in dark (an accent fill is L 0.76 in dark)
-		accentInk: dark ? ok(0.2, 0.01, h) : paper,
+		// text on an accent fill (an accent fill is L 0.76): deep ink
+		accentInk: ok(0.2, 0.01, h),
 		neutral1: ok(neutral[0], 0.01, h), neutral2: ok(neutral[1], 0.01, h), neutral3: ok(neutral[2], 0.01, h),
-		panel: dark ? ok(0.25, 0.012, h) : ok(0.935, 0.012, h), field, paper,
-		// text on a `field` block (light: accent L 0.52, dark: L 0.30), so ink flips with the scheme
-		fieldInk: dark ? ink : paper
+		panel: ok(0.25, 0.012, h), field, paper,
+		// text on a `field` block (L 0.30)
+		fieldInk: ink
 	};
 }
 
-/** Contrast floors (MAGAZINE.md 3.2 and 6 A5): body 12:1 light, 9:1 dark; graphics 3:1; text 4.5:1. */
-export function checkPalette(h: number, scheme: Scheme, p: PaletteEntries = schemeEntries(h, scheme)): void {
-	const fail = (m: string) => { throw new Error(`palette hue ${h} ${scheme}: ${m}`); };
+/** Contrast floors (MAGAZINE.md 3.2 and 6 A5): body 9:1; graphics 3:1; text 4.5:1. */
+export function checkPalette(h: number, p: PaletteEntries = paletteEntries(h)): void {
+	const fail = (m: string) => { throw new Error(`palette hue ${h}: ${m}`); };
 	for (const [name, c] of Object.entries(p)) {
 		const lin = c.map(toLinear);
 		if (!inGamut(lin)) fail(`${name} out of sRGB gamut`);
 	}
 	const need = (what: string, a: Rgb, b: Rgb, min: number) => { const r = contrast(a, b); if (r < min) fail(`${what} contrast ${r.toFixed(2)} < ${min}`); };
-	need('ink on paper', p.ink, p.paper, scheme === 'light' ? 12 : 9);
+	need('ink on paper', p.ink, p.paper, 9);
 	need('muted on paper', p.muted, p.paper, 4.5);
 	need('link on paper', p.link, p.paper, 4.5);
 	need('ink on panel', p.ink, p.panel, 9);
@@ -121,22 +118,18 @@ export function checkPalette(h: number, scheme: Scheme, p: PaletteEntries = sche
 const pack = (c: Rgb) => ((255 << 24) | (Math.round(c[2] * 255) << 16) | (Math.round(c[1] * 255) << 8) | Math.round(c[0] * 255)) >>> 0;
 
 /**
- * RDR2 palette section: 2 * PALETTE2_SIZE words, RGBA8 as 0xAABBGGRR, light then dark. Slots 0..18 are filled;
- * `syntax` (compile lane) supplies slots PAL_SYNTAX_START.. as [light, dark] pairs, rest stay ink.
+ * RDR2 palette section: PALETTE2_SIZE words, RGBA8 as 0xAABBGGRR. Slots 0..18 are filled;
+ * `syntax` (compile lane) supplies slots PAL_SYNTAX_START.. , rest stay ink.
  */
-export function buildPalette(h: number, syntax: readonly (readonly [Rgb, Rgb])[] = []): Uint32Array {
-	const out = new Uint32Array(2 * PALETTE2_SIZE);
-	(['light', 'dark'] as const).forEach((sc, col) => {
-		checkPalette(h, sc);
-		const p = schemeEntries(h, sc);
-		for (let i = 0; i < PALETTE2_SIZE; i++) out[col * PALETTE2_SIZE + i] = pack(p.ink);
-		for (const [name, i] of Object.entries({ ...PAL2, ...PAL_EXT })) out[col * PALETTE2_SIZE + i] = pack(p[name as keyof PaletteEntries]);
-		syntax.forEach((pair, k) => {
-			if (PAL_SYNTAX_START + k >= PALETTE2_SIZE) throw new Error('palette: too many syntax colours');
-			out[col * PALETTE2_SIZE + PAL_SYNTAX_START + k] = pack(pair[col]);
-		});
+export function buildPalette(h: number, syntax: readonly Rgb[] = []): Uint32Array {
+	const out = new Uint32Array(PALETTE2_SIZE);
+	checkPalette(h);
+	const p = paletteEntries(h);
+	out.fill(pack(p.ink));
+	for (const [name, i] of Object.entries({ ...PAL2, ...PAL_EXT })) out[i] = pack(p[name as keyof PaletteEntries]);
+	syntax.forEach((c, k) => {
+		if (PAL_SYNTAX_START + k >= PALETTE2_SIZE) throw new Error('palette: too many syntax colours');
+		out[PAL_SYNTAX_START + k] = pack(c);
 	});
 	return out;
 }
-
-export const hex = (c: Rgb) => '#' + c.map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('');

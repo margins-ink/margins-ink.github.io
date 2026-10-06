@@ -57,11 +57,12 @@ class Writer {
 	/** One shaped line: its glyphs are placed with the line's left edge at `x`, baseline at `base`. */
 	line(tl: TLine, x: number, base: number, frame: number, flags = 0) {
 		const g0 = this.frag.glyphs.length;
+		// plates (inline code background) go in before the glyphs so they sit under the text
+		for (const r of tl.rects) this.rect({ x0: x + r.x0 - tl.x0, x1: x + r.x1 - tl.x0, y0: base + r.y0, y1: base + r.y1 }, r.colour, r.kind);
 		for (const g of tl.glyphs) {
 			this.frag.glyphs.push({ x: x + g.x - tl.x0, y: base + g.y, glyphId: g.glyphId, size: g.size, colour: g.colour, flags: g.flags | flags, charOffset: g.off < 0 ? 0 : g.off, group: NONE16, frame });
 			this.frag.items.push({ type: ItemType.glyph, index: this.frag.glyphs.length - 1 });
 		}
-		for (const r of tl.rects) this.rect({ x0: x + r.x0 - tl.x0, x1: x + r.x1 - tl.x0, y0: base + r.y0, y1: base + r.y1 }, r.colour, r.kind);
 		for (const l of tl.links) this.link({ x0: x + l.x0 - tl.x0, x1: x + l.x1 - tl.x0, y0: base - ASCENT, y1: base + 0.4 }, l.href);
 		if (tl.glyphs.length) {
 			this.frag.lines.push({ yTop: base - ASCENT, yBot: base + 0.4, x0: x, x1: x + tl.width - tl.x0, firstGlyph: g0, glyphCount: tl.glyphs.length, charOffset: tl.off < 0 ? 0 : tl.off, frame });
@@ -88,8 +89,17 @@ function breakOpts(env: Env, o: SetOpts): BreakOpts {
 	return { ...(env.kp ?? { justify: false }), justify: !!o.justify, hyphenator: o.hyphenate ? env.kp?.hyphenator ?? null : null, indent: 0, looseness: 0 };
 }
 
+/** Backtick spans set in the mono family (`code`), the rest in the run font; the backticks themselves are not part of the text. */
+function spanRuns(text: string, o: SetOpts): Run[] {
+	const parts = text.split('`');
+	if (parts.length < 3 || parts.length % 2 === 0) return [{ text: text.replace(/`/g, ''), font: o.font, size: 1, color: o.colour, flags: 0 }];
+	return parts.flatMap((t, i): Run[] => !t ? [] : i % 2
+		? [{ text: t, font: F.code, size: 0.85, color: o.colour, flags: GlyphFlag.code, inlineCode: true }]
+		: [{ text: t, font: o.font, size: 1, color: o.colour, flags: 0 }]);
+}
+
 function shape(env: Env, text: string, o: SetOpts, size: number): TLine[] {
-	const runs: Run[] = [{ text, font: o.font, size: 1, color: o.colour, flags: 0 }];
+	const runs = spanRuns(text, o);
 	return breakSegs(env, makeSegs(env, runs, size, `compose ${env.slug}`), o.width, breakOpts(env, o), size);
 }
 

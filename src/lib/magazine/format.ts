@@ -46,7 +46,7 @@ export const Material = { matte: 1, coated: 2, field: 4, foil: 8 } as const;
 export const Ease = { linear: 0, inSine: 1, outSine: 2, inOutSine: 3, inCubic: 4, outCubic: 5, inOutCubic: 6, step: 7, outBack: 8 } as const;
 export type EaseName = keyof typeof Ease;
 
-/** Palette: 32 entries x (light, dark). 0..7 as RDR1, 8.. per article (MAGAZINE.md 3.2). */
+/** Palette: 32 entries, dark only. 0..7 as RDR1, 8.. per article (MAGAZINE.md 3.2). */
 export const PALETTE2_SIZE = 32;
 export const PAL2 = {
 	ink: 0, link: 1, muted: 2, heading: 3, rule: 4, selection: 5, codeBg: 6, quoteBar: 7,
@@ -222,7 +222,7 @@ export interface MagazineModel {
 	extra: GlyphTable; // path and math outlines, glyph-table layout of RDR1
 	text: Uint8Array;
 	strings: Uint8Array;
-	/** 2 * PALETTE2_SIZE, RGBA8 as 0xAABBGGRR; light entries then dark entries */
+	/** PALETTE2_SIZE entries, RGBA8 as 0xAABBGGRR (the world has one look: dark) */
 	palette: Uint32Array;
 }
 
@@ -240,7 +240,7 @@ export function packMagazine(m: MagazineModel): Uint8Array {
 		return PARAMS_F.has(k) ? ((fa[0] = v), ua[0]) : v;
 	});
 	for (const c of m.cells) if (c.count > 0xffff) throw new Error('rdr2: grid cell item count overflow');
-	if (m.palette.length !== 2 * PALETTE2_SIZE) throw new Error('rdr2: palette must have 2 * PALETTE2_SIZE entries');
+	if (m.palette.length !== PALETTE2_SIZE) throw new Error('rdr2: palette must have PALETTE2_SIZE entries');
 	const digits = new Uint32Array(m.digitSets.length * 10);
 	m.digitSets.forEach((s, i) => {
 		if (s.length !== 10) throw new Error('rdr2: digit set needs 10 glyph ids');
@@ -347,6 +347,6 @@ export function sampleMagazine(): MagazineModel {
 		anchors: [{ idOffset: 0, spread: 1, y: 4 }],
 		extra: { dir: new Uint32Array(8), curves: new Uint16Array(8), bands: new Uint32Array(2) },
 		text: new TextEncoder().encode('Hello'), strings: new TextEncoder().encode('a\0b\0'),
-		palette: Uint32Array.from({ length: 2 * PALETTE2_SIZE }, (_, i) => 0xff000000 | i)
+		palette: Uint32Array.from({ length: PALETTE2_SIZE }, (_, i) => 0xff000000 | i)
 	};
 }
