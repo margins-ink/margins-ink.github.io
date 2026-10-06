@@ -1,6 +1,6 @@
 import { geoConicConformal, geoGraticule10, geoPath } from 'd3';
 import type { Thought } from '$lib/thoughts';
-import { issue, shortDate } from '$lib/theme';
+import { drawCover as paintCover } from './emblems';
 
 /**
  * Everything the room's walls and magazines show, painted once into a single
@@ -161,47 +161,8 @@ async function drawMap(ctx: CanvasRenderingContext2D, s: Scheme) {
 	ctx.restore();
 }
 
-function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
-	const words = text.replace(/`/g, '').split(/\s+/);
-	const lines: string[] = [];
-	let line = '';
-	for (const w of words) {
-		const next = line ? `${line} ${w}` : w;
-		if (ctx.measureText(next).width > maxW && line) {
-			lines.push(line);
-			line = w;
-		} else line = next;
-	}
-	if (line) lines.push(line);
-	return lines;
-}
-
-function drawCover(ctx: CanvasRenderingContext2D, t: Thought, accent: string, i: number) {
-	const { x, y, w, h } = tileRect(i);
-	ctx.save();
-	ctx.translate(x, y);
-	ctx.fillStyle = '#f1ead9';
-	ctx.fillRect(0, 0, w, h);
-	// accent block with the issue numeral
-	ctx.fillStyle = accent;
-	ctx.fillRect(0, 0, w, 150);
-	ctx.fillStyle = 'rgba(255,255,255,0.92)';
-	ctx.font = '800 168px Newsreader, Georgia, serif';
-	ctx.textAlign = 'right';
-	ctx.fillText(issue(t.no), w - 10, 142);
-	ctx.textAlign = 'left';
-	ctx.font = '500 12px "Fira Code", monospace';
-	ctx.fillStyle = 'rgba(255,255,255,0.9)';
-	ctx.fillText('ANDREW GAZELKA', 16, 26);
-	// title
-	ctx.fillStyle = '#1d1a16';
-	ctx.font = '800 29px Newsreader, Georgia, serif';
-	const lines = wrap(ctx, t.title, w - 32).slice(0, 4);
-	lines.forEach((l, k) => ctx.fillText(l, 16, 190 + k * 31));
-	ctx.fillStyle = '#6b6252';
-	ctx.font = '500 11px "Fira Code", monospace';
-	ctx.fillText(shortDate(t.date).toUpperCase(), 16, h - 16);
-	ctx.restore();
+function drawCover(ctx: CanvasRenderingContext2D, t: Thought, accent: string, i: number, dark: boolean) {
+	paintCover(ctx, t, accent, tileRect(i), dark);
 }
 
 function drawSign(ctx: CanvasRenderingContext2D, i: number, title: string, sub: string, big: boolean) {
@@ -233,6 +194,7 @@ export async function buildAtlas(
 ): Promise<HTMLCanvasElement> {
 	await Promise.all([
 		document.fonts.load('800 40px Newsreader'),
+		document.fonts.load('italic 500 14px Newsreader'),
 		document.fonts.load('500 12px "Fira Code"')
 	]);
 	const c = document.createElement('canvas');
@@ -241,7 +203,7 @@ export async function buildAtlas(
 	ctx.fillStyle = '#f1ead9';
 	ctx.fillRect(0, 0, ATLAS, ATLAS);
 	await drawMap(ctx, dark ? DARK : LIGHT);
-	items.forEach((t, i) => drawCover(ctx, t, accents[i], i));
+	items.forEach((t, i) => drawCover(ctx, t, accents[i], i, dark));
 	signs.forEach((g, i) => drawSign(ctx, i, g.title, g.sub, i === 0));
 	return c;
 }
