@@ -156,7 +156,7 @@ async function layOut(sh: Shared, p: Parsed, cls: MagClass, state: DistillState,
 			const d = { ...p.distill!, ...(o.template ? { template: o.template as never } : {}) };
 			for (const id of d.figures) if (!figures.has(id)) throw new Error(`${p.file}: distill figure "${id}" is not in figures.ts`);
 			spreads.push(planDistilled(env, { distill: d, figures, palette, voice: v, title: p.meta.title, dek: p.meta.dek, date: p.meta.date, slug: p.slug }));
-		} else if (voice.template !== null) {
+		} else {
 			// auto distill: title, dek and the first paragraph
 			const lede = (p.blocks.find((b) => b.t === 'para') as Extract<Block, { t: 'para' }> | undefined)?.runs ?? null;
 			spreads.push(planOpener(env, { palette, voice: v, title: p.meta.title, dek: p.meta.dek, date: p.meta.date, slug: p.slug, lede }));
@@ -313,7 +313,7 @@ export async function buildMagazine(opts: BuildOpts = {}): Promise<BuildResult> 
 			distilled = b.distilled;
 		}
 		const b0 = built.find((x) => x.p === p)!;
-		articles.push({ slug: p.slug, title: p.meta.title, dek: p.meta.dek, date: p.meta.date, hidden: !p.meta.visible, distilled, fullWords: b0.words, spreads, bins });
+		articles.push({ slug: p.slug, title: p.meta.title, dek: p.meta.dek, date: p.meta.date, hidden: !p.meta.visible, distilled, opensFull: distilled === 'none' && voiceOf(p.slug, sidecar(path.dirname(p.file))).template === null, fullWords: b0.words, spreads, bins });
 	}
 	const index = {
 		version: 2, magic: 'RDR2', stamp, preview: !!opts.preview, stubs: [] as string[], fonts: fontsName, fontsBytes: fe.bytes, fontsBrotli: fe.brotli, glyphs: union.count,

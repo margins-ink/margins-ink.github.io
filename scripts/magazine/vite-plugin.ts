@@ -13,7 +13,10 @@ export function magazine(): Plugin {
 		configResolved(c) { serve = c.command === 'serve'; },
 		buildStart() {
 			const r = spawnSync('bun', ['scripts/magazine/build.ts', ...(serve ? ['--preview'] : [])], { stdio: 'inherit' });
-			if (r.status !== 0) this.error('magazine build failed (see output above)');
+			if (r.status !== 0) {
+				if (serve) this.warn('magazine build failed (see output above); serving the previous static/magazine');
+				else this.error('magazine build failed (see output above)');
+			}
 			if (!serve) {
 				const idx = JSON.parse(fs.readFileSync(path.join('static/magazine/index.json'), 'utf8'));
 				if (idx.stubs?.length) this.error(`magazine: production build with stub lanes (${idx.stubs.join(', ')}); merge them first`);
