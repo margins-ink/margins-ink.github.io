@@ -6,6 +6,7 @@
 
 mod components;
 mod export;
+mod magazine;
 mod reader;
 mod scene;
 
@@ -153,3 +154,43 @@ pub extern "C" fn reader_state_ptr() -> *const f32 {
 pub extern "C" fn world_entity_count() -> u32 {
     reader::entity_count()
 }
+
+// ---- magazine (src/lib/ecs/magazine.ts) ----
+
+#[no_mangle]
+pub extern "C" fn spread_init(n: u32) { magazine::spread_init(n); }
+#[no_mangle]
+pub extern "C" fn spread_goto(n: u32) { magazine::spread_goto(n); }
+#[no_mangle]
+pub extern "C" fn spread_by(df: f32) { magazine::spread_by(df); }
+#[no_mangle]
+pub extern "C" fn spread_grab(dir: i32) { magazine::spread_grab(dir); }
+#[no_mangle]
+pub extern "C" fn spread_release(vel: f32) { magazine::spread_release(vel); }
+#[no_mangle]
+pub extern "C" fn open_full(n: u32) { magazine::open_full(n); }
+#[no_mangle]
+pub extern "C" fn close_full() { magazine::close_full(); }
+#[no_mangle]
+pub extern "C" fn corner_drag(frac: f32) { magazine::corner_drag(frac); }
+#[no_mangle]
+pub extern "C" fn corner_release(open: u32) { magazine::corner_release(open); }
+#[no_mangle]
+pub extern "C" fn bounce() { magazine::bounce(); }
+#[no_mangle]
+pub extern "C" fn pulse_tab() { magazine::pulse_tab(); }
+#[no_mangle]
+pub extern "C" fn figure_focus(id: i32) { magazine::figure_focus(id); }
+#[no_mangle]
+pub extern "C" fn figure_seek(id: u32, t: f32) { magazine::figure_seek(id, t); }
+/// Declare a figure of the resident article: spread index, FigureMode, duration and poster time in seconds.
+#[no_mangle]
+pub extern "C" fn figure_define(id: u32, spread: u32, mode: u32, duration: f32, poster: f32) { magazine::figure_define(id, spread, mode, duration, poster); }
+#[no_mangle]
+pub extern "C" fn set_reduced_motion(on: u32) { magazine::set_reduced_motion(on); }
+#[no_mangle]
+pub extern "C" fn overview_set(on: u32) { magazine::overview_set(on); }
+#[no_mangle]
+pub extern "C" fn figure_clock_ptr() -> *const f32 { magazine::clock_ptr() }
+#[no_mangle]
+pub extern "C" fn magazine_state_ptr() -> *const f32 { magazine::state_ptr() }

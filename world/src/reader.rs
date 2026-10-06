@@ -90,6 +90,7 @@ pub fn store(world: World, articles: Vec<u64>, out: &Output) {
     });
     MAGS.with(|m| *m.borrow_mut() = mags);
 
+    crate::magazine::setup(&world);
     world.system_named::<&mut Reading>("ReadingTween").each(|r| {
         let dt = DT.with(|d| d.get());
         let x = r.t - r.target;
@@ -353,6 +354,7 @@ pub fn tick(dt_ms: f32) {
     let dt = (dt_ms / 1000.0).clamp(0.0, 0.1);
     let Some(world) = with(|rs| rs.world.clone()) else { return };
     DT.with(|d| d.set(dt));
+    crate::magazine::set_dt(dt);
     VIS.with(|v| v.set((-1, 0)));
     world.progress_time(dt);
     with(|rs| {
@@ -386,6 +388,10 @@ pub fn tick(dt_ms: f32) {
 }
 
 pub fn event_poll() -> u32 {
+    let m = crate::magazine::poll();
+    if m != 0 {
+        return m;
+    }
     with(|rs| rs.events.pop_front()).flatten().unwrap_or(0)
 }
 
