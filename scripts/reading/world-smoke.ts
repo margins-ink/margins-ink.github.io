@@ -3,13 +3,13 @@
 import fs from 'node:fs';
 import { wasiImports } from '../../src/lib/gpu/room/world.ts';
 import { createReading } from '../../src/lib/ecs/reading.ts';
-import { INPUT, RD, READING_EVENTS, type ReadingExports } from '../../src/lib/reading/abi.ts';
+import { INPUT, RD, READING_EVENTS, type ReadingExports, type ScrollExports } from '../../src/lib/reading/abi.ts';
 import { BlockFlag, BlockKind, FigureMode, sampleReading, type BlockRec, type ReadingModel } from '../../src/lib/magazine/format.ts';
 
 let memory!: WebAssembly.Memory;
 const bytes = fs.readFileSync(new URL('../../src/lib/gpu/room/world.wasm', import.meta.url));
 const { instance } = await WebAssembly.instantiate(bytes, wasiImports(() => memory) as WebAssembly.Imports);
-const x = instance.exports as unknown as ReadingExports;
+const x = instance.exports as unknown as ReadingExports & ScrollExports;
 memory = x.memory;
 if (x.reading_init() !== 0) throw new Error('reading_init failed');
 const r = createReading(x);
