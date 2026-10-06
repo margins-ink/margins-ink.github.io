@@ -1,0 +1,520 @@
+/* ==== fonts (reader lane) ================================================================================ */
+/* TTFs are served from /fonts (static/fonts, copied from docs/upstream/magazine/fonts). Variable axes: Inter opsz 14..32 wght 100..900,
+   Instrument Sans wdth 75..100 wght 400..700. Fira Code carries the code and the glyph fallback. */
+@font-face { font-family: 'Inter'; src: url('/fonts/Inter.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Inter'; src: url('/fonts/Inter-Italic.ttf') format('truetype'); font-weight: 100 900; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Instrument Sans'; src: url('/fonts/InstrumentSans.ttf') format('truetype'); font-weight: 400 700; font-stretch: 75% 100%; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Instrument Sans'; src: url('/fonts/InstrumentSans-Italic.ttf') format('truetype'); font-weight: 400 700; font-stretch: 75% 100%; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Fira Code'; src: url('/fonts/FiraCode.ttf') format('truetype'); font-weight: 300 700; font-style: normal; font-display: swap; }
+
+/* ==== reader core (reader lane) ========================================================================== */
+.reader {
+	--hue: 265;
+	--em: 18px;
+	--bar-h: 40px;
+	position: fixed;
+	inset: 0;
+	overflow: hidden;
+	color-scheme: dark;
+	color: var(--ink, oklch(0.93 0.008 var(--hue)));
+	background: var(--bg, oklch(0.165 0.012 var(--hue)));
+	font-family: Inter, system-ui, sans-serif;
+	font-synthesis: none;
+	-webkit-font-smoothing: antialiased;
+}
+.reader[data-mode='world'] { background: transparent; }
+.reader > canvas.page { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; pointer-events: none; }
+.scroller {
+	position: fixed;
+	inset: 0;
+	z-index: 2;
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	outline: none;
+	scrollbar-width: none;
+	-webkit-overflow-scrolling: touch;
+}
+.scroller::-webkit-scrollbar { display: none; }
+.scroller:focus-visible { outline: none; }
+/* clipped: absolutely positioned text beyond the spring height must not extend the scrollable area */
+.doc { position: relative; overflow: clip; margin: 0; padding: 0; }
+
+/* ==== text layer (reader lane) =========================================================================== */
+.doc .b {
+	position: absolute;
+	left: calc(var(--x) * var(--em));
+	top: calc(var(--y) * var(--em));
+	width: calc(var(--w) * var(--em));
+	height: calc(var(--h) * var(--em));
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	display: block;
+	list-style: none;
+	text-align: left;
+	font: inherit;
+	color: transparent;
+	background: transparent;
+	pointer-events: none;
+	scroll-margin-top: calc(var(--bar-h) + 1.62 * var(--em));
+	transition: background-color 400ms ease-out;
+}
+.doc figcaption.b { position: absolute; }
+/* semantic wrappers inside a block (hero h1 and dek, list items): in flow, no size, so spans position against the block */
+.doc .g { position: static; margin: 0; padding: 0; height: 0; display: block; list-style: none; font: inherit; color: transparent; }
+.doc .ln {
+	position: absolute;
+	left: calc(var(--x) * var(--em));
+	top: calc(var(--y) * var(--em));
+	height: calc(var(--lh) * var(--em));
+	margin: 0;
+	padding: 0;
+	font-size: calc(var(--s) * var(--em));
+	line-height: calc(var(--lh) * var(--em));
+	white-space: pre;
+	transform-origin: 0 0;
+	color: transparent;
+	-webkit-text-fill-color: transparent;
+	font-kerning: normal;
+	font-synthesis: none;
+	pointer-events: auto;
+	user-select: text;
+	-webkit-user-select: text;
+}
+.doc .ln[data-f='0'] { font-family: Inter, system-ui, sans-serif; font-weight: 400; font-variation-settings: 'opsz' 14; }
+.doc .ln[data-f='1'] { font-family: Inter, system-ui, sans-serif; font-weight: 600; font-variation-settings: 'opsz' 14; }
+.doc .ln[data-f='2'] { font-family: Inter, system-ui, sans-serif; font-weight: 400; font-style: italic; font-variation-settings: 'opsz' 14; }
+.doc .ln[data-f='3'] { font-family: 'Fira Code', ui-monospace, monospace; font-weight: 400; font-feature-settings: 'calt' 1; }
+.doc .ln[data-f='4'] { font-family: Inter, system-ui, sans-serif; font-weight: 500; font-variation-settings: 'opsz' 14; }
+.doc .ln[data-f='5'] { font-family: 'Instrument Sans', Inter, system-ui, sans-serif; font-weight: 600; font-stretch: 80%; font-variation-settings: 'wdth' 80; }
+.doc .ln[data-f='6'] { font-family: Inter, system-ui, sans-serif; font-weight: 400; font-variation-settings: 'opsz' 14; }
+.doc a { color: transparent; -webkit-text-fill-color: transparent; text-decoration: none; cursor: pointer; pointer-events: auto; }
+.doc ::selection,
+.doc .ln::selection,
+.doc a::selection {
+	color: transparent;
+	-webkit-text-fill-color: transparent;
+	background: oklch(0.78 0.14 var(--hue) / 0.3);
+}
+.doc :is(a, button, [tabindex='0']):focus-visible { outline: 2px solid transparent; outline-offset: 3px; border-radius: 4px; }
+
+.doc .fold-region,
+.doc .tail { position: absolute; left: 0; top: 0; width: 100%; height: 0; margin: 0; padding: 0; }
+.doc .tail { transform: translateY(calc(var(--fold-dy, 0) * var(--em))); }
+
+.doc button.b { appearance: none; -webkit-appearance: none; cursor: pointer; pointer-events: auto; text-align: left; }
+.doc figure.b[data-kind='7'] { pointer-events: auto; touch-action: pan-y; }
+.doc figure.b[data-kind='6'] { pointer-events: auto; }
+.doc .image-btn { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; pointer-events: auto; appearance: none; -webkit-appearance: none; }
+.doc .b.wash { background: oklch(0.78 0.14 var(--hue) / 0.14); border-radius: 0.3em; }
+
+/* code: a native horizontal scroller; the page pass draws the ink at scrollLeft */
+.doc pre.b {
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+	overscroll-behavior-x: contain;
+	white-space: pre;
+	tab-size: 4;
+	pointer-events: auto;
+}
+.doc pre.b::-webkit-scrollbar { display: none; }
+.doc .code-inner { position: relative; width: calc(var(--iw) * var(--em)); height: 100%; overflow: clip; }
+.doc .copy-slot { position: sticky; left: 0; z-index: 2; width: 100%; height: 0; pointer-events: none; }
+.doc .copy-slot > * { pointer-events: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+	.doc .b { transition: none; }
+	.scroller { scroll-behavior: auto; }
+}
+@media (prefers-contrast: more) {
+	.doc ::selection, .doc .ln::selection, .doc a::selection { background: oklch(0.78 0.14 var(--hue) / 0.55); }
+	.doc .b.wash { background: oklch(0.78 0.14 var(--hue) / 0.3); }
+}
+@media (forced-colors: active) {
+	.doc :is(a, button, [tabindex='0']):focus-visible { outline-color: Highlight; }
+}
+
+/* ==== chrome (chrome lane): bar, toc, Aa menu, popovers, lightbox, toast, copy button, figure strip ============ */
+/* One look, dark only. The palette of docs/READING.md section 2.2 as variables on .reader, driven by the article hue. */
+.reader {
+	--bg: oklch(0.165 0.012 var(--hue));
+	--surface: oklch(0.205 0.012 var(--hue));
+	--surface-2: oklch(0.245 0.014 var(--hue));
+	--ink: oklch(0.93 0.008 var(--hue));
+	--ink-2: oklch(0.76 0.01 var(--hue));
+	--ink-3: oklch(0.64 0.012 var(--hue));
+	--hair: oklch(1 0 0 / 0.08);
+	--accent: oklch(0.78 0.14 var(--hue));
+	--accent-2: oklch(0.74 0.11 calc(var(--hue) + 40));
+	--accent-wash: oklch(0.78 0.14 var(--hue) / 0.14);
+	--rc-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+	--rc-font: Inter, system-ui, sans-serif;
+}
+
+.reader :is(.rc-bar, .rc-toc, .rc-toc-sheet, .rc-menu, .rc-toast, .rc-pop, .rc-lightbox, .rc-copy, .rc-fig) {
+	font-family: var(--rc-font);
+	font-size: 13px;
+	line-height: 1.35;
+	font-weight: 450;
+	white-space: normal;
+	text-align: left;
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-font-smoothing: antialiased;
+}
+
+/* buttons: real buttons, >= 32px targets, one focus ring */
+.reader .rc-btn {
+	appearance: none;
+	-webkit-appearance: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 32px;
+	height: 32px;
+	padding: 0 6px;
+	margin: 0;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--ink-2);
+	font: inherit;
+	cursor: pointer;
+	pointer-events: auto;
+	transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.reader .rc-btn:hover { background: var(--surface-2); color: var(--ink); }
+.reader .rc-btn[aria-pressed='true'], .reader .rc-btn[aria-expanded='true'] { color: var(--accent); background: var(--accent-wash); }
+.reader :is(.rc-btn, .rc-bar-section, .rc-toc-link, .rc-step, .rc-scrub, .rc-pop-open, .rc-check input):focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+@media (forced-colors: active) {
+	.reader :is(.rc-btn, .rc-bar-section, .rc-toc-link, .rc-step, .rc-scrub, .rc-pop-open, .rc-check input):focus-visible { outline-color: Highlight; }
+}
+
+/* top bar */
+.reader .rc-bar {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	z-index: 3;
+	height: var(--bar-h);
+	box-sizing: border-box;
+	padding: 0 12px 0 20px;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
+	align-items: center;
+	gap: 12px;
+	background: color-mix(in oklab, var(--bg) 80%, transparent);
+	-webkit-backdrop-filter: blur(12px);
+	backdrop-filter: blur(12px);
+	border-bottom: 1px solid var(--hair);
+	color: var(--ink);
+	transition: opacity 200ms ease-out;
+}
+.reader .rc-bar-title { color: var(--ink-2); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reader .rc-bar-mid { display: grid; justify-items: center; min-width: 0; max-width: 46vw; }
+.reader .rc-bar-mid > * { grid-area: 1 / 1; min-width: 0; }
+.reader .rc-bar-section {
+	appearance: none;
+	-webkit-appearance: none;
+	max-width: 100%;
+	min-height: 32px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--ink);
+	font: inherit;
+	font-weight: 600;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	cursor: pointer;
+	pointer-events: auto;
+}
+.reader .rc-bar-section:hover { background: var(--surface-2); }
+.reader .rc-bar-end { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.reader .rc-bar-time { color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; margin-right: 8px; white-space: nowrap; }
+.reader .rc-aa-s { font-size: 11px; font-weight: 600; }
+.reader .rc-aa-l { font-size: 16px; font-weight: 600; }
+.reader[data-class='2'] .rc-bar { padding: 0 8px 0 16px; grid-template-columns: minmax(0, 1fr) auto; }
+.reader[data-class='2'] .rc-bar-title { display: none; }
+.reader[data-class='2'] .rc-bar-mid { justify-items: start; max-width: none; grid-column: 1; grid-row: 1; }
+.reader[data-class='2'] .rc-bar-section { padding: 0; font-size: 14px; }
+.reader[data-class='2'] .rc-bar-end { grid-column: 2; grid-row: 1; }
+.reader[data-class='2'] .rc-btn { min-width: 36px; height: 36px; }
+.reader[data-focus='fig'] :is(.rc-bar, .rc-toc) { opacity: 0.25; }
+.reader[data-focus='fig'] :is(.rc-bar, .rc-toc):is(:hover, :focus-within) { opacity: 1; }
+
+/* contents: sticky list (wide) and sheet (mid, phone) */
+.reader .rc-toc {
+	position: fixed;
+	top: calc(var(--bar-h) + 40px);
+	z-index: 3;
+	max-height: calc(100vh - var(--bar-h) - 80px);
+	overflow-y: auto;
+	scrollbar-width: none;
+	box-sizing: border-box;
+	color: var(--ink-2);
+	transition: opacity 200ms ease-out;
+}
+.reader .rc-toc::-webkit-scrollbar { display: none; }
+.reader .rc-toc-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 8px;
+	color: var(--ink-3);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+.reader .rc-toc-list { list-style: none; margin: 0; padding: 0; }
+.reader .rc-toc-item[data-level='3'] { padding-left: 1.5em; }
+.reader .rc-toc-link {
+	display: flex;
+	gap: 0.7em;
+	align-items: baseline;
+	min-height: 32px;
+	box-sizing: border-box;
+	padding: 6px 8px;
+	margin: 0 -8px;
+	border-radius: 8px;
+	color: var(--ink-2);
+	text-decoration: none;
+	pointer-events: auto;
+	cursor: pointer;
+	-webkit-text-fill-color: currentColor;
+	transition: color 160ms ease-out, background-color 160ms ease-out;
+}
+.reader .rc-toc-link:hover { color: var(--ink); background: var(--surface); }
+.reader .rc-toc-link.active { color: var(--accent); }
+.reader .rc-toc-num { font-family: 'Fira Code', ui-monospace, monospace; font-size: 11px; color: var(--ink-3); }
+.reader .rc-toc-link.active .rc-toc-num { color: var(--accent); }
+.reader .rc-scrim { position: fixed; inset: 0; z-index: 4; background: color-mix(in oklab, var(--bg) 60%, transparent); }
+.reader .rc-toc-sheet {
+	position: fixed;
+	z-index: 5;
+	box-sizing: border-box;
+	padding: 16px 20px 20px;
+	background: var(--surface);
+	border: 1px solid var(--hair);
+	color: var(--ink-2);
+	overflow-y: auto;
+	animation: rc-sheet-x 220ms var(--rc-ease);
+	top: 0;
+	bottom: 0;
+	left: 0;
+	width: min(340px, 86vw);
+	border-width: 0 1px 0 0;
+	font-size: 14px;
+}
+.reader .rc-toc-sheet[data-class='2'] {
+	top: auto;
+	left: 0;
+	right: 0;
+	width: auto;
+	max-height: 70vh;
+	border-width: 1px 0 0;
+	border-radius: 16px 16px 0 0;
+	animation-name: rc-sheet-y;
+}
+@keyframes rc-sheet-x { from { transform: translateX(-24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes rc-sheet-y { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* Aa menu */
+.reader .rc-menu {
+	position: fixed;
+	z-index: 4;
+	top: calc(var(--bar-h) + 6px);
+	right: 12px;
+	box-sizing: border-box;
+	min-width: 248px;
+	padding: 12px;
+	background: var(--surface);
+	border: 1px solid var(--hair);
+	border-radius: 12px;
+	box-shadow: 0 12px 32px oklch(0 0 0 / 0.4);
+	color: var(--ink);
+	animation: rc-pop-in 140ms var(--rc-ease);
+}
+.reader .rc-menu-label { color: var(--ink-3); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px; }
+.reader .rc-steps { display: flex; gap: 4px; }
+.reader .rc-step {
+	appearance: none;
+	-webkit-appearance: none;
+	flex: 1 1 0;
+	min-width: 40px;
+	height: 40px;
+	padding: 0;
+	border: 1px solid var(--hair);
+	border-radius: 8px;
+	background: transparent;
+	color: var(--ink-2);
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+.reader .rc-step:hover { background: var(--surface-2); color: var(--ink); }
+.reader .rc-step[aria-checked='true'] { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
+.reader .rc-check { display: flex; align-items: center; gap: 10px; min-height: 32px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--hair); color: var(--ink-2); cursor: pointer; }
+.reader .rc-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+@keyframes rc-pop-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* toast */
+.reader .rc-toast-region { position: fixed; z-index: 7; left: 0; right: 0; bottom: 24px; display: flex; justify-content: center; pointer-events: none; }
+.reader .rc-toast {
+	padding: 8px 16px;
+	border-radius: 999px;
+	background: var(--surface-2);
+	border: 1px solid var(--hair);
+	color: var(--ink);
+	box-shadow: 0 8px 24px oklch(0 0 0 / 0.35);
+}
+
+/* code copy button, mounted in .copy-slot */
+.doc .rc-copy {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--ink-2);
+	opacity: 0;
+	transition: opacity 120ms ease-out;
+}
+.doc pre.b:hover .rc-copy,
+.doc pre.b:focus-within .rc-copy,
+.doc .rc-copy:focus-within,
+.doc .rc-copy:has(.done) { opacity: 1; }
+@media (hover: none) { .doc .rc-copy { opacity: 1; } }
+.doc .rc-copy-lang { font-family: 'Fira Code', ui-monospace, monospace; font-size: 11px; color: var(--ink-2); }
+.doc .rc-copy-btn { background: color-mix(in oklab, var(--surface-2) 85%, transparent); }
+.doc .rc-copy-btn.done { color: var(--accent); }
+
+/* citation popover */
+.reader .rc-pop {
+	position: fixed;
+	z-index: 5;
+	box-sizing: border-box;
+	width: min(320px, calc(100vw - 24px));
+	padding: 10px 12px;
+	background: var(--surface);
+	border: 1px solid var(--hair);
+	border-radius: 10px;
+	box-shadow: 0 10px 28px oklch(0 0 0 / 0.4);
+	color: var(--ink);
+	translate: 0 -100%;
+	transform: translateY(4px);
+	opacity: 0;
+	visibility: hidden;
+	pointer-events: none;
+	transition: opacity 90ms ease-out, transform 90ms ease-out, visibility 0s linear 90ms;
+}
+.reader .rc-pop.below { translate: 0 0; transform: translateY(-4px); }
+.reader .rc-pop.open {
+	opacity: 1;
+	visibility: visible;
+	pointer-events: auto;
+	transform: none;
+	transition: opacity 140ms var(--rc-ease), transform 140ms var(--rc-ease), visibility 0s;
+}
+.reader .rc-pop-title { font-size: 13px; line-height: 1.4; font-weight: 500; }
+.reader .rc-pop-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 12px; }
+.reader .rc-pop-host { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reader .rc-pop-open { display: inline-flex; align-items: center; min-height: 32px; padding: 0 8px; border-radius: 8px; color: var(--accent); font-weight: 600; text-decoration: none; }
+.reader .rc-pop-open:hover { background: var(--accent-wash); }
+
+/* lightbox */
+.reader .rc-lightbox { position: fixed; inset: 0; z-index: 6; outline: none; cursor: zoom-out; color: var(--ink); }
+.reader .rc-lb-scrim { position: absolute; inset: 0; background: color-mix(in oklab, var(--bg) 88%, transparent); animation: rc-fade 320ms var(--rc-ease); transition: opacity 320ms var(--rc-ease); }
+.reader .rc-lb-scrim.closing { opacity: 0; }
+.reader .rc-lb-scrim.instant { animation: none; transition: none; }
+.reader .rc-lb-img { position: fixed; transform-origin: 0 0; will-change: transform; }
+.reader .rc-lb-img img { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 4px; user-select: none; -webkit-user-drag: none; }
+.reader .rc-lb-cap { position: fixed; left: 50%; transform: translateX(-50%); margin: 0; max-width: min(60ch, 90vw); color: var(--ink-2); font-size: 14px; text-align: center; cursor: default; }
+.reader .rc-lb-close { position: fixed; top: 12px; right: 12px; min-width: 40px; height: 40px; background: var(--surface); border: 1px solid var(--hair); cursor: pointer; }
+@keyframes rc-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* figure control strip, moved into the figure element */
+.doc .rc-fig {
+	position: absolute;
+	right: 8px;
+	bottom: 8px;
+	z-index: 2;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 3px;
+	border-radius: 10px;
+	background: color-mix(in oklab, var(--surface) 88%, transparent);
+	-webkit-backdrop-filter: blur(8px);
+	backdrop-filter: blur(8px);
+	border: 1px solid var(--hair);
+	color: var(--ink-2);
+	pointer-events: auto;
+	opacity: 0;
+	transition: opacity 140ms ease-out;
+}
+.doc figure.b:hover > .rc-fig,
+.doc figure.b:focus-within > .rc-fig,
+.doc figure.b.rc-focus > .rc-fig { opacity: 1; }
+@media (hover: none) { .doc .rc-fig { opacity: 1; } }
+.doc .rc-fig .rc-scrub { width: min(180px, 30vw); height: 32px; margin: 0 4px; accent-color: var(--accent); cursor: pointer; }
+
+@media (prefers-reduced-motion: reduce) {
+	.reader :is(.rc-bar, .rc-toc, .rc-btn, .rc-toc-link, .rc-pop, .rc-copy, .rc-fig, .rc-lb-scrim) { transition: none; }
+	.reader :is(.rc-menu, .rc-toc-sheet, .rc-lb-scrim) { animation: none; }
+}
+
+/* ==== print (reader lane) ================================================================================ */
+/* Print is paper, the one light rendering: the text layer is the real article, so it prints as flow text. */
+@media print {
+	@page { margin: 18mm; }
+	html, body { background: #fff !important; color: #000 !important; height: auto !important; overflow: visible !important; }
+	.reader { position: static !important; inset: auto !important; overflow: visible !important; height: auto !important; background: #fff !important; color: #000 !important; font: 11pt/1.5 Inter, system-ui, sans-serif !important; }
+	.reader > :not(.scroller),
+	.reader canvas.page,
+	.doc .copy-slot,
+	.doc button.fold,
+	.doc .image-btn { display: none !important; }
+	.scroller { position: static !important; inset: auto !important; overflow: visible !important; height: auto !important; }
+	.doc { position: static !important; left: auto !important; width: auto !important; height: auto !important; max-width: 40em; margin: 0 auto; overflow: visible !important; }
+	.doc .fold-region,
+	.doc .fold-region[hidden],
+	.doc .tail { position: static !important; display: block !important; width: auto !important; height: auto !important; content-visibility: visible !important; transform: none !important; }
+	.doc .b { position: static !important; width: auto !important; height: auto !important; margin: 0 0 0.8em; display: block; color: #000 !important; background: transparent !important; pointer-events: auto; hyphens: auto; overflow-wrap: break-word; orphans: 3; widows: 3; transition: none; }
+	.doc .g { height: auto !important; display: block; }
+	.doc .ln { position: static !important; display: inline !important; transform: none !important; height: auto !important; white-space: normal !important; color: #000 !important; -webkit-text-fill-color: #000 !important; font: inherit !important; line-height: inherit !important; }
+	.doc .ln::after { content: ' '; }
+	.doc .ln[data-sp='0']::after { content: ''; }
+	.doc h1.b, .doc h1.g { font: 700 24pt/1.15 'Instrument Sans', Inter, sans-serif !important; margin: 0 0 0.4em; }
+	.doc h2.b { font: 600 16pt/1.2 'Instrument Sans', Inter, sans-serif !important; margin-top: 1.4em; break-after: avoid; }
+	.doc h3.b, .doc h4.b { font: 600 13pt/1.3 Inter, sans-serif !important; margin-top: 1em; break-after: avoid; }
+	.doc p.dek { font-size: 13pt !important; }
+	.doc pre.b { overflow: visible !important; border: 0.5pt solid #888; background: #f6f6f6 !important; padding: 0.5em 0.7em; break-inside: avoid; }
+	.doc pre .code-inner { width: auto !important; height: auto !important; overflow: visible !important; }
+	.doc pre .ln { display: block !important; white-space: pre-wrap !important; font-family: 'Fira Code', ui-monospace, monospace !important; font-size: 9pt !important; line-height: 1.45 !important; }
+	.doc pre .ln::after { content: ''; }
+	.doc blockquote.b { border-left: 2pt solid #444; padding-left: 0.8em; }
+	.doc figure.b { break-inside: avoid; border: 0.5pt dashed #888; padding: 0.4em 0.6em; }
+	.doc figure.b[data-kind='7']::after { content: 'Figure: ' attr(aria-label); font-style: italic; }
+	.doc figure.b[data-kind='6']::after { content: 'Image: ' attr(data-alt); font-style: italic; }
+	.doc figcaption.b { margin-top: 0.4em; }
+	.doc aside.b { font-size: 9.5pt; border-left: 1.5pt solid #999; padding-left: 0.6em; }
+	.doc .b > hr, .doc hr.b { border: 0; border-top: 0.5pt solid #999; height: 0 !important; }
+	.doc ol.b, .doc ul.b { list-style: none; padding: 0; }
+	.doc a { color: #000 !important; -webkit-text-fill-color: #000 !important; text-decoration: underline; }
+	.doc a[href^='http']::after { content: ' (' attr(href) ')'; font-size: 0.85em; word-break: break-all; }
+}
