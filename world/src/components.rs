@@ -19,6 +19,9 @@ vec_component!(Tex { x, y, w, h } [0.0, 0.0, 1.0, 1.0]);
 vec_component!(LampColour { r, g, b } [0.0, 0.0, 0.0]);
 vec_component!(Plaster { r, g, b } [0.5, 0.5, 0.5]);
 vec_component!(Wainscot { r, g, b } [0.2, 0.2, 0.2]);
+// Surface response: GGX roughness (0 mirror .. 1 matte) and metalness (0 dielectric, 1 metal). On a room shell the
+// roughness is the floor's; walls and ceiling are matte (see docs/LOOK.md).
+vec_component!(Material { roughness, metallic } [0.8, 0.0]);
 // Tilt about the x axis (radians): the magazines leaning on the shelf.
 vec_component!(Lean { angle } [0.0]);
 // Lying flat, turned by `theta + per_floor * floor_index` about the vertical axis.
@@ -74,6 +77,7 @@ pub fn register(world: &World) {
     world.component_named::<LampColour>("LampColour");
     world.component_named::<Plaster>("Plaster");
     world.component_named::<Wainscot>("Wainscot");
+    world.component_named::<Material>("Material");
     world.component_named::<Lean>("Lean");
     world.component_named::<Flat>("Flat");
     world.component_named::<Kind>("Kind");

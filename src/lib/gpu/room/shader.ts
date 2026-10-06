@@ -29,6 +29,10 @@ struct Scene {
   tone: vec4f,      // x exposure, y rng seed, zw output size
   view: vec4f,      // zoom window: centre xy (rest ndc), half size s
   lmx: vec4f,       // lightmap bake: samples so far, samples this pass, texel count, workgroups per row
+  suncol: vec4f,    // rgb sun colour, w unused
+  amb: vec4f,       // rgb ambient irradiance (E / pi units, added at the first vertex), w unused
+  post: vec4f,      // x bloom strength, y chromatic aberration, z grain, w fog density
+  fx: vec4f,        // probe bake: samples so far, samples this pass, 0, 0
 };
 
 @group(0) @binding(0) var<uniform> sc: Scene;
@@ -49,6 +53,16 @@ struct AF { step: vec4f };
 @group(0) @binding(16) var<storage, read_write> lm_w: array<vec2u>;
 @group(0) @binding(19) var<storage, read> lm: array<vec2u>;
 @group(0) @binding(7) var<storage, read> lvl: array<vec4f>;
+// reflection probe: one cube map per floor (6 layers each), rgba16float, mip chain = roughness
+@group(0) @binding(22) var probe: texture_cube_array<f32>;
+@group(0) @binding(23) var probe_s: sampler;
+@group(0) @binding(24) var probe_w: texture_storage_2d_array<rgba16float, write>;
+@group(0) @binding(25) var<storage, read_write> probe_acc: array<vec4f>;
+@group(0) @binding(26) var probe_src: texture_cube_array<f32>;
+// vec4s per level in lvl: (start, count, panes, 0), (lamp xyz, radius), (lamp colour), (accent centre, half width), (accent colour, half height)
+const LS = 5u;
+const GS = 3u;   // vec4 per pixel in gbuf: (normal, depth), (albedo, 0), (specular radiance, 0)
+const PI = 3.1415927;
 
 @group(0) @binding(17) var<storage, read_write> vol_w: array<f32>;
 @group(0) @binding(18) var<storage, read> vol: array<f32>;
@@ -159,8 +173,8 @@ fn sphere_hit(o: vec3f, d: vec3f, ob: Obj, tmax_in: f32) -> Hit {
 fn intersect(o: vec3f, d: vec3f, tmax_in: f32, skip_room: bool, level: u32) -> Hit {
   var best = Hit(-1.0, vec3f(0.0), vec3f(0.0), -1);
   var tmax = tmax_in;
-  let first = u32(lvl[level * 3u].x);
-  let n = first + u32(lvl[level * 3u].y);
+  let first = u32(lvl[level * LS].x);
+  let n = first + u32(lvl[level * LS].y);
   for (var i = first; i < n; i++) {
     if (skip_room && i == first) { continue; }
     let ob = objs[i];
@@ -219,62 +233,191 @@ fn albedo_of(ob: Obj, hit: Hit, wp: vec3f, fw: f32) -> vec3f {
   return ob.alb.rgb;
 }
 
+fn onb(n: vec3f) -> mat3x3f {
+  let up = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(n.y) < 0.99);
+  let tx = normalize(cross(up, n));
+  return mat3x3f(tx, cross(n, tx), n);
+}
+
 fn cosine_dir(n: vec3f) -> vec3f {
   let r1 = rnd();
   let r2 = rnd();
   let phi = 6.2831853 * r1;
   let s = sqrt(r2);
-  let up = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(n.y) < 0.99);
-  let tx = normalize(cross(up, n));
-  let ty = cross(n, tx);
-  return normalize(tx * (cos(phi) * s) + ty * (sin(phi) * s) + n * sqrt(1.0 - r2));
+  let b = onb(n);
+  return normalize(b[0] * (cos(phi) * s) + b[1] * (sin(phi) * s) + n * sqrt(1.0 - r2));
 }
 
-// next event estimation: one of the level's window panes or its lamp, chosen uniformly
-fn direct_area(p: vec3f, n: vec3f, level: u32) -> vec3f {
-  let np = u32(lvl[level * 3u].z);
-  let pick = min(u32(rnd() * f32(np + 1u)), np);
+// ---- materials: GGX specular over a Lambert base (see docs/LOOK.md) ----------------------------
+struct Mat {
+  rough: f32,
+  metal: f32,
+  f0: vec3f,
+  dif: vec3f,       // diffuse albedo (zero for a metal)
+  spec_on: bool,    // false for matte dielectrics: pure Lambert, no specular lobe
+};
+
+fn material(ob: Obj, n: vec3f, alb: vec3f) -> Mat {
+  var m: Mat;
+  m.rough = ob.r0.w;
+  // the room shell: its Material is the floor's, walls and ceiling are matte plaster
+  if (ob.c.w == 4.0 && n.y < 0.5) { m.rough = 0.9; }
+  m.metal = ob.r1.w;
+  m.f0 = mix(vec3f(0.04), alb, m.metal);
+  m.dif = alb * (1.0 - m.metal);
+  m.spec_on = m.rough < 0.85 || m.metal > 0.5;
+  return m;
+}
+
+fn ggx_d(nh: f32, a2: f32) -> f32 {
+  let d = nh * nh * (a2 - 1.0) + 1.0;
+  return a2 / (PI * d * d);
+}
+fn smith_g1(nx: f32, a2: f32) -> f32 { return 2.0 * nx / (nx + sqrt(a2 + (1.0 - a2) * nx * nx)); }
+fn fres(f0: vec3f, c: f32) -> vec3f {
+  let k = pow(1.0 - clamp(c, 0.0, 1.0), 5.0);
+  return f0 + (vec3f(1.0) - f0) * k;
+}
+// GGX BRDF times cos(l): D G F / (4 n.v), separable Smith
+fn spec_eval(n: vec3f, v: vec3f, l: vec3f, alpha: f32, f0: vec3f) -> vec3f {
+  let nl = dot(n, l);
+  let nv = dot(n, v);
+  if (nl <= 0.0 || nv <= 0.0) { return vec3f(0.0); }
+  let h = normalize(v + l);
+  let a2 = alpha * alpha;
+  return fres(f0, max(dot(v, h), 0.0)) * (ggx_d(max(dot(n, h), 0.0), a2) * smith_g1(nv, a2) * smith_g1(nl, a2) / (4.0 * nv));
+}
+// solid-angle density of sample_vndf's reflected direction
+fn spec_pdf(n: vec3f, v: vec3f, l: vec3f, alpha: f32) -> f32 {
+  let nv = dot(n, v);
+  if (nv <= 0.0 || dot(n, l) <= 0.0) { return 0.0; }
+  let h = normalize(v + l);
+  let a2 = alpha * alpha;
+  return ggx_d(max(dot(n, h), 0.0), a2) * smith_g1(nv, a2) / (4.0 * nv);
+}
+// Heitz 2018, sampling the GGX distribution of visible normals; vl is the view vector in the shading frame (z = normal)
+fn sample_vndf(vl: vec3f, alpha: f32, u1: f32, u2: f32) -> vec3f {
+  let vh = normalize(vec3f(alpha * vl.x, alpha * vl.y, vl.z));
+  let lensq = vh.x * vh.x + vh.y * vh.y;
+  var t1 = vec3f(1.0, 0.0, 0.0);
+  if (lensq > 1e-7) { t1 = vec3f(-vh.y, vh.x, 0.0) * inverseSqrt(lensq); }
+  let t2 = cross(vh, t1);
+  let r = sqrt(u1);
+  let phi = 6.2831853 * u2;
+  let a = r * cos(phi);
+  var b = r * sin(phi);
+  let s = 0.5 * (1.0 + vh.z);
+  b = (1.0 - s) * sqrt(max(0.0, 1.0 - a * a)) + s * b;
+  let nh = a * t1 + b * t2 + sqrt(max(0.0, 1.0 - a * a - b * b)) * vh;
+  return normalize(vec3f(alpha * nh.x, alpha * nh.y, max(0.0, nh.z)));
+}
+fn mis(a: f32, b: f32) -> f32 {
+  let a2 = a * a;
+  return a2 / max(a2 + b * b, 1e-20);
+}
+// Karis' analytic split-sum environment BRDF (scale and bias on F0)
+fn env_brdf(f0: vec3f, rough: f32, nv: f32) -> vec3f {
+  let r = rough * vec4f(-1.0, -0.0275, -0.572, 0.022) + vec4f(1.0, 0.0425, 1.04, -0.04);
+  let a004 = min(r.x * r.x, exp2(-9.28 * nv)) * r.x + r.y;
+  let ab = vec2f(-1.04, 1.04) * a004 + r.zw;
+  return f0 * ab.x + ab.y;
+}
+
+fn is_emitter(kind: f32) -> bool { return kind == 1.0 || kind == 3.0 || kind == 9.0; }
+fn accent_on(level: u32) -> bool {
+  let c = lvl[level * LS + 4u].rgb;
+  return c.x + c.y + c.z > 0.0;
+}
+fn n_lights(level: u32) -> f32 { return f32(u32(lvl[level * LS].z) + 1u + select(0u, 1u, accent_on(level))); }
+fn emission(kind: f32, level: u32) -> vec3f {
+  if (kind == 1.0) { return sc.sky.rgb; }
+  if (kind == 3.0) { return lvl[level * LS + 4u].rgb; }
+  return lvl[level * LS + 2u].rgb;
+}
+
+struct Nee { ok: bool, l: vec3f, le: vec3f, pdf: f32 };
+
+// next event estimation: one light of the level (window pane, lamp or accent panel) chosen uniformly and sampled by area.
+// pdf is the solid-angle density including the choice of the light.
+fn nee_light(p: vec3f, n: vec3f, level: u32) -> Nee {
+  var r: Nee;
+  r.ok = false;
+  let np = u32(lvl[level * LS].z);
+  let nl = n_lights(level);
+  let pick = min(u32(rnd() * nl), u32(nl) - 1u);
   var lp: vec3f;
-  var ln: vec3f;
-  var le: vec3f;
+  var ln = vec3f(0.0, 0.0, 1.0);
   var area: f32;
   if (pick < np) {
     let pn = panes[level * 4u + pick];
     lp = vec3f(pn.x + (rnd() * 2.0 - 1.0) * sc.pane.x, pn.y + (rnd() * 2.0 - 1.0) * sc.pane.y, sc.pane.z);
-    ln = vec3f(0.0, 0.0, 1.0);
-    le = sc.sky.rgb;
+    r.le = sc.sky.rgb;
     area = 4.0 * sc.pane.x * sc.pane.y;
-  } else {
-    let lam = lvl[level * 3u + 1u];
+  } else if (pick == np) {
+    let lam = lvl[level * LS + 1u];
     let z = rnd() * 2.0 - 1.0;
     let a = rnd() * 6.2831853;
     let rr = sqrt(max(0.0, 1.0 - z * z));
     ln = vec3f(rr * cos(a), rr * sin(a), z);
     lp = lam.xyz + ln * lam.w;
-    le = lvl[level * 3u + 2u].rgb;
-    area = 4.0 * 3.1415927 * lam.w * lam.w;
+    r.le = lvl[level * LS + 2u].rgb;
+    area = 4.0 * PI * lam.w * lam.w;
+  } else {
+    let ac = lvl[level * LS + 3u];
+    let acc = lvl[level * LS + 4u];
+    lp = vec3f(ac.x + (rnd() * 2.0 - 1.0) * ac.w, ac.y + (rnd() * 2.0 - 1.0) * acc.w, ac.z);
+    r.le = acc.rgb;
+    area = 4.0 * ac.w * acc.w;
   }
   let v = lp - p;
   let d2 = dot(v, v);
   let dir = v * inverseSqrt(d2);
   let cs = dot(n, dir);
   let cl = dot(ln, -dir);
-  if (cs <= 0.0 || cl <= 0.0) { return vec3f(0.0); }
+  if (cs <= 0.0 || cl <= 0.0) { return r; }
   let o = p + n * 2e-3;
   let vv = lp - o;
   let dist = length(vv);
   let h = intersect(o, vv / dist, dist * 0.997 - 0.004, true, level);
-  if (h.t > 0.0) { return vec3f(0.0); }
-  return le * (cs * cl * area / d2) * f32(np + 1u) / 3.1415927;
+  if (h.t > 0.0) { return r; }
+  r.ok = true;
+  r.l = dir;
+  r.pdf = d2 / (cl * area) / nl;
+  return r;
+}
+
+// solid-angle density with which nee_light would have picked the emitter hit h (0: it could not)
+fn light_pdf(kind: f32, h: Hit, d: vec3f, level: u32) -> f32 {
+  let nl = n_lights(level);
+  var area: f32;
+  var cl = -d.z;
+  if (kind == 1.0) {
+    area = 4.0 * sc.pane.x * sc.pane.y;
+  } else if (kind == 9.0) {
+    let lr = lvl[level * LS + 1u].w;
+    area = 4.0 * PI * lr * lr;
+    cl = dot(h.n, -d);
+  } else {
+    area = 4.0 * lvl[level * LS + 3u].w * lvl[level * LS + 4u].w;
+  }
+  if (cl <= 1e-3) { return 0.0; }
+  return h.t * h.t / (cl * area * nl);
+}
+
+// irradiance (E / pi) from the level's lights at a diffuse surface point; no MIS, used by the lightmap bake
+fn direct_area(p: vec3f, n: vec3f, level: u32) -> vec3f {
+  let ne = nee_light(p, n, level);
+  if (!ne.ok) { return vec3f(0.0); }
+  return ne.le * (dot(n, ne.l) / ne.pdf / PI);
 }
 
 // the sun (or moon) shines through the window panes: direction towards it, and its colour
 const SUN_L = vec3f(0.2, 0.6, -1.0);
 fn sun_dir() -> vec3f { return normalize(SUN_L); }
-fn sun_col() -> vec3f { return sc.sky.rgb / max(max(sc.sky.r, sc.sky.g), sc.sky.b) * sc.sky.w; }
+fn sun_col() -> vec3f { return sc.suncol.rgb; }
 
 fn in_pane(c: vec3f, level: u32) -> bool {
-  let np = u32(lvl[level * 3u].z);
+  let np = u32(lvl[level * LS].z);
   for (var i = 0u; i < np; i++) {
     let pn = panes[level * 4u + i];
     if (abs(c.x - pn.x) < sc.pane.x && abs(c.y - pn.y) < sc.pane.y) { return true; }
@@ -282,16 +425,20 @@ fn in_pane(c: vec3f, level: u32) -> bool {
   return false;
 }
 
-fn direct_sun(p: vec3f, n: vec3f, level: u32) -> vec3f {
-  if (lvl[level * 3u].z < 0.5) { return vec3f(0.0); }
+fn sun_visible(p: vec3f, n: vec3f, level: u32) -> bool {
+  if (lvl[level * LS].z < 0.5) { return false; }
   let l = sun_dir();
   let cs = dot(n, l);
-  if (cs <= 0.0 || p.z < 0.1) { return vec3f(0.0); }
+  if (cs <= 0.0 || p.z < 0.1) { return false; }
   let s = (0.1 - p.z) / l.z;
-  if (!in_pane(p + l * s, level)) { return vec3f(0.0); }
+  if (!in_pane(p + l * s, level)) { return false; }
   let h = intersect(p + n * 2e-3, l, s * 0.995, true, level);
-  if (h.t > 0.0) { return vec3f(0.0); }
-  return sun_col() * cs / 3.1415927;
+  return h.t < 0.0;
+}
+
+fn direct_sun(p: vec3f, n: vec3f, level: u32) -> vec3f {
+  if (!sun_visible(p, n, level)) { return vec3f(0.0); }
+  return sun_col() * dot(n, sun_dir()) / PI;
 }
 
 fn direct(p: vec3f, n: vec3f, level: u32) -> vec3f {
@@ -312,11 +459,139 @@ fn bake_sun(@builtin(global_invocation_id) g: vec3u) {
   let l = sun_dir();
   let s = (0.1 - p.z) / l.z;
   var v = 0.0;
-  if (s > 0.0 && lvl[level * 3u].z > 0.5 && in_pane(p + l * s, level)) {
+  if (s > 0.0 && lvl[level * LS].z > 0.5 && in_pane(p + l * s, level)) {
     let h = intersect(p, l, s * 0.995, true, level);
     if (h.t < 0.0) { v = 1.0; }
   }
   vol_w[((level * VZ + iz) * VY + g.y) * VX + g.x] = v;
+}
+
+struct PathOut {
+  diff: vec3f,   // diffuse radiance divided by the first-hit diffuse albedo alb (what the denoiser filters)
+  spec: vec3f,   // radiance that went through a specular lobe at the first vertex (not modulated by alb)
+  alb: vec3f,
+  n: vec3f,
+  t: f32,
+};
+
+// One path from (o, d) inside the room of level: full BSDF (Lambert + GGX), next event estimation to every light with
+// multiple importance sampling against BSDF-sampled hits of the emitters, the exact sun at every vertex, 4 vertices.
+// The result is split by the lobe taken at the first vertex so that the diffuse part can be denoised demodulated.
+// cam: the ray is a camera ray (albedo is filtered to the pixel footprint), else to 8 cm.
+fn radiance(o_in: vec3f, d_in: vec3f, level: u32, cam: bool) -> PathOut {
+  var po: PathOut;
+  po.diff = vec3f(0.0);
+  po.spec = vec3f(0.0);
+  po.alb = vec3f(1.0);
+  po.n = vec3f(0.0);
+  po.t = 1e5;
+  var o = o_in;
+  var d = d_in;
+  var thr = vec3f(1.0);
+  var lobe = 0;          // lobe taken at the first vertex: 1 diffuse, 2 specular (or the glass reflection)
+  var prev_pdf = -1.0;   // BSDF density of the last sampled direction, for MIS; < 0: none (camera ray, mirror)
+  for (var b = 0; b < 4; b++) {
+    let h = intersect(o, d, 1e5, false, level);
+    if (h.t < 0.0) { break; }
+    let ob = objs[u32(h.id)];
+    let kind = ob.c.w;
+    let p = o + d * h.t;
+    if (is_emitter(kind)) {
+      if (b == 0) { po.t = h.t; }
+      if (kind == 1.0 && b == 0) {
+        // glass: the Fresnel reflection continues into the room as a mirror lobe
+        let f = 0.04 + 0.96 * pow(clamp(1.0 + d.z, 0.0, 1.0), 5.0);
+        po.diff += sc.sky.rgb * (1.0 - f);
+        po.n = vec3f(0.0, 0.0, 1.0);
+        thr = vec3f(f);
+        lobe = 2;
+        prev_pdf = -1.0;
+        o = p + vec3f(0.0, 0.0, 2e-3);
+        d = vec3f(d.x, d.y, -d.z);
+        continue;
+      }
+      var w = 1.0;
+      if (prev_pdf > 0.0) {
+        let pl = light_pdf(kind, h, d, level);
+        if (pl > 0.0) { w = mis(prev_pdf, pl); }
+      }
+      let c = thr * emission(kind, level) * w;
+      if (lobe == 2) { po.spec += c; } else { po.diff += c; }
+      break;
+    }
+    var n = h.n;
+    if (dot(n, d) > 0.0) { n = -n; }
+    if (kind == 4.0 && n.z < -0.5 && p.z > sc.misc.z - 0.02) {
+      // the open front: outside radiance
+      let c = thr * select(lm_bg(level), live_bg(), b == 0);
+      if (lobe == 2) { po.spec += c; } else { po.diff += c; }
+      break;
+    }
+    let alb = albedo_of(ob, h, p, select(0.08, pix_fw(h.t), b == 0 && cam));
+    let m = material(ob, n, alb);
+    let v = -d;
+    let ns = n;
+    let nv = max(dot(ns, v), 1e-3);
+    let alpha = max(m.rough * m.rough, 0.004);
+    var ps = 0.0;
+    var kd = 1.0;
+    if (m.spec_on) {
+      let fa = lum(fres(m.f0, nv));
+      ps = clamp(fa, 0.1, 0.9);
+      kd = 1.0 - fa;
+    }
+    if (b == 0) { po.alb = m.dif; po.n = n; po.t = h.t; }
+
+    // direct light: area lights with MIS, the sun exactly
+    var cd = vec3f(0.0);
+    var cs = vec3f(0.0);
+    let ne = nee_light(p, n, level);
+    if (ne.ok) {
+      let nl = max(dot(n, ne.l), 0.0);
+      var pdf_b = (1.0 - ps) * nl / PI;
+      var fs = vec3f(0.0);
+      if (m.spec_on) {
+        fs = spec_eval(ns, v, ne.l, alpha, m.f0);
+        pdf_b += ps * spec_pdf(ns, v, ne.l, alpha);
+      }
+      let wl = mis(ne.pdf, pdf_b) / ne.pdf;
+      cd += ne.le * (kd * nl / PI * wl);
+      cs += ne.le * fs * wl;
+    }
+    if (sun_visible(p, n, level)) {
+      let sl = sun_dir();
+      cd += sun_col() * (kd * dot(n, sl) / PI);
+      if (m.spec_on) { cs += sun_col() * spec_eval(ns, v, sl, alpha, m.f0); }
+    }
+    if (b == 0) {
+      po.diff += cd + sc.amb.rgb;
+      po.spec += cs;
+    } else {
+      let c = thr * (m.dif * cd + cs);
+      if (lobe == 2) { po.spec += c; } else { po.diff += c; }
+    }
+    if (b == 3) { break; }
+
+    // next direction
+    var l: vec3f;
+    if (rnd() < ps) {
+      let tb = onb(ns);
+      let vl = vec3f(dot(v, tb[0]), dot(v, tb[1]), dot(v, tb[2]));
+      let hw = tb * sample_vndf(vl, alpha, rnd(), rnd());
+      l = reflect(-v, hw);
+      if (dot(l, n) <= 0.0 || dot(l, ns) <= 0.0) { break; }
+      let wgt = fres(m.f0, max(dot(v, hw), 0.0)) * (smith_g1(dot(ns, l), alpha * alpha) / ps);
+      if (b == 0 && lobe == 0) { lobe = 2; thr = wgt; } else { thr *= wgt; }
+    } else {
+      l = cosine_dir(n);
+      if (b == 0 && lobe == 0) { lobe = 1; thr = vec3f(kd / (1.0 - ps)); } else { thr *= m.dif * (kd / (1.0 - ps)); }
+    }
+    prev_pdf = (1.0 - ps) * max(dot(n, l), 0.0) / PI;
+    if (m.spec_on) { prev_pdf += ps * spec_pdf(ns, v, l, alpha); }
+    o = p + n * 2e-3;
+    d = l;
+  }
+  return po;
 }
 
 @compute @workgroup_size(8, 8)
@@ -330,15 +605,16 @@ fn cs(@builtin(global_invocation_id) gid: vec3u) {
   let ndc = sc.view.xy + vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0) * sc.view.z;
   let aspect = sc.res.x / sc.res.y;
   let th = sc.cam.w;
-  var d = normalize(sc.fwd.xyz + sc.rgt.xyz * (ndc.x * th * aspect) + sc.up.xyz * (ndc.y * th));
+  let d = normalize(sc.fwd.xyz + sc.rgt.xyz * (ndc.x * th * aspect) + sc.up.xyz * (ndc.y * th));
   var o = sc.cam.xyz;
 
-  var col = vec3f(0.0);
-  var thr = vec3f(1.0);
+  var po: PathOut;
+  po.diff = vec3f(0.0);
+  po.spec = vec3f(0.0);
+  po.alb = vec3f(1.0);
+  po.n = vec3f(0.0);
+  po.t = 1e5;
   var level = 0u;
-  var first_alb = vec3f(1.0);
-  var first_n = vec3f(0.0);
-  var first_t = 1e5;
 
   // enter the building through its open front
   let tp = (sc.misc.z - o.z) / d.z;
@@ -357,53 +633,118 @@ fn cs(@builtin(global_invocation_id) gid: vec3u) {
   if (from_inside) {
     level = u32(clamp(floor((top - o.y) / sc.misc.y), 0.0, sc.misc.x - 1.0));
   } else if (inside && rel > top) {
-    col = vec3f(0.1, 0.085, 0.07); // the floor slab between two rooms
+    po.diff = vec3f(0.1, 0.085, 0.07); // the floor slab between two rooms
     inside = false;
   } else if (!inside) {
-    col = live_bg();
+    po.diff = live_bg();
   }
   if (inside) {
     if (!from_inside) {
       level = u32(k);
       o = q + d * 1e-3;
     }
-    for (var bounce = 0; bounce < 4; bounce++) {
-      let h = intersect(o, d, 1e5, false, level);
-      if (h.t < 0.0) { break; }
-      let ob = objs[u32(h.id)];
-      let kind = ob.c.w;
-      if (kind == 1.0 || kind == 9.0) {
-        if (bounce == 0) { col += thr * select(lvl[level * 3u + 2u].rgb, sc.sky.rgb, kind == 1.0); }
-        break;
-      }
-      let p = o + d * h.t;
-      var n = h.n;
-      if (dot(n, d) > 0.0) { n = -n; }
-      if (kind == 4.0 && n.z < -0.5 && p.z > sc.misc.z - 0.02) {
-        col += thr * select(lm_bg(level), live_bg(), bounce == 0);
-        break;
-      }
-      let alb = albedo_of(ob, h, p, select(0.08, pix_fw(h.t), bounce == 0));
-      if (bounce == 0) { first_alb = alb; first_n = n; first_t = h.t; }
-      col += thr * alb * direct(p, n, level);
-      thr *= alb;
-      d = cosine_dir(n);
-      o = p + n * 2e-3;
-    }
+    po = radiance(o, d, level, true);
   }
 
-  col = col / max(first_alb, vec3f(0.03));
+  let col = po.diff; // already demodulated: the first-hit diffuse albedo was never multiplied in
   let prev = accum[idx];
   var n_prev = prev.a;
   if (sc.frame < 0.5) { n_prev = min(n_prev, 1.0); }
   let wgt = max(1.0 / (n_prev + 1.0), sc.blend);
-  let mean = mix(prev.rgb, min(col, vec3f(30.0)), select(1.0, wgt, n_prev > 0.0));
-  accum[idx] = vec4f(mean, n_prev + 1.0);
   let wa = select(1.0, wgt, n_prev > 0.0);
-  gbuf[idx * 2u] = vec4f(first_n, first_t);
-  gbuf[idx * 2u + 1u] = vec4f(mix(gbuf[idx * 2u + 1u].rgb, first_alb, wa), 0.0);
+  let mean = mix(prev.rgb, min(col, vec3f(30.0)), wa);
+  accum[idx] = vec4f(mean, n_prev + 1.0);
+  gbuf[idx * GS] = vec4f(po.n, po.t);
+  gbuf[idx * GS + 1u] = vec4f(mix(gbuf[idx * GS + 1u].rgb, po.alb, wa), 0.0);
+  gbuf[idx * GS + 2u] = vec4f(mix(gbuf[idx * GS + 2u].rgb, min(po.spec, vec3f(30.0)), wa), 0.0);
 }
 
+// ---- reflection probes: radiance seen from the room centre, a cube map per floor (layers level * 6 + face) ------------
+const PN = 128u;
+const PROBE_MIPS = 5.0;
+const PROBE_C = vec3f(0.0, 1.5, 2.0);
+// the box that stands in for the room when a reflection ray is parallax corrected: the back wall is moved forward to
+// where the window, lamp, sign and magazines are, so their reflections land where they do in the path-traced frame
+const PROBE_BMIN = vec3f(-3.3, 0.0, 0.25);
+
+// direction of texel (u, v) in [0,1]^2 of cube face f (the sampling convention of cube maps)
+fn cube_dir(f: u32, uv: vec2f) -> vec3f {
+  let a = uv.x * 2.0 - 1.0;
+  let b = uv.y * 2.0 - 1.0;
+  var d: vec3f;
+  switch (f) {
+    case 0u: { d = vec3f(1.0, -b, -a); }
+    case 1u: { d = vec3f(-1.0, -b, a); }
+    case 2u: { d = vec3f(a, 1.0, b); }
+    case 3u: { d = vec3f(a, -1.0, -b); }
+    case 4u: { d = vec3f(a, -b, 1.0); }
+    default: { d = vec3f(-a, -b, -1.0); }
+  }
+  return normalize(d);
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn bake_probe(@builtin(global_invocation_id) g: vec3u) {
+  if (g.x >= PN || g.y >= PN || g.z >= u32(sc.misc.x) * 6u) { return; }
+  let level = g.z / 6u;
+  let idx = (g.z * PN + g.y) * PN + g.x;
+  rng_state = idx * 9781u + u32(sc.tone.y) * 6271u + 1u;
+  pcg(); pcg();
+  let o = PROBE_C - vec3f(0.0, f32(level) * sc.misc.y, 0.0);
+  var sum = vec3f(0.0);
+  for (var s = 0; s < i32(sc.fx.y); s++) {
+    let d = cube_dir(g.z % 6u, (vec2f(g.xy) + vec2f(pcg(), pcg())) / f32(PN));
+    let po = radiance(o, d, level, false);
+    sum += min(po.diff * po.alb + po.spec, vec3f(30.0));
+  }
+  var prev = probe_acc[idx].rgb;
+  if (sc.fx.x < 0.5) { prev = vec3f(0.0); }
+  let tot = prev + sum;
+  probe_acc[idx] = vec4f(tot, 0.0);
+  textureStore(probe_w, vec2i(g.xy), g.z, vec4f(tot / (sc.fx.x + sc.fx.y), 1.0));
+}
+
+// mip m holds the radiance convolved with a GGX lobe of roughness m / (mips - 1): 64 importance samples of mip 0
+@compute @workgroup_size(8, 8, 1)
+fn probe_mip(@builtin(global_invocation_id) g: vec3u) {
+  let ds = textureDimensions(probe_w).x;
+  if (g.x >= ds || g.y >= ds || g.z >= u32(sc.misc.x) * 6u) { return; }
+  let rough = log2(f32(PN / ds)) / (PROBE_MIPS - 1.0);
+  let a2 = pow(rough, 4.0);
+  let n = cube_dir(g.z % 6u, (vec2f(g.xy) + vec2f(0.5)) / f32(ds));
+  let tb = onb(n);
+  let layer = g.z / 6u;
+  var sum = vec3f(0.0);
+  var wsum = 0.0;
+  for (var i = 0u; i < 64u; i++) {
+    let u1 = (f32(i) + 0.5) / 64.0;
+    let u2 = f32(reverseBits(i)) * 2.3283064e-10;
+    let ct = sqrt((1.0 - u1) / (1.0 + (a2 - 1.0) * u1));
+    let st = sqrt(max(0.0, 1.0 - ct * ct));
+    let phi = 6.2831853 * u2;
+    let h = tb * vec3f(st * cos(phi), st * sin(phi), ct);
+    let l = 2.0 * dot(n, h) * h - n;
+    let nl = dot(n, l);
+    if (nl > 0.0) {
+      sum += textureSampleLevel(probe_src, probe_s, l, layer, 0.0).rgb * nl;
+      wsum += nl;
+    }
+  }
+  textureStore(probe_w, vec2i(g.xy), g.z, vec4f(sum / max(wsum, 1e-4), 1.0));
+}
+
+// reflection lookup for a surface point p (world, floor level) and reflected direction r: the room is a box, so the
+// ray is intersected with it and the probe is read in the direction of the hit seen from the probe centre (parallax correction)
+fn probe_sample(p: vec3f, r: vec3f, level: u32, mip: f32) -> vec3f {
+  let pl = vec3f(p.x, p.y + f32(level) * sc.misc.y, p.z);
+  let bmax = vec3f(3.3, sc.misc.w, sc.misc.z);
+  let inv = 1.0 / select(r, vec3f(1e-6), abs(r) < vec3f(1e-6));
+  let t1 = (PROBE_BMIN - pl) * inv;
+  let t2 = (bmax - pl) * inv;
+  let t = min(min(max(t1.x, t2.x), max(t1.y, t2.y)), max(t1.z, t2.z));
+  let q = pl + r * max(t, 0.0);
+  return textureSampleLevel(probe, probe_s, normalize(q - PROBE_C), level, mip).rgb;
+}
 
 
 // ---- per-surface irradiance lightmaps (static scene, baked progressively) ----------------------
@@ -430,7 +771,7 @@ fn lm_bg(level: u32) -> vec3f {
 
 // diffuse irradiance estimate at a surface point: area lights by NEE, then cosine bounces (sun kept from the 2nd vertex on)
 fn lm_sample(p: vec3f, n: vec3f, level: u32) -> vec3f {
-  var e = direct_area(p, n, level);
+  var e = direct_area(p, n, level) + sc.amb.rgb;
   var thr = vec3f(1.0);
   var o = p + n * 2e-3;
   var d = cosine_dir(n);
@@ -439,12 +780,12 @@ fn lm_sample(p: vec3f, n: vec3f, level: u32) -> vec3f {
     if (h.t < 0.0) { break; }
     let ob = objs[u32(h.id)];
     let kind = ob.c.w;
-    if (kind == 1.0 || kind == 9.0) { break; }
+    if (is_emitter(kind)) { break; }
     let p2 = o + d * h.t;
     var n2 = h.n;
     if (dot(n2, d) > 0.0) { n2 = -n2; }
     if (kind == 4.0 && n2.z < -0.5 && p2.z > sc.misc.z - 0.02) { e += thr * lm_bg(level); break; }
-    let a2 = albedo_of(ob, h, p2, 0.08);
+    let a2 = material(ob, n2, albedo_of(ob, h, p2, 0.08)).dif;
     e += thr * a2 * direct(p2, n2, level);
     thr *= a2;
     d = cosine_dir(n2);
@@ -628,7 +969,7 @@ fn denoise_lightmap(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation
   lm_out[t] = vec2u(pack2x16float(r.rg), pack2x16float(vec2f(r.b, 0.0)));
 }
 
-// scroll / zoom pass: trace only the primary ray; lighting = lightmap + the exact sun
+// scroll / zoom pass: trace only the primary ray; lighting = lightmap + the exact sun, reflections from the floor's probe
 @compute @workgroup_size(8, 8)
 fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
   if (f32(gid.x) >= sc.res.x || f32(gid.y) >= sc.res.y) { return; }
@@ -642,6 +983,7 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
   let o = sc.cam.xyz;
 
   var e = vec3f(0.0);
+  var sp = vec3f(0.0);
   var alb = vec3f(1.0);
   var nrm = vec3f(0.0);
   var tt = 1e5;
@@ -679,23 +1021,49 @@ fn cs_view(@builtin(global_invocation_id) gid: vec3u) {
       var n = h.n;
       if (dot(n, d) > 0.0) { n = -n; }
       if (kind == 1.0) {
-        e = sc.sky.rgb;
-      } else if (kind == 9.0) {
-        e = lvl[level * 3u + 2u].rgb;
+        // glass: transmitted sky plus the Fresnel reflection of the room, read from the probe
+        let f = 0.04 + 0.96 * pow(clamp(1.0 + d.z, 0.0, 1.0), 5.0);
+        e = sc.sky.rgb * (1.0 - f);
+        sp = probe_sample(p, vec3f(d.x, d.y, -d.z), level, 0.0) * f;
+        nrm = vec3f(0.0, 0.0, 1.0);
+        tt = h.t;
+      } else if (is_emitter(kind)) {
+        e = emission(kind, level);
+        tt = h.t;
       } else if (kind == 4.0 && n.z < -0.5 && p.z > sc.misc.z - 0.02) {
         e = live_bg();
       } else {
         alb = albedo_of(ob, h, p, pix_fw(h.t));
+        let m = material(ob, n, alb);
+        let v = -d;
+        let ns = n;
+        let nv = max(dot(ns, v), 1e-3);
+        var kd = 1.0;
+        if (m.spec_on) { kd = 1.0 - lum(fres(m.f0, nv)); }
+        let lmv = lightmap(u32(h.id), ob, h);
+        e = (lmv + direct_sun(p, n, level)) * kd;
+        alb = m.dif;
         nrm = n;
         tt = h.t;
-        e = lightmap(u32(h.id), ob, h) + direct_sun(p, n, level);
+        if (m.spec_on) {
+          let alpha = max(m.rough * m.rough, 0.004);
+          // environment reflection from the floor probe: parallax-corrected, blurred by roughness, split-sum Fresnel
+          let r = reflect(d, ns);
+          let env = probe_sample(p, r, level, m.rough * (PROBE_MIPS - 1.0));
+          // specular occlusion: a point that sees less light than the probe centre reflects proportionally less
+          let ref_e = lum(probe_sample(p, n, level, PROBE_MIPS - 1.0));
+          let so = smoothstep(0.05, 0.5, lum(lmv) / max(ref_e, 1e-3));
+          sp = env * env_brdf(m.f0, m.rough, nv) * so;
+          if (sun_visible(p, n, level)) { sp += sun_col() * spec_eval(ns, v, sun_dir(), alpha, m.f0); }
+        }
       }
     }
   }
 
   accum[idx] = vec4f(e, 6.0);
-  gbuf[idx * 2u] = vec4f(nrm, tt);
-  gbuf[idx * 2u + 1u] = vec4f(alb, 0.0);
+  gbuf[idx * GS] = vec4f(nrm, tt);
+  gbuf[idx * GS + 1u] = vec4f(alb, 0.0);
+  gbuf[idx * GS + 2u] = vec4f(sp, 0.0);
 }
 
 
@@ -708,7 +1076,7 @@ fn atrous(@builtin(global_invocation_id) gid: vec3u) {
   let ip = vec2i(gid.xy);
   let idx = u32(ip.y * w + ip.x);
   let c = filt_in[idx];
-  let g0 = gb_ro[idx * 2u];
+  let g0 = gb_ro[idx * GS];
   let l0 = lum(c.rgb);
   let sigma = 0.1 + 1.5 / sqrt(c.a + 1.0);
   var k = array<f32, 5>(0.0625, 0.25, 0.375, 0.25, 0.0625);
@@ -721,7 +1089,7 @@ fn atrous(@builtin(global_invocation_id) gid: vec3u) {
       let q = clamp(ip + vec2i(i, j) * st, vec2i(0), vec2i(w - 1, hh - 1));
       let qi = u32(q.y * w + q.x);
       let p = filt_in[qi];
-      let g = gb_ro[qi * 2u];
+      let g = gb_ro[qi * GS];
       let wn = pow(max(dot(g0.xyz, g.xyz), 0.0), 24.0);
       let wd = exp(-abs(g0.w - g.w) / (0.05 * g0.w + 0.02));
       let rel = abs(l0 - lum(p.rgb)) / (max(l0, lum(p.rgb)) + 0.1);
@@ -753,7 +1121,7 @@ fn shade_at(ix: i32, iy: i32) -> vec3f {
   let x = clamp(ix, 0, rw - 1);
   let y = clamp(iy, 0, rh - 1);
   let idx = u32(y * rw + x);
-  return final_ro[idx].rgb * gb_ro[idx * 2u + 1u].rgb;
+  return final_ro[idx].rgb * gb_ro[idx * GS + 1u].rgb + gb_ro[idx * GS + 2u].rgb;
 }
 
 // light shafts: march the primary ray and add in-scatter wherever the sun beam passes through a pane
@@ -795,7 +1163,10 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   var c = mix(mix(shade_at(i0.x, i0.y), shade_at(i0.x + 1, i0.y), f.x),
               mix(shade_at(i0.x, i0.y + 1), shade_at(i0.x + 1, i0.y + 1), f.x), f.y);
   let gi = u32(clamp(i32(round(p.y)), 0, i32(sc.res.y) - 1)) * u32(sc.res.x) + u32(clamp(i32(round(p.x)), 0, i32(sc.res.x) - 1));
-  c += shafts(pos.xy, gb_ro[gi * 2u].w);
+  if (sc.post.x == 1.0) { return vec4f(pow(final_ro[gi].rgb * 0.3, vec3f(0.45)), 1.0); }
+  if (sc.post.x == 2.0) { return vec4f(pow(gb_ro[gi * GS + 1u].rgb, vec3f(0.45)), 1.0); }
+  if (sc.post.x == 3.0) { return vec4f(pow(gb_ro[gi * GS + 2u].rgb * 0.3, vec3f(0.45)), 1.0); }
+  c += shafts(pos.xy, gb_ro[gi * GS].w);
   c = aces(c * sc.tone.x);
   let uv = pos.xy / vec2f(sc.tone.z, sc.tone.w) - 0.5;
   c *= 1.0 - 0.55 * dot(uv, uv);

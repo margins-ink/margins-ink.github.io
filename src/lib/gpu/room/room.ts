@@ -32,8 +32,13 @@ const SPP = 160;
 /** Lightmap samples per texel at convergence, and the GPU time one bake dispatch should take. */
 const LM_SPP = 640;
 const LM_BUDGET_MS = 5;
+/** Reflection probe: octahedral map size, mip count, samples per texel at convergence and per bake step. */
+const PROBE_N = 128;
+const PROBE_MIPS = 5;
+const PROBE_SPP = 256;
+const PROBE_STEP = 2;
 /** Floats in the Scene uniform (see shader.ts). */
-const SCENE_FLOATS = 48;
+const SCENE_FLOATS = 64;
 const CAM_Z = 5.2;
 type V3 = [number, number, number];
 
@@ -61,6 +66,7 @@ export async function createRoom(
 	const ctx = canvas.getContext('webgpu');
 	if (!device || !ctx) return null;
 
+	const DBG = Number(new URLSearchParams(location.search).get('dbg') ?? 0);
 	device.addEventListener("uncapturederror", (e) => console.error("webgpu:", (e as GPUUncapturedErrorEvent).error.message));
 	const format = navigator.gpu.getPreferredCanvasFormat();
 	ctx.configure({ device, format, alphaMode: 'opaque' });
@@ -91,6 +97,8 @@ export async function createRoom(
 	const viewPipe = pipe('cs_view');
 	const bakeLmPipe = pipe('bake_lightmap');
 	const denoiseLmPipe = pipe('denoise_lightmap');
+	const bakeProbePipe = pipe('bake_probe');
+	const probeMipPipe = pipe('probe_mip');
 	const stepBufs = [1, 2, 4, 8].map((st) => {
 		const b = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 		device.queue.writeBuffer(b, 0, new Float32Array([st, 0, 0, 0]));
@@ -134,6 +142,23 @@ export async function createRoom(
 	const lmGroups = Math.ceil(lmLayout.texels / 64);
 	const lmGroupsX = Math.min(lmGroups, 4096);
 	console.debug('room: lightmap texels', lmLayout.texels);
+	// reflection probes: mip 0 is the path-traced radiance seen from the room centre, the rest is blurred for rough surfaces
+	const probeTex = device.createTexture({
+		size: [PROBE_N, PROBE_N, levels.length * 6],
+		format: 'rgba16float',
+		mipLevelCount: PROBE_MIPS,
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
+	});
+	const probeAll = probeTex.createView({ dimension: 'cube-array' });
+	const probeMip0 = probeTex.createView({ dimension: 'cube-array', baseMipLevel: 0, mipLevelCount: 1 });
+	const probeStore = (m: number) =>
+		probeTex.createView({ dimension: '2d-array', baseMipLevel: m, mipLevelCount: 1 });
+	const probeSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear' });
+	let probeAcc: GPUBuffer | null = null;
+	let bindProbe: GPUBindGroup | null = null;
+	let bindProbeMips: GPUBindGroup[] = [];
+	let probeN = 0;
+	let probeSpp = PROBE_STEP;
 	const VOL = [96, 48, 64];
 	const volBuf = storage(levels.length * VOL[0] * VOL[1] * VOL[2] * 4);
 	{
@@ -235,6 +260,9 @@ export async function createRoom(
 		const t = Math.min(1, shown * 1.4);
 		const base = night ? [0.05, 0.07, 0.15] : [0.55, 0.62, 0.72];
 		const fade = 1 - 0.85 * t;
+		const sk = Math.max(...sky);
+		const sun = sky.map((c) => (c / sk) * (night ? 5.0 : 14.0));
+		const amb = [0, 0, 0];
 		const vw = windowed ? [vm[0], vm[1], vs] : [0, 0, 1];
 		device!.queue.writeBuffer(
 			sceneBuf,
@@ -251,7 +279,11 @@ export async function createRoom(
 				levels.length, LEVEL_H, ROOM_D, ROOM_H,
 				night ? 3.4 : 2.6, seed, w, h,
 				...vw, 0,
-				lmN, lmSpp, lmLayout.texels, lmGroupsX
+				lmN, lmSpp, lmLayout.texels, lmGroupsX,
+				...sun, 0,
+				...amb, 0,
+				DBG, 0, 0, 0,
+				probeN, probeSpp, 0, 0
 			])
 		);
 	}
@@ -308,7 +340,7 @@ export async function createRoom(
 		canvas.height = h;
 		for (const b of [accum, gbuf, bufB, bufC]) b?.destroy();
 		accum = storage(w * h * 16);
-		gbuf = storage(w * h * 32);
+		gbuf = storage(w * h * 48);
 		bufB = storage(w * h * 16);
 		bufC = storage(w * h * 16);
 		bindC = device!.createBindGroup({
@@ -336,7 +368,9 @@ export async function createRoom(
 				{ binding: 7, resource: { buffer: lvlBuf } },
 				{ binding: 8, resource: { buffer: gbuf } },
 				{ binding: 14, resource: { buffer: lmMetaBuf } },
-				{ binding: 19, resource: { buffer: lmBuf } }
+				{ binding: 19, resource: { buffer: lmBuf } },
+				{ binding: 22, resource: probeAll },
+				{ binding: 23, resource: probeSampler }
 			]
 		});
 		const chain = [
@@ -399,6 +433,34 @@ export async function createRoom(
 		lmAcc ??= storage(lmLayout.texels * 16);
 		lmRaw ??= storage(lmLayout.texels * 8);
 		if (!lmTmp.length) lmTmp = [storage(lmLayout.texels * 8), storage(lmLayout.texels * 8)];
+		probeN = 0;
+		probeAcc ??= storage(levels.length * 6 * PROBE_N * PROBE_N * 16);
+		bindProbe = device!.createBindGroup({
+			layout: bakeProbePipe.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: { buffer: sceneBuf } },
+				{ binding: 1, resource: { buffer: objBuf } },
+				{ binding: 3, resource: atlasTex.createView() },
+				{ binding: 4, resource: sampler },
+				{ binding: 5, resource: { buffer: paneBuf } },
+				{ binding: 7, resource: { buffer: lvlBuf } },
+				{ binding: 24, resource: probeStore(0) },
+				{ binding: 25, resource: { buffer: probeAcc } }
+			]
+		});
+		bindProbeMips = [];
+		for (let m = 1; m < PROBE_MIPS; m++)
+			bindProbeMips.push(
+				device!.createBindGroup({
+					layout: probeMipPipe.getBindGroupLayout(0),
+					entries: [
+						{ binding: 0, resource: { buffer: sceneBuf } },
+						{ binding: 23, resource: probeSampler },
+						{ binding: 24, resource: probeStore(m) },
+						{ binding: 26, resource: probeMip0 }
+					]
+				})
+			);
 		bindL = device!.createBindGroup({
 			layout: bakeLmPipe.getBindGroupLayout(0),
 			entries: [
@@ -437,35 +499,53 @@ export async function createRoom(
 
 	/** One progressive lightmap pass over every texel; the sample count adapts to keep a pass near LM_BUDGET_MS. */
 	function bakeStep() {
-		if (lmN >= LM_SPP || lmBusy || !bindL) return;
+		if ((lmN >= LM_SPP && probeN >= PROBE_SPP) || lmBusy || !bindL) return;
 		lmBusy = true;
 		const t0 = performance.now();
-		lmSpp = Math.min(lmTarget, LM_SPP - lmN);
+		lmSpp = Math.min(lmTarget, Math.max(0, LM_SPP - lmN));
+		probeSpp = Math.min(PROBE_STEP, PROBE_SPP - probeN);
 		writeScene(w, h, liveY(), ++lmPass, 0, false);
 		const enc = device!.createCommandEncoder();
 		const cp = enc.beginComputePass();
-		cp.setPipeline(bakeLmPipe);
-		cp.setBindGroup(0, bindL);
-		cp.dispatchWorkgroups(lmGroupsX, Math.ceil(lmGroups / lmGroupsX));
-		cp.setPipeline(denoiseLmPipe);
-		for (const bg of bindD) {
-			cp.setBindGroup(0, bg);
+		if (lmSpp > 0) {
+			cp.setPipeline(bakeLmPipe);
+			cp.setBindGroup(0, bindL);
 			cp.dispatchWorkgroups(lmGroupsX, Math.ceil(lmGroups / lmGroupsX));
+			cp.setPipeline(denoiseLmPipe);
+			for (const bg of bindD) {
+				cp.setBindGroup(0, bg);
+				cp.dispatchWorkgroups(lmGroupsX, Math.ceil(lmGroups / lmGroupsX));
+			}
+		}
+		if (probeSpp > 0 && bindProbe) {
+			cp.setPipeline(bakeProbePipe);
+			cp.setBindGroup(0, bindProbe);
+			cp.dispatchWorkgroups(PROBE_N / 8, PROBE_N / 8, levels.length * 6);
+			cp.setPipeline(probeMipPipe);
+			for (let m = 1; m < PROBE_MIPS; m++) {
+				cp.setBindGroup(0, bindProbeMips[m - 1]);
+				const sz = PROBE_N >> m;
+				cp.dispatchWorkgroups(Math.ceil(sz / 8), Math.ceil(sz / 8), levels.length * 6);
+			}
 		}
 		cp.end();
 		device!.queue.submit([enc.finish()]);
 		lmN += lmSpp;
+		probeN += probeSpp;
 		const pass = lmPass;
-		const spp = lmSpp;
+		const spp = Math.max(1, lmSpp);
 		void device!.queue.onSubmittedWorkDone().then(() => {
 			const dt = performance.now() - t0;
 			lmBusy = false;
-			lmTarget = Math.max(1, Math.min(32, Math.round((spp * LM_BUDGET_MS) / Math.max(dt, 0.5))));
-			if (pass === lmPass && lmN >= LM_SPP) {
-				console.debug(`room: lightmaps converged ${LM_SPP} spp in ${Math.round(performance.now() - t0 + (t0 - lmT0))} ms`);
+			lmTarget = Math.max(1, Math.min(32, Math.round((spp * (LM_BUDGET_MS - 1.5)) / Math.max(dt - 1.5, 0.5))));
+			if (pass === lmPass && lmN >= LM_SPP && probeN >= PROBE_SPP) {
+				console.debug(`room: lightmaps and probes converged in ${Math.round(performance.now() - lmT0)} ms`);
 				lmAcc?.destroy();
 				lmAcc = null;
+				probeAcc?.destroy();
+				probeAcc = null;
 				bindL = null;
+				bindProbe = null;
 			}
 		});
 	}
@@ -482,7 +562,7 @@ export async function createRoom(
 		} else shown = target;
 		const nowMoving = !focusObj && (settling || now - lastChange < 120);
 		if (!focusObj) bakeStep();
-		const baking = !focusObj && lmN < LM_SPP;
+		const baking = !focusObj && (lmN < LM_SPP || probeN < PROBE_SPP);
 
 		if (nowMoving) {
 			// scroll or zoom: no history, lighting comes from the baked lightmaps plus the exact sun
@@ -524,6 +604,28 @@ export async function createRoom(
 		}
 		if (baking) raf = requestAnimationFrame(tick);
 	}
+
+	/** Dev only: GPU cost of n back-to-back frames of the moving (view) or still (trace + denoise) path, ms per frame. */
+	async function bench(n = 60, mode: 'view' | 'still' = 'view') {
+		await device!.queue.onSubmittedWorkDone();
+		const t0 = performance.now();
+		if (mode === 'view') writeScene(w, h, liveY(), 1, 1, true);
+		else writeScene(w, h, liveY(), 5, 0.02, true);
+		for (let i = 0; i < n; i++) {
+			const enc = device!.createCommandEncoder();
+			const cp = enc.beginComputePass();
+			cp.setPipeline(mode === 'view' ? viewPipe : compute);
+			cp.setBindGroup(0, mode === 'view' ? bindV : bindC);
+			cp.dispatchWorkgroups(groups(w), groups(h));
+			if (mode === 'still') denoise(cp, w, h);
+			cp.end();
+			draw(enc, mode === 'view' ? bindPV : bindP);
+			device!.queue.submit([enc.finish()]);
+		}
+		await device!.queue.onSubmittedWorkDone();
+		return (performance.now() - t0) / n;
+	}
+	if (import.meta.env.DEV) (globalThis as unknown as { __roomBench?: typeof bench }).__roomBench = bench;
 
 	const kick = () => {
 		if (!raf && !dead) raf = requestAnimationFrame(tick);
@@ -589,7 +691,8 @@ export async function createRoom(
 			cancelAnimationFrame(raf);
 			ro.disconnect();
 			mq.removeEventListener('change', restart);
-			for (const b of [accum, gbuf, bufB, bufC, volBuf, lmMetaBuf, lmBuf, lmAcc, lmRaw, ...lmTmp]) b?.destroy();
+			for (const b of [accum, gbuf, bufB, bufC, volBuf, lmMetaBuf, lmBuf, lmAcc, lmRaw, probeAcc, ...lmTmp]) b?.destroy();
+			probeTex.destroy();
 			atlasTex.destroy();
 		}
 	};

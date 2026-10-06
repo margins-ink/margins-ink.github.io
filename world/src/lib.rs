@@ -17,7 +17,8 @@ pub struct Output {
     pub objs: Vec<f32>,
     /// 16 floats per level: up to four sky-light pane centres (xyz + pad).
     pub panes: Vec<f32>,
-    /// 12 floats per level: [start, count, pane_count, 0, lamp xyz, lamp radius, lamp colour rgb, 0].
+    /// 20 floats per level: [start, count, pane_count, 0, lamp xyz, lamp radius, lamp colour rgb, 0,
+    /// accent centre xyz (front face z), accent half width, accent colour rgb, accent half height].
     pub lvl: Vec<f32>,
     /// For each input article, the global object index of the magazine showing it (u32::MAX: none).
     pub links: Vec<u32>,

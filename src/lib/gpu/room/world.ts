@@ -18,7 +18,7 @@ export interface World {
 	objs: Float32Array;
 	/** 16 floats per level. */
 	panes: Float32Array;
-	/** 12 floats per level. */
+	/** 20 floats per level. */
 	lvl: Float32Array;
 	/** Object index of the magazine showing items[i], or -1. */
 	links: Int32Array;

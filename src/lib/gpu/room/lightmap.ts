@@ -20,9 +20,9 @@ export function buildLightmapLayout(objs: Float32Array, lvl: Float32Array): Ligh
 	const n = objs.length / OBJ_FLOATS;
 	const meta = new Uint32Array(n * 6 * 4);
 	const levelOf = new Uint32Array(n);
-	for (let l = 0; l < lvl.length / 12; l++) {
-		const start = lvl[l * 12];
-		const count = lvl[l * 12 + 1];
+	for (let l = 0; l < lvl.length / 20; l++) {
+		const start = lvl[l * 20];
+		const count = lvl[l * 20 + 1];
 		for (let i = start; i < start + count; i++) levelOf[i] = l;
 	}
 	let off = 0;
@@ -34,8 +34,8 @@ export function buildLightmapLayout(objs: Float32Array, lvl: Float32Array): Ligh
 			const m = (i * 6 + f) * 4;
 			let nu = 0;
 			let nv = 0;
-			if (kind === 1 || kind === 9) {
-				// glass pane and lamp bulb are emitters: never lit
+			if (kind === 1 || kind === 3 || kind === 9) {
+				// glass pane, accent panel and lamp bulb are emitters: never lit
 			} else if (kind >= 8) {
 				if (f === 0) {
 					nu = clamp(Math.ceil((2 * Math.PI * objs[b + 4]) / TEXEL_FURNITURE), 8, 64);

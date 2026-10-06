@@ -69,6 +69,7 @@ pub fn pack<'a>(
         let start = out.objs.len() / 28;
         let mut panes = Vec::new();
         let mut lamp = None;
+        let mut accent = None;
         for e in &objs {
             let kind = e.try_cloned::<&Kind>().unwrap().id;
             let half = e.try_cloned::<&Half>().ok_or("object without Half")?;
@@ -102,12 +103,19 @@ pub fn pack<'a>(
                     let col = e.try_cloned::<&LampColour>().unwrap_or_default();
                     lamp = Some(([c[0], c[1], c[2], half.x], [col.r, col.g, col.b, 0.0]));
                 }
+                // neon / accent: an emissive rectangle facing +z; its front face is the light
+                3 => {
+                    let col = e.try_cloned::<&LampColour>().unwrap_or_default();
+                    accent = Some(([c[0], c[1], c[2] + half.z, half.x], [col.r, col.g, col.b, half.y]));
+                }
                 _ => {}
             }
             index_of.insert(*e.id(), (out.objs.len() / 28) as u32);
             out.objs.extend([c[0], c[1], c[2], kind as f32, half.x, half.y, half.z, 0.0]);
-            for row in rot {
-                out.objs.extend([row[0], row[1], row[2], 0.0]);
+            let mat = e.try_cloned::<&Material>().unwrap_or_default();
+            // the w of the rotation rows is free: roughness, metallic, spare
+            for (r, row) in rot.iter().enumerate() {
+                out.objs.extend([row[0], row[1], row[2], [mat.roughness, mat.metallic, 0.0][r]]);
             }
             out.objs.extend(alb);
             out.objs.extend(tex);
@@ -122,6 +130,9 @@ pub fn pack<'a>(
         out.lvl.extend([start as f32, objs.len() as f32, pane_count, 0.0]);
         out.lvl.extend(lp);
         out.lvl.extend(lc);
+        let (ap, ac) = accent.unwrap_or(([0.0; 4], [0.0; 4]));
+        out.lvl.extend(ap);
+        out.lvl.extend(ac);
     }
 
     for a in articles {
