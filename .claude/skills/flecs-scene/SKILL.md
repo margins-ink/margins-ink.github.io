@@ -38,3 +38,12 @@ The room is declared in Flecs script and packed by `world/src/export.rs`; `bun r
 - Cost: `intersect` is linear in objects per level; stay under about 90 decor objects per floor and measure.
 - Rust side (world/src/magazine.rs, see docs/MAGAZINE.md 5.1): state lives in singletons (`.term_at(i).set_src(T::id())`), exclusive relations (`add_trait::<flecs::Exclusive>()`) replace index compares, and OnAdd/OnRemove observers on `(Rel, *)` replace event flags. `Id<T>` arrays do not unify across types (use `Entity`), `Query::with` is only on `w.query::<()>()`, and native `cargo check` fails on the vendored C-unwind patch (use the wasm target). Run the idle timer beside momentum, and zero velocity on a clamp.
 - Book choreography (docs/BOOK.md, world/src/book.rs): never derive several channels from one spring with smoothsteps (double easing, everything ends together); one spring per channel with its own omega and zeta, and change only targets on a phase change so every interrupt keeps position and velocity. A target aimed slightly past a stop with a clamp gives a finite-time landing and an impact velocity for the sound; threshold the impact (above about 0.25) or a spring resting on its stop emits a sound every frame. Written without a compile: if `book.rs` fails to build, fix pair types first (`Entity` ids, not `Id<T>`).
+
+## Traps (2026-10-06)
+
+- Prefabs created inside `world.import::<Module>()` live in the module scope: root `world.lookup("Name")` panics "Entity not found", and `lookup_recursive` does not search child scopes. Register the id at creation (book.rs `PART_PROTOS` thread_local) and use `entity_from_id`.
+- A panic inside `RS.with(|r| r.borrow_mut()...)` leaves the RefCell borrowed; the later "already borrowed (reader.rs)" is a symptom, fix the first panic.
+- Rust systems run inside `world_tick` (reader::tick -> progress_time); `elevator_tick` only sets dt, call it before `world_tick`.
+- Cab-list hit distances are measured from the eye, room hits from the front plane (offset tp); subtract tp before comparing.
+- A WebGPU page that never reaches "room: lightmap texels" with `requestDevice` pending means the browser GPU process is wedged (Dia/Chrome GPU helper at 100%+ CPU for an hour), not a code bug: close leaked localhost tabs, kill the `--type=gpu-process` helper, retry. Screenshot tools must close their tabs.
+- Failed pipeline setup returned null silently; room.ts now logs `room: pipeline setup failed`.
