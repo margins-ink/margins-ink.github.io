@@ -157,3 +157,7 @@ Create animated diagrams explaining PRs/changes at `src/routes/artifact/{org}/{r
 - Dark theme (zinc-950 background), auto-play animations on mount
 - Uses `+layout@.svelte` to break inheritance from root layout (no app.css)
 - Custom `artifact.css` with Tailwind-like utility classes (no Tailwind dep)
+
+## The world has one look
+
+The 3D world (src/lib/gpu/room, world/, the magazine reader) is a game: one fixed look, no light and dark variants, no `prefers-color-scheme` switch for anything drawn in the world. Andrew, 2026-10-06: "you shouldnt really have seprate light and dark mode .... cause this is a game". This overrides the global rule that every UI follows the OS theme. The look is a warm evening (neon and lamps readable, low golden sun through the windows). Ordinary DOM pages outside the world may still follow the theme.
