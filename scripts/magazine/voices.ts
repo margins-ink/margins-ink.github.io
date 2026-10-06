@@ -11,6 +11,7 @@ export interface Voice {
 const v = (slug: string, wdth: number, wght: number): Voice => ({ slug, wdth, wght });
 
 export const VOICES: readonly Voice[] = [
+	v('models', 85, 700),
 	v('ifd', 80, 600),
 	v('hyperion', 75, 700),
 	v('notes-on-errors', 90, 600),

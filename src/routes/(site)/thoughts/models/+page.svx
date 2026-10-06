@@ -1,0 +1,166 @@
+---
+title: "When you pay for computation"
+dek: "Imperative or functional, program or type, inferred or written: each split is a choice about when a computation runs and who keeps the result."
+date: 2026-10-06
+username: andrewgazelka
+---
+
+<script lang="ts" context="module">
+	import IconMdiLambda from '~icons/mdi/lambda';
+	export { IconMdiLambda as icon };
+</script>
+
+<script lang="ts">
+	import { useRefs, Cite, References } from '$lib/components/refs';
+	useRefs([
+		{ id: 'sep-ct', title: 'B. Jack Copeland, The Church-Turing Thesis, Stanford Encyclopedia of Philosophy (rev. 2023)', url: 'https://plato.stanford.edu/entries/church-turing/' },
+		{ id: 'lean-do', title: 'Functors, Monads and do-Notation: Syntax, Lean Language Reference', url: 'https://lean-lang.org/doc/reference/latest/Functors___-Monads-and--do--Notation/Syntax/' },
+		{ id: 'haskell-do', title: 'Haskell 2010 Language Report, section 3.14: Do Expressions', url: 'https://www.haskell.org/onlinereport/haskell2010/haskellch3.html' },
+		{ id: 'moggi', title: 'Eugenio Moggi, Notions of computation and monads, Information and Computation 93(1), 1991', url: 'https://doi.org/10.1016/0890-5401(91)90052-4' },
+		{ id: 'wadler', title: 'Philip Wadler, Monads for functional programming (Marktoberdorf, 1992)', url: 'https://homepages.inf.ed.ac.uk/wadler/topics/monads.html' },
+		{ id: 'stg', title: 'Simon Peyton Jones, Implementing lazy functional languages on stock hardware: the Spineless Tagless G-machine, JFP 2(2), 1992', url: 'https://www.microsoft.com/en-us/research/publication/implementing-lazy-functional-languages-on-stock-hardware-the-spineless-tagless-g-machine/' },
+		{ id: 'leffler', title: "Shea Leffler, Rust's Type System is Turing-Complete (2017)", url: 'https://sdleffler.github.io/RustTypeSystemTuringComplete/' },
+		{ id: 'veldhuizen', title: 'Todd L. Veldhuizen, C++ Templates are Turing Complete (Indiana University, 2003)', url: 'https://www.semanticscholar.org/paper/C++-Templates-are-Turing-Complete-Veldhuizen/55a1417c034899636e736cfb168071555641dece' },
+		{ id: 'rust-limits', title: 'Limits: the recursion_limit attribute, The Rust Reference', url: 'https://doc.rust-lang.org/reference/attributes/limits.html' },
+		{ id: 'dowek', title: 'Gilles Dowek, The Undecidability of Typability in the Lambda-Pi-Calculus (TLCA 1993)', url: 'https://arxiv.org/abs/2306.07599' },
+		{ id: 'unison-idea', title: 'The big idea, Unison documentation', url: 'https://www.unison-lang.org/docs/the-big-idea/' },
+		{ id: 'unison-update', title: 'Common workflows for updating Unison code, Unison documentation', url: 'https://www.unison-lang.org/docs/usage-topics/workflow-how-tos/update-code/' },
+		{ id: 'unison-abilities', title: 'Abilities for the monadically inclined, Unison documentation', url: 'https://www.unison-lang.org/docs/fundamentals/abilities/for-monadically-inclined/' },
+		{ id: 'accattoli', title: 'Beniamino Accattoli and Ugo Dal Lago, (Leftmost-Outermost) Beta Reduction is Invariant, Indeed, LMCS 12(1:4), 2016', url: 'https://lmcs.episciences.org/1627' }
+	]);
+</script>
+
+# When you pay for computation
+
+Functional against imperative, program against type, inferred against written signatures: each looks like a border between two kinds of thing. Each is a decision about when a computation runs and who remembers its result.
+
+::fig{id="two-machines" place="wide"}
+
+## The two models compute the same functions
+
+A Turing machine is a head over a tape. Each step reads a cell, writes a cell, moves and changes state. The tape remembers everything, so a program never says what it carries forward.
+
+The lambda calculus has no tape. A program is an expression, and running it means substituting arguments into function bodies. Nothing is overwritten. Anything a later step needs has to be handed to it.
+
+Turing proved in 1936 that the two define the same functions, and Church and Kleene had tied lambda terms to the recursive functions the same year<Cite id="sep-ct" />. Imperative languages grew from the first picture and functional ones from the second, and neither computes anything the other cannot. What differs is bookkeeping: an imperative program lets the machine remember state; a functional program writes the state down as an argument.
+
+## do-notation converts one into the other
+
+Lean's `do` writes the tape picture inside the lambda picture. A counter in `StateM`:
+
+```lean
+def tick : StateM Nat Unit := modify (· + 1)
+
+def threeTicks : StateM Nat Nat := do
+  tick
+  tick
+  tick
+  get
+
+#eval threeTicks.run' 0   -- 3
+```
+
+The reference gives the rewrite: `do e1; es` becomes `e1 >>= fun () => do es`, and `let x ← e1; es` becomes `e1 >>= fun x => do es`<Cite id="lean-do" />. The Haskell report specifies the same translation with `>>` and `>>=`<Cite id="haskell-do" />. `StateM Nat Nat` unfolds to `Nat → Nat × Nat`, so the mutable counter is this function:
+
+```lean
+def threeTicksByHand (s : Nat) : Nat × Nat :=
+  let s := s + 1
+  let s := s + 1
+  let s := s + 1
+  (s, s)
+
+example : threeTicks = threeTicksByHand := rfl
+```
+
+Lean accepts the `rfl`: the two definitions are equal by unfolding alone. The tape came back as an argument. Moggi gave effects such as state a semantics as monads over a pure calculus<Cite id="moggi" />, and Wadler turned that into a way to write programs<Cite id="wadler" />.
+
+Compilers run the conversion the other way. The STG machine, the abstract machine GHC compiles Haskell to, keeps unevaluated expressions as closures in a heap and forces one by pushing a continuation on a stack<Cite id="stg" />.
+
+## The type checker is a program too
+
+Computation can also move earlier, into the compiler. Rust's trait solver runs this addition while it type checks:
+
+```rust
+use std::marker::PhantomData;
+struct Z;
+struct S<N>(PhantomData<N>);
+
+trait Add<B> { type Out; }
+impl<B> Add<B> for Z { type Out = B; }
+impl<A: Add<B>, B> Add<B> for S<A> { type Out = S<A::Out>; }
+
+trait Val { const N: u32; }
+impl Val for Z { const N: u32 = 0; }
+impl<N: Val> Val for S<N> { const N: u32 = N::N + 1; }
+
+fn main() {
+    // 2 + 3, worked out by the trait solver while type checking
+    println!("{}", <<S<S<Z>> as Add<S<S<S<Z>>>>>::Out as Val>::N); // 5
+}
+```
+
+The traits are a full language. Shea Leffler built an interpreter for Smallfuck, a known Turing-complete language, out of them<Cite id="leffler" />. Veldhuizen sketched the same result for C++ templates<Cite id="veldhuizen" />, and [TypeScript issue #14833](https://github.com/microsoft/TypeScript/issues/14833) shows it for TypeScript's types. Nix has its own version of the move: with [IFD](/thoughts/ifd), evaluation stops to run a build so a later step can read its output.
+
+That is computation over types, and it is blind to run time. The solver can add `S<S<Z>>` to `S<S<S<Z>>>`; it can never see a number the user types. A dependent type can, because in Lean the language of types and the language of values are the same language. A value chooses a type:
+
+```lean
+def Tuple : Nat → Type
+  | 0 => Unit
+  | n + 1 => Nat × Tuple n
+
+def mkTuple : (n : Nat) → Tuple n
+  | 0 => ()
+  | n + 1 => (n, mkTuple n)
+
+#check mkTuple 3   -- mkTuple 3 : Tuple 3
+#eval mkTuple 3    -- (2, 1, 0, ())
+```
+
+`Tuple 3` is `Nat × Nat × Nat × Unit`, and `rfl` proves it. Delete the signature of `mkTuple` and Lean 4.30 rejects it:
+
+```
+error: Type mismatch
+  (n, mkTuple n)
+has type
+  Nat × Unit
+but is expected to have type
+  Unit
+```
+
+The elaborator typed the first arm, fixed `Unit` for every `n`, and the second arm contradicted it. Succeeding would mean inventing `Tuple` from the arms: a function from values to types. Dowek proved that typability in the λΠ-calculus, the core of dependent types, is undecidable, so "some type information has to be mentioned by the programmer"<Cite id="dowek" />. `(n : Nat) → Tuple n` is the line inference cannot write.
+
+## Inference is paid on every read
+
+Where inference works, someone still pays. `def main := IO.println "hi"` compiles, and `#check main` prints `main : IO Unit`. That type lives in the editor's hover and the compiled module, never in the text a reviewer reads, so every reader derives it again. A written signature is that derivation stored once.
+
+It also stores intent. Inference reports what the body happens to do. Edit the body of a public definition and its inferred type moves with it; the error surfaces at a caller in another file. With the type written, the same edit fails where it was made. So write signatures on public definitions and skip them on local `let`s and lambdas, where every caller is in view.
+
+## Text files are not the unit of code
+
+Both reasons assume code is text that gets re-read. Unison stores something else. A definition "is identified by a hash of its syntax tree", and names "are just separately stored metadata that don't affect the function's hash"<Cite id="unison-idea" />. The codebase is a database ([a SQLite file](https://github.com/unisonweb/unison/blob/a1652e3ada28924cb9e75ff1d62408ee8df6b78f/parser-typechecker/src/Unison/Codebase/SqliteCodebase/Paths.hs) at `.unison/v2/unison.sqlite3`) of definitions already typechecked: "Once anyone has parsed and typechecked a definition and added it to the codebase, no one has to do that ever again."<Cite id="unison-idea" />
+
+Once the hash is the identity, whole classes of recomputation stop:
+
+- A rename edits metadata, so nothing downstream recompiles. Two libraries pinned to different versions of a function hold two hashes, and "the diamond dependency problem [is] just not a thing"<Cite id="unison-idea" />.
+- A pure test is a function of its dependencies' hashes, so its result is a cache entry: "There's no need to rerun a deterministic test if none of its dependencies have changed!"<Cite id="unison-idea" />
+- Computation moves to the data. "The sender ships the bytecode tree to the recipient, who inspects the bytecode for any hashes it's missing"<Cite id="unison-idea" />, asks for those and runs. Only missing hashes cross the wire.
+
+The inferred type is another stored fact you query, so the amortization argument for signatures disappears. The promise argument changes shape. An edit makes a new hash; `update` retypechecks the dependents, keeps the ones that pass and opens the rest in your editor<Cite id="unison-update" />. The break still lands at the edit, because the codebase knows every caller.
+
+Effects get the same treatment. Abilities are do-notation without a monad: the type carries the effect, `Nat -> Nat ->{Exception} Nat`, the body is written in direct style, and the docs say direct-style effects and monads "have the same expressive power"<Cite id="unison-abilities" />. The code reads like the tape; the type keeps the lambda calculus's books.
+
+## Where the picture breaks
+
+**Church-Turing is silent about cost.** It is a thesis about what is computable, unprovable because "effectively calculable" is informal<Cite id="sep-ct" />. Whether a beta step is a fair unit of time stayed open because a linear number of steps can build an exponentially large term. Accattoli and Dal Lago settled it in 2016: leftmost-outermost steps are a reasonable cost model once results stay shared<Cite id="accattoli" />.
+
+**rustc is a bounded machine.** An unbounded trait requirement fails with E0275 and a hint to raise `#![recursion_limit]`; the default is 128<Cite id="rust-limits" />. This confirms the rule. A Turing machine has an unbounded tape and rustc has a depth of 128; what Turing completeness buys in practice is that the bound is a setting you can raise.
+
+**Recursion alone does not force a signature.** `def countdown n := if n = 0 then 0 else countdown (n - 1)` is accepted and `#check` prints `countdown (n : Nat) : Nat`. The signature becomes mandatory when the type depends on a value.
+
+**Hashes decide sameness of syntax.** Renames are free and identical definitions are shared, but `x + 1` and `1 + x` hash differently. Whether two programs behave the same is undecidable in general ([Rice's theorem](https://en.wikipedia.org/wiki/Rice%27s_theorem)), so a hash can only record that two trees match.
+
+## Write down what cannot be derived
+
+A type is a computation scheduled before the program runs. A signature is one you scheduled by hand. Write it where no machine can schedule it for you: a type that depends on a value, or a promise to callers you have not met.
+
+<References />

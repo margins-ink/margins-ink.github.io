@@ -9,6 +9,7 @@
  *
  * slug                      kind      emblem (main)                         secondary mark
  * ------------------------- --------- ------------------------------------- ---------------------------
+ * models                    magazine  tape and head, arrows to loop and λ    n/a
  * ifd                       magazine  official Nix snowflake (CC BY 4.0)    n/a
  * hyperion                  magazine  isometric Minecraft-style grass block  swarm of tiny blocks behind
  * mcp-not-enough            magazine  official MCP mark, 3 strokes          n/a
@@ -413,7 +414,47 @@ function idBadge(c: Ctx, p: Pal) {
 	text(c, 'otter-42', 0, 0.78, 0.2, p.bg, '700');
 }
 
+function tapeToNotations(c: Ctx, p: Pal) {
+	// one machine (a tape and its head), two notations: a loop (imperative) and a lambda (functional)
+	const cw = 0.3;
+	for (let i = 0; i < 5; i++) {
+		rrect(c, -0.75 + i * cw, 0.42, cw, 0.3, 0.02);
+		if (i === 2) {
+			c.fillStyle = p.accent;
+			c.fill();
+		}
+		c.strokeStyle = p.ink;
+		c.lineWidth = 0.05;
+		c.stroke();
+	}
+	line(c, [[-0.95, 0.42], [-0.75, 0.42]], p.mute, 0.04);
+	line(c, [[-0.95, 0.72], [-0.75, 0.72]], p.mute, 0.04);
+	line(c, [[0.75, 0.42], [0.95, 0.42]], p.mute, 0.04);
+	line(c, [[0.75, 0.72], [0.95, 0.72]], p.mute, 0.04);
+	poly(c, [[-0.14, 0.14], [0.14, 0.14], [0, 0.34]], p.accent, p.ink, 0.03);
+	// dotted arrows up from the tape
+	line(c, [[-0.4, 0.3], [-0.58, -0.08]], p.mute, 0.045, [0.06, 0.07]);
+	line(c, [[0.4, 0.3], [0.58, -0.08]], p.mute, 0.045, [0.06, 0.07]);
+	// loop with an arrowhead
+	const lx = -0.62;
+	const ly = -0.45;
+	const r = 0.27;
+	c.beginPath();
+	c.arc(lx, ly, r, -0.25 * Math.PI, 1.45 * Math.PI);
+	c.strokeStyle = p.ink;
+	c.lineWidth = 0.09;
+	c.lineCap = 'round';
+	c.stroke();
+	const ex = lx + r * Math.cos(-0.25 * Math.PI);
+	const ey = ly + r * Math.sin(-0.25 * Math.PI);
+	poly(c, [[ex - 0.02, ey - 0.16], [ex + 0.15, ey + 0.03], [ex - 0.12, ey + 0.08]], p.ink);
+	// lambda
+	line(c, [[0.44, -0.82], [0.84, -0.12]], p.ink, 0.1);
+	line(c, [[0.64, -0.47], [0.42, -0.12]], p.ink, 0.1);
+}
+
 export const EMBLEMS: Record<string, (c: Ctx, p: Pal) => void> = {
+	models: tapeToNotations,
 	ifd: nixFlake,
 	hyperion: minecraftBlock,
 	'mcp-not-enough': plugSocket,
