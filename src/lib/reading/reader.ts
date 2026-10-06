@@ -85,6 +85,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let accent: [number, number, number] = [0.6, 0.6, 1];
 	const eventCbs = new Set<(k: ReadingEventKind, a: number) => void>();
 	let articleDisposers: (() => void)[] = [];
+	const devHook = { frame: null as null | ((f: PageFrame) => void) };
 	const counters = { frames: 0, draws: 0, skipped: 0, lastDrawMs: 0 };
 
 	// per-frame reusable state
@@ -336,6 +337,18 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	const TEXT_DEC = new TextDecoder();
 	const textOf = (off: number, len: number) => (model ? TEXT_DEC.decode(model.text.subarray(off, off + len)) : '');
 
+	/** the heading's own line(s): a block's text range can run on into following content (References) */
+	function headingText(b: ReadingModel['blocks'][number]): string {
+		// consecutive lines of one heading share its y band: stop at the first line below the block's heading height
+		let out = '';
+		const y1 = b.y0 + 4;
+		for (let li = b.firstLine; li < b.firstLine + b.lineCount; li++) {
+			const L = model!.lines[li];
+			if (li > b.firstLine && L.yTop > y1) break;
+			out += (out ? ' ' : '') + textOf(L.textOff, L.textLen).trim();
+		}
+		return (out || textOf(b.textOff, Math.min(b.textLen, 120))).split('\n')[0];
+	}
 	function headingList() {
 		const m = model!;
 		const out: { level: 2 | 3; text: string; id: string; y: number; block: number }[] = [];
@@ -344,7 +357,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			if (b.kind !== BlockKind.heading) return;
 			const lv = (b.level || 2) <= 2 ? 2 : 3;
 			if ((b.flags & BlockFlag.folded) && !foldExpanded) return;
-			out.push({ level: lv, text: textOf(b.textOff, b.textLen).trim(), id: b.anchor ? stringAt(m.strings, b.anchor) : '', y: layoutToDocY(m, b.y0, clip) * emPx, block: i });
+			out.push({ level: lv, text: headingText(b).trim(), id: b.anchor ? stringAt(m.strings, b.anchor) : '', y: layoutToDocY(m, b.y0, clip) * emPx, block: i });
 		});
 		return out;
 	}
@@ -845,6 +858,27 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		c.tabIndex = 0;
 		c.style.touchAction = 'none';
 		c.style.outline = 'none';
+		// horizontal wheel (trackpad sideways, or shift + wheel) over an overflowing code block scrolls that block, not the page
+		const onCodeWheel = (e: WheelEvent) => {
+			if (!model || e.ctrlKey) return;
+			const p = localPoint(e);
+			if (chromeAt(p.x, p.y)) return;
+			const h = hitTest(model, toDocX(p.x), toDocY(p.y), viewOpts());
+			if (h.block < 0 || model.blocks[h.block]?.kind !== BlockKind.code) return;
+			const b = model.blocks[h.block];
+			let right = b.x1;
+			for (let li = b.firstLine; li < b.firstLine + b.lineCount; li++) right = Math.max(right, model.lines[li].x1);
+			const maxDx = Math.max(0, right + 0.95 - b.x1);
+			if (maxDx <= 0) return;
+			const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+			if (!dx) return;
+			const cur = codeDx.get(h.block) ?? 0;
+			const next = Math.max(0, Math.min(maxDx, cur + (dx * (e.deltaMode === 1 ? 16 : 1)) / emPx));
+			if (next !== cur) { codeDx.set(h.block, next); needDraw = true; }
+			e.preventDefault();
+			e.stopImmediatePropagation();
+		};
+		c.addEventListener('wheel', onCodeWheel, { passive: false });
 		const noKeys = { addEventListener() {}, removeEventListener() {} } as unknown as Parameters<typeof attachScroll>[2];
 		const detach = attachScroll(c as never, { wheel: (...a) => reading!.scroll.wheel(...a), pointer: (...a) => reading!.scroll.pointer(...a), key: () => false, scrollTo: (...a) => reading!.scroll.scrollTo(...a) }, noKeys);
 		c.addEventListener('pointermove', onPointerMove);
@@ -858,6 +892,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		articleDisposers.length = 0;
 		disposersAlways.push(() => {
 			detach();
+			c.removeEventListener('wheel', onCodeWheel);
 			c.removeEventListener('pointermove', onPointerMove);
 			c.removeEventListener('pointerdown', onPointerDown);
 			c.removeEventListener('pointerup', onPointerUp);
@@ -1130,6 +1165,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 
 		if (canvasEl) canvasEl.style.cursor = dragKind === 'select' ? 'text' : chromeCursor || cursorFor(ptr ? hoverHit : null);
 
+		if (dev && devHook.frame) devHook.frame(f);
 		const t0 = dev ? performance.now() : 0;
 		pg.draw(f);
 		if (dev) counters.lastDrawMs = performance.now() - t0;
@@ -1196,7 +1232,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 				scrollTo: (id: string) => scrollSt?.goToAnchor(id, { smooth: false }),
 				act: (a: string) => act(a),
 				copySelection,
-				hook: { frame: null as null | ((f: PageFrame) => void) }
+				hook: devHook
 			};
 		}
 		raf = requestAnimationFrame(frameLoop);

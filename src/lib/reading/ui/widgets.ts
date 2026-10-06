@@ -291,7 +291,7 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 	// ---- top bar ----
 	const bar = layoutBar(s, label, m);
 	{
-		const ov = out.box(bar.bar, 0, th.ground, 0.9);
+		const ov = out.box(bar.bar, 0, th.ground, 1);
 		out.box({ x: 0, y: BAR_H - 1, w: s.view.w, h: 1 }, 0, th.ink, 0.07);
 		out.hit('bar', bar.bar, 'default', ov);
 		const iconBtn = (id: string, r: Rect, action: string, on: boolean, draw: (cx: number, cy: number) => void) => {

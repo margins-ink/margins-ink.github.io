@@ -79,3 +79,16 @@ The room is declared in Flecs script and packed by `world/src/export.rs`; `bun r
 - Rust keyword trap: `gen` is reserved in edition 2024; rename (`epoch`). A closure borrowing `d` while it is mutated needs the value copied out first.
 - Reading and book share the old names: delete old `Reading`, `Scroll`, `Page`, `Next`, `Visible` components and the Sheet/Issue prefabs in the same change or `component_named` clashes.
 - `loadReadingOnly` uses a dynamic import of world.ts to avoid an import cycle (ecs/reading.ts <-> gpu/room/world.ts).
+
+## GPU-only reader traps (2026-10-06, verified in headless Chrome on :9333)
+
+- The reader is plain TypeScript (`src/lib/reading/reader.ts`, `createReader(el, init)`); `Reader.svelte` only mounts it. Keep logic out of Svelte: Andrew asked "why so much svelte".
+- `createPagePass(null, ...)` makes its own canvas with `pointer-events:none`; the reader must set `pointer-events:auto` or every wheel and click lands on the element below (the hidden mirror once ate them). The mirror needs `mirror.css` imported (position fixed, left -10000px, `pointer-events:none`).
+- `buildChrome` mutates `state.scrollbar` of the ChromeState you pass: copy it back (`sbState.v = state.scrollbar`) or the scrollbar fade restarts every frame and the reader never goes idle (draws == frames).
+- Idle check: after 4 s on an article `counters.draws` must stop growing; if it grows, something (a chrome `animating`, a toast, the dirty bit) is stuck.
+- Hit test and selection assume glyph x is monotonic within a line: decorations drawn on a line (the code language label) must stay out of `firstGlyph..glyphCount` (`PG.deco` in typeset.ts, honoured in flow.write). The hit accuracy test on the built bins caught it (`bun test ./src/lib/reading`).
+- CDP: `Input.dispatchKeyEvent` `type:'char'` does not reach `keydown` handlers; send `keyDown` with `text`. Cmd is `modifiers:4`. Touch needs `Emulation.setTouchEmulationEnabled` then a page reload. Nushell: wrap shell loops in `bash -c`, a `for` over `"1440 900"` passes one argument.
+- A heading block's text range can run on into following content (References); use the first line of the block up to the first newline for contents entries.
+- Page-pass lightbox: a second frame uniform buffer and bind group (`g1b`) with `emPx`, origin and scroll chosen so the image's document box maps to the target px rect; the run for the image item sits after the main runs in the same segment buffer.
+- Overlay alpha below 1 on the top bar lets article text show through behind the title; the bar is opaque.
+- Hands-off rules: lanes commit nothing and run nothing; the root rebuilds wasm (`bun run build:world`) and the magazine (`bun scripts/magazine/build.ts --preview`, deterministic: a second run gives the same hashed file names) once.

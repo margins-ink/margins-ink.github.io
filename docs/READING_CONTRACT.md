@@ -58,7 +58,15 @@ Lanes write code and commit nothing, run nothing (no builds, no dev server, no C
 
 ## Deviations from docs/READING.md (kept current by the root)
 
+The reader is 100% our WebGPU renderer (Andrew, 2026-10-06; docs/READING_GPU.md). That supersedes the native scroller, the transparent DOM text layer and the DOM chrome of READING.md sections 4, 8, 9 and of this contract's earlier chrome items. Standing deviations:
+
 1. Layout is precomputed at build time in three width classes instead of a runtime wasm relayout (em-relative layout makes resize a scale).
 2. The page pass runs on its own canvas and device above the world canvas, so `room.ts` render loop is untouched.
-3. Text-bearing UI chrome (bar, section name, `Aa`, TOC, popovers, toast, captions in lightbox) is DOM; only rails, rings, flashes are GPU overlays.
-4. The prerendered mdsvex article stays in the HTML for no-JS and SEO as a hidden `display: none` fallback once JS runs; it is not exposed to assistive tech (no duplicate).
+3. No scrolling DOM and no DOM text layer. Scrolling is owned by the Flecs ReadingModule (world/src/scroll.rs: wheel, touch fling, rubber band, keys, smooth anchors). The scrollbar, top bar, `Aa`, contents, citation popover, lightbox, copy buttons, figure controls, link rings, toasts, selection plates and the find bar are drawn by the page pass (`src/lib/reading/ui/*`). Hit testing is `reading/hit.ts` over the RDR tables plus `ui/hit.ts` for chrome; the cursor is set on the canvas only.
+4. Native Cmd+F and the browser's text selection do not see the page. Replaced by in-engine selection, copy (Cmd/Ctrl+C, Cmd/Ctrl+A) and our own find bar (Cmd/Ctrl+F or `/`; a hit in the collapsed fold expands it). Accepted by Andrew.
+5. One visually hidden, non-interactive DOM mirror (`.sr-mirror`, `reading/mirror.ts`, clipped off-screen, not `display:none`) carries headings, links with real `href`, figure descriptions, code, refs and the fold text for assistive technology, crawlers, no-WebGPU clients and Reader Mode. Tab is handled by the engine (our links) and moves focus to the matching mirror link. The mirror text equals the model text (e2e check). The prerendered mdsvex article stays in the HTML for no-JS and is `inert` and `aria-hidden` once the reader is live. In print the mirror is shown and the canvas hidden.
+6. Scroll restore keeps `history.state` (`scrollstate.ts`: block anchor plus offset, text scale, fold) rather than `sessionStorage`: it survives reload, back and forward, and a width change.
+7. Code blocks that overflow scroll horizontally by a horizontal wheel (or Shift+wheel) over the block. Touch horizontal drag on a code block is not implemented: the engine takes the drag for page scroll (open item).
+8. The image lightbox is the page pass drawing the image item of its block through a second frame uniform (`PageFrame.lightbox`); no wheel or pinch zoom yet.
+9. The DOM-based alignment test is deleted (there is no DOM text to align). Replaced by: hit-test accuracy on the built articles (`hit.test.ts`, every glyph centre hits its glyph, planted off-by-one control), mirror-vs-model text equality (e2e), selection and copy exact-text tests (`select.test.ts`), find count equals a naive scan (e2e).
+10. Code language labels are glyphs of the first code line that sit outside the line's glyph range (`PG.deco`), so hit testing and selection never see them.
