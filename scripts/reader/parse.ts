@@ -11,6 +11,7 @@ import YAML from 'yaml';
 import { codeToTokens } from 'shiki';
 import { Pal, GlyphFlag } from '../../src/lib/reader/format';
 import { F } from './fonts';
+import { extractDirectives, directiveFromComment, parseDistill, bodyOf, type DirectiveEvent, type DistillBlock, type FigPlace } from '../magazine/parse-directives';
 
 export const slugify = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
@@ -34,7 +35,8 @@ export interface RefEntry { id: string; title: string; url: string }
 export type Block =
 	| { t: 'heading'; depth: number; runs: Run[]; id?: string }
 	| { t: 'para'; runs: Run[] }
-	| { t: 'code'; lang: string; lines: Run[][]; source: string }
+	| { t: 'code'; lang: string; lines: Run[][]; source: string; wide?: boolean }
+	| { t: 'fig'; id: string; place: FigPlace; line: number }
 	| { t: 'list'; ordered: boolean; start: number; items: Block[][] }
 	| { t: 'quote'; children: Block[] }
 	| { t: 'note'; children: Block[] }
@@ -53,6 +55,10 @@ export interface Parsed {
 	blocks: Block[];
 	refs: RefEntry[];
 	source: string;
+	/** the post body (source without frontmatter), the input of the distill review sha */
+	body: string;
+	/** the frontmatter `distill` block (MAGAZINE.md 1.7), shape-checked only */
+	distill?: DistillBlock;
 	/** every [light,dark] shiki colour pair used (for palette quantisation) with counts */
 	shikiPairs: Map<string, number>;
 }
@@ -70,6 +76,8 @@ interface Ctx {
 	pairs: Map<string, number>;
 	footnoteOrder: string[];
 	footnoteDefs: Map<string, any>;
+	events?: Map<number, DirectiveEvent>;
+	wide?: boolean;
 }
 
 const at = (ctx: Ctx, node: any) => `${ctx.file}:${node?.position?.start?.line ?? '?'}`;
@@ -306,7 +314,7 @@ async function blocks(ctx: Ctx, nodes: any[], inList = false): Promise<Block[]> 
 				const code = String(n.value).replace(/\t/g, '    ');
 				const lang = n.lang ?? 'text';
 				const lines = await shikiRuns(ctx, code, lang, { font: F.code, size: 0.85, color: Pal.ink, flags: GlyphFlag.code }, true);
-				out.push({ t: 'code', lang, lines, source: code });
+				out.push({ t: 'code', lang, lines, source: code, ...(ctx.wide ? { wide: true } : {}) });
 				break;
 			}
 			case 'list': {
@@ -332,6 +340,12 @@ async function blocks(ctx: Ctx, nodes: any[], inList = false): Promise<Block[]> 
 			case 'definition': break;
 			case 'html': {
 				const v: string = n.value;
+				const dir = directiveFromComment(v, ctx.events);
+				if (dir) {
+					if (dir.kind === 'fig') out.push({ t: 'fig', id: dir.id, place: dir.place, line: dir.line });
+					else ctx.wide = dir.kind === 'code-wide-open';
+					break;
+				}
 				if (/^\s*<script[\s>]/.test(v)) {
 					break; // script blocks only feed imports and refs (refs are collected up front)
 				}
@@ -368,7 +382,8 @@ async function blocks(ctx: Ctx, nodes: any[], inList = false): Promise<Block[]> 
 export async function parseArticle(file: string): Promise<Parsed> {
 	const source = fs.readFileSync(file, 'utf8');
 	const slug = file.split('/').slice(-2)[0];
-	const tree: any = processor.parse(source);
+	const ex = extractDirectives(source, file); // fail closed on unknown directives, file:line
+	const tree: any = processor.parse(ex.source);
 	const fm = tree.children.find((c: any) => c.type === 'yaml');
 	const meta = (fm ? YAML.parse(fm.value) : {}) as Parsed['meta'];
 	if (!meta.title) throw new ParseError(`${file}: frontmatter has no title`);
@@ -376,7 +391,7 @@ export async function parseArticle(file: string): Promise<Parsed> {
 	meta.dek = String(meta.dek ?? '');
 	meta.date = meta.date instanceof Date ? (meta.date as Date).toISOString().slice(0, 10) : String(meta.date ?? '');
 	meta.visible = meta.visible !== false;
-	const ctx: Ctx = { file, refs: [], pairs: new Map(), footnoteOrder: [], footnoteDefs: new Map() };
+	const ctx: Ctx = { file, refs: [], pairs: new Map(), footnoteOrder: [], footnoteDefs: new Map(), events: ex.events };
 	// useRefs script may follow its first use in file order only for References; collect refs first.
 	for (const c of tree.children) if (c.type === 'html' && /<script[\s>]/.test(c.value) && c.value.includes('useRefs(')) ctx.refs.push(...parseRefs(c.value, ctx, c));
 	let bl = await blocks(ctx, tree.children);
@@ -393,5 +408,5 @@ export async function parseArticle(file: string): Promise<Parsed> {
 	// drop a leading h1 that repeats the frontmatter title
 	const plain = meta.title.replace(/`([^`]+)`/g, '$1').trim().toLowerCase();
 	if (bl[0]?.t === 'heading' && bl[0].depth === 1 && bl[0].runs.map((r) => r.text ?? '').join('').trim().toLowerCase() === plain) bl = bl.slice(1);
-	return { slug, file, meta, blocks: bl, refs: ctx.refs, source, shikiPairs: ctx.pairs };
+	return { slug, file, meta, blocks: bl, refs: ctx.refs, source, body: bodyOf(source), distill: parseDistill(fm ? (YAML.parse(fm.value) ?? {}).distill : undefined, file), shikiPairs: ctx.pairs };
 }
