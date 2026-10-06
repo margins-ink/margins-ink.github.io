@@ -1,0 +1,24 @@
+[package]
+name = "world"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+flecs_ecs = { version = "=0.2.2", default-features = false, features = ["flecs_base", "flecs_script", "flecs_meta", "flecs_alerts", "flecs_log"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[patch.crates-io]
+flecs_ecs = { path = "vendor/flecs_ecs" }
+flecs_ecs_sys = { path = "vendor/flecs_ecs_sys" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+panic = "abort"
+codegen-units = 1
+strip = true

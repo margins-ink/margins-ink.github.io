@@ -1,9 +1,9 @@
 ---
-title: Margins
+title: Andrew Gazelka
 ---
 
 <script lang="ts">
-	import Timeline from '$lib/components/Timeline.svelte';
+	import Contents from '$lib/components/Contents.svelte';
 </script>
 
-<Timeline />
+<Contents />

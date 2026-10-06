@@ -1,6 +1,8 @@
 ---
 title: Model Context Protocol is not enough
+dek: "MCP gives tools input schemas and no output schemas. The shell already solved composition."
 date: 2025-11-10
+archived: true
 username: andrewgazelka
 ---
 
