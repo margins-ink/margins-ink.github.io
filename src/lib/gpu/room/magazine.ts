@@ -90,6 +90,9 @@ export interface MagazineUniforms {
 	hoverKind?: number;
 	/** corner peel 0..1 for spread 0's Full text corner, -1 for none */
 	peel: number;
+	/** front cover hinge 0 (closed) .. 1 (open), and whether the cover board is in play (page renderer owns the book, hinge < 1) */
+	hinge?: number;
+	cover?: number;
 	bow?: number;
 	gutter?: number;
 	gain?: number;
@@ -105,7 +108,7 @@ export function writeRd(out: Float32Array, at: number, u: MagazineUniforms) {
 		u.spineX, u.topY, u.z, u.dir,
 		u.index, u.hoverKind ?? 0, u.hoverSpread + 1, 0,
 		hr[0], hr[1], hr[2], hr[3],
-		u.peel, 0, 0, 0,
+		u.peel, u.hinge ?? 1, u.cover ?? 0, 0,
 		u.bow ?? BOW, u.gutter ?? GUTTER, u.gain ?? 1, 0
 	], at);
 }

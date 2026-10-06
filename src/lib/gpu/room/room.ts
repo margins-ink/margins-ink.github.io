@@ -107,7 +107,10 @@ export async function createRoom(
 	onLayout: (spots: Hotspot[]) => void,
 	opts: { focus?: string } = {}
 ): Promise<Room | null> {
-	if (!('gpu' in navigator)) return null;
+	if (!('gpu' in navigator)) {
+		console.error('room: navigator.gpu is missing (WebGPU unavailable)');
+		return null;
+	}
 	const adapter = await navigator.gpu.requestAdapter();
 	const device =
 		adapter &&
@@ -118,7 +121,10 @@ export async function createRoom(
 			}
 		}));
 	const ctx = canvas.getContext('webgpu');
-	if (!device || !ctx) return null;
+	if (!device || !ctx) {
+		console.error('room: no WebGPU adapter/device/context', { adapter: !!adapter, device: !!device, ctx: !!ctx });
+		return null;
+	}
 
 	const DBG = Number(new URLSearchParams(location.search).get('dbg') ?? 0);
 	device.addEventListener("uncapturederror", (e) => console.error("webgpu:", (e as GPUUncapturedErrorEvent).error.message));
@@ -419,8 +425,18 @@ export async function createRoom(
 	}
 
 	async function openArticle(slug: string, snap: boolean) {
-		slugIdx = items.findIndex((t) => t.slug === slug);
-		if (slugIdx < 0 || world!.links[slugIdx] < 0) return;
+		const idx = items.findIndex((t) => t.slug === slug);
+		if (idx < 0 || world!.links[idx] < 0) return;
+		// another book is out: it goes home first (cover closes, card returns), then this one comes off the shelf
+		if (!snap && rs[RS.phase] > 0) {
+			world!.reader.close(false);
+			touch();
+			for (let i = 0; i < 400 && rs[RS.phase] !== 0; i++) {
+				await new Promise((r) => setTimeout(r, 30));
+				if (wantSlug !== slug) return;
+			}
+		}
+		slugIdx = idx;
 		// a cold deep link: the cab is already at the book's floor
 		if (snap) elev.goto(floorOfObj(world!.links[slugIdx]), true);
 		// the book leaves the shelf on the click; the article bytes arrive while it is in the air
@@ -469,6 +485,8 @@ export async function createRoom(
 			hoverRect: hv?.link?.rect ?? (hf ? [hf.x0, hf.y0, hf.x1, hf.y1] : undefined),
 			hoverKind: hv?.link ? 0 : hf ? 1 : 0,
 			peel,
+			hinge: dbg.hinge ?? rs[RS.hinge],
+			cover: open && rs[RS.pagesOn] > 0.5 && (dbg.hinge ?? rs[RS.hinge]) < 0.9995 ? 1 : 0,
 			bow: BOW,
 			gutter: GUTTER,
 			gain: 1
@@ -812,7 +830,7 @@ export async function createRoom(
 	function readTick(now: number) {
 		// a frame after an idle gap must not jump the springs: treat a long gap as one 60 Hz frame
 		const gap = now - rdLast;
-		const dt = gap > 250 ? 16.7 : Math.min(50, gap);
+		const dt = (gap > 250 ? 16.7 : Math.min(50, gap)) * (dbg.timeScale ?? 1);
 		rdLast = now;
 		input.tick(now);
 		elev.tick(dt);
@@ -850,7 +868,7 @@ export async function createRoom(
 			if (rs[RS.article] >= 0) writeFigures();
 		}
 		const ms = book.state();
-		const sig = `${es[ES.posM].toFixed(4)} ${es[ES.lens].toFixed(3)} ${es[ES.gate].toFixed(3)} ${rs[RS.t].toFixed(4)} ${rs[RS.dim].toFixed(4)} ${rs[RS.phase]} ${rs[RS.article]} ${ms[MagState.f].toFixed(4)} ${ms[MagState.cornerDrag].toFixed(3)} ${ms[MagState.bounceX].toFixed(3)} ${ms[MagState.tabPulse].toFixed(3)} ${chanSig} ${hover?.link?.target ?? ''}`;
+		const sig = `${dbg.hinge ?? ''} ${es[ES.posM].toFixed(4)} ${es[ES.lens].toFixed(3)} ${es[ES.gate].toFixed(3)} ${rs[RS.t].toFixed(4)} ${rs[RS.dim].toFixed(4)} ${rs[RS.phase]} ${rs[RS.article]} ${ms[MagState.f].toFixed(4)} ${ms[MagState.cornerDrag].toFixed(3)} ${ms[MagState.bounceX].toFixed(3)} ${ms[MagState.tabPulse].toFixed(3)} ${chanSig} ${hover?.link?.target ?? ''}`;
 		rdIdle = sig === rdSig && !lmBusy ? rdIdle + 1 : 0;
 		rdSig = sig;
 	}
@@ -949,6 +967,14 @@ export async function createRoom(
 	}
 	if (import.meta.env.DEV) (globalThis as unknown as { __roomBench?: typeof bench }).__roomBench = bench;
 	if (import.meta.env.DEV) (globalThis as unknown as { __elev?: typeof elev }).__elev = elev;
+	// dev probes for the cdp tools: reader state, a hinge override, slow motion, the audio event log
+	const dbg: { hinge?: number; timeScale?: number; audio: [number, string, number][] } = { audio: [] };
+	if (import.meta.env.DEV) {
+		const g = globalThis as unknown as Record<string, unknown>;
+		g.__dbg = dbg;
+		g.__rs = () => Array.from(rs.slice(0, 64));
+		g.__book = () => book.state();
+	}
 
 	const kick = () => {
 		if (!raf && !dead) raf = requestAnimationFrame(tick);
@@ -1106,6 +1132,13 @@ export async function createRoom(
 		},
 		setAudio(a: import('$lib/audio').RoomAudio) {
 			audio = a;
+			if (import.meta.env.DEV) {
+				const ev0 = a.event.bind(a);
+				a.event = ((k: string, v?: number, ...r: unknown[]) => {
+					dbg.audio.push([Math.round(performance.now()), k, Math.round((v ?? 0) * 100) / 100]);
+					return (ev0 as (...x: unknown[]) => unknown)(k, v, ...r);
+				}) as typeof a.event;
+			}
 			a.setReverbRoom(6.6, ROOM_D, ROOM_H);
 		},
 		get reading() {

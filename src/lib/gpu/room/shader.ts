@@ -39,7 +39,7 @@ struct Scene {
   rd1: vec4f,       // magazine: spine x, y of the top edge, plane z, turn direction
   rd2: vec4f,       // magazine: shown spread index, 0, hovered spread + 1 (0 none), unused
   rd3: vec4f,       // magazine: hovered rect in spread em (x0 y0 x1 y1)
-  rd4: vec4f,       // magazine: x tab peel amount (-1 none)
+  rd4: vec4f,       // magazine: x tab peel amount (-1 none), y cover hinge 0..1, z cover board in play
   rd5: vec4f,       // magazine: x page bow, y gutter, z gain
   cab: vec4f,       // elevator (docs/ELEVATOR.md): x car depth in metres (cab frame y = world y + x), y settled (skip rays that clearly pass the open door), z cab on, w cab level index in lvl
 };

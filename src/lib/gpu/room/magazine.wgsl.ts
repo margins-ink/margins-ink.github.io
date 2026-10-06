@@ -801,12 +801,87 @@ fn mg_seg(o2: vec2f, d2: vec2f, p0: vec2f, p1: vec2f) -> vec2f {
   return vec2f(t, u);
 }
 
+// ---- the front cover: a rigid board of thickness MG_COVER_T hinged on the spine, swung by the Flecs hinge channel (rd4.y, 0 closed
+// .. 1 open, rd4.z = 1 while the board is in play). An oriented box in the (x, toward viewer) cross-section plane, extruded over the
+// sheet height; slab test in the board frame (s along the board from the spine, v out of its outside face, y down the sheet). ----
+const MG_COVER_T = 0.22;
+
+struct CHit {
+  t: f32,
+  face: u32,   // 3 outside (cover art), 1 inside (the spread's left page; 2 blank for the narrow class), 4 edge
+  a: f32,      // distance from the spine along the board, em
+  py: f32,     // down the sheet, em
+  n: vec3f,    // unit normal, facing the ray
+};
+
+fn mg_cover_psi() -> f32 {
+  let bow = sc.rd5.x;
+  return bow + saturate(sc.rd4.y) * (3.14159265 - 2.0 * bow);
+}
+
+fn mg_view_sg() -> f32 { return select(-1.0, 1.0, sc.cam.z >= sc.rd1.z); }
+
+fn mg_cover(o: vec3f, d: vec3f, sg: f32) -> CHit {
+  var res = CHit(-1.0, 0u, 0.0, 0.0, vec3f(0.0, 0.0, 1.0));
+  let em = sc.rd0.z;
+  let sw = mg_f(MH_SHEETW);
+  let shh = mg_f(MH_SPREADH);
+  let psi = mg_cover_psi();
+  let e = vec2f(cos(psi), sin(psi));
+  let nb = vec2f(-e.y, e.x);
+  let o2 = vec2f(o.x - sc.rd1.x, sg * (o.z - sc.rd1.z)) / em;
+  let d2 = vec2f(d.x, sg * d.z);
+  // board frame: x = s, y = v, z = py (em, down the sheet)
+  let ol = vec3f(dot(o2, e), dot(o2, nb), (sc.rd1.y - o.y) / em);
+  let dl = vec3f(dot(d2, e), dot(d2, nb), -d.y);
+  let lo = vec3f(0.0, 0.0, 0.0);
+  let hi = vec3f(sw, MG_COVER_T, shh);
+  var tn = -1e9;
+  var tf = 1e9;
+  var ax = 0u;
+  var hiside = false;
+  for (var i = 0u; i < 3u; i++) {
+    let oa = ol[i];
+    let da = dl[i];
+    if (abs(da) < 1e-9) {
+      if (oa < lo[i] || oa > hi[i]) { return res; }
+      continue;
+    }
+    var t0 = (lo[i] - oa) / da;
+    var t1 = (hi[i] - oa) / da;
+    var h0 = false;
+    if (t0 > t1) { let tt = t0; t0 = t1; t1 = tt; h0 = true; }
+    if (t0 > tn) { tn = t0; ax = i; hiside = h0; }
+    tf = min(tf, t1);
+  }
+  if (tn > tf || tn <= 0.0) { return res; }
+  // tn is in em of path length per unit of d: the ray parameter in metres is tn * em
+  let pl = ol + dl * tn;
+  res.t = tn * em;
+  res.a = pl.x;
+  res.py = pl.z;
+  var n2 = vec2f(0.0);
+  var ny = 0.0;
+  if (ax == 1u) {
+    res.face = select(1u, 3u, hiside);
+    n2 = select(-nb, nb, hiside);
+  } else if (ax == 0u) {
+    res.face = 4u;
+    n2 = select(-e, e, hiside);
+  } else {
+    res.face = 4u;
+    ny = select(1.0, -1.0, hiside);
+  }
+  res.n = vec3f(n2.x, ny, sg * n2.y);
+  return res;
+}
+
 // Ray against the open book: left and right sheet bowed by rd5.x toward the viewer about the spine, and while rd1.w != 0
 // the turning leaf, 8 strips hinged along the spine (front shows this spread, back shows the next or previous one).
 fn page_trace(o: vec3f, d: vec3f) -> PHit {
   var res = PHit(-1.0, 0u, vec2f(0.0), 0.0, vec3f(0.0, 0.0, 1.0), 1.0, d, 0u);
   let ns = reader[MH_SPREADN];
-  if (sc.rd0.x < 0.9 || ns == 0u) { return res; }
+  if (sc.rd0.x < 0.8995 || ns == 0u) { return res; }
   let em = sc.rd0.z;
   let sw = mg_f(MH_SHEETW);
   let shh = mg_f(MH_SPREADH);
@@ -827,9 +902,11 @@ fn page_trace(o: vec3f, d: vec3f) -> PHit {
   if (dir > 0 && idx + 1u >= ns) { dir = 0; }
   if (dir < 0 && idx == 0u) { dir = 0; }
 
-  // static sheets: side 0 left (outward is -x), side 1 right
+  let cover_on = sc.rd4.z > 0.5;
+  // static sheets: side 0 left (outward is -x), side 1 right; while the cover swings the left sheet is the cover's inside
   for (var side = 0; side < 2; side++) {
     if (single && side == 0) { continue; }
+    if (cover_on && side == 0) { continue; }
     let m = select(-1.0, 1.0, side == 1);
     var sp = idx;
     if (side == 1 && dir > 0) { sp = idx + 1u; }
@@ -841,6 +918,21 @@ fn page_trace(o: vec3f, d: vec3f) -> PHit {
     let nn = vec2f(-m * sin(bow), cos(bow));
     let n3 = vec3f(nn.x, 0.0, sg * nn.y);
     res = PHit(h.x, sp, vec2f(spx + m * h.y * sw, py), h.y * sw, n3, abs(dot(d, n3)), d, 0u);
+  }
+
+  // the front cover board
+  if (cover_on && dir == 0) {
+    let ch = mg_cover(o, d, sg);
+    if (ch.t > 0.0 && (res.t < 0.0 || ch.t < res.t + 1e-4)) {
+      var px = spx + ch.a;
+      let sp = 0u;
+      if (ch.face == 1u) {
+        if (single) { px = ch.a; } else { px = spx - ch.a; }
+      }
+      var face = ch.face;
+      if (face == 1u && single) { face = 2u; }
+      res = PHit(ch.t, sp, vec2f(px, ch.py), ch.a, ch.n, abs(dot(d, ch.n)), d, face);
+    }
   }
 
   // turning leaf
@@ -881,7 +973,7 @@ fn page_trace(o: vec3f, d: vec3f) -> PHit {
 // Irradiance of the reading light: the room lamp as a soft gradient over the sheet, tilted sheets get their own gradient.
 // Exposure-independent (divides by tone.x) so the backdrop can darken without dimming the paper.
 fn page_light_n(p: vec3f, n: vec3f, level: u32) -> f32 {
-  let lamp = lvl[level * 3u + 1u].xyz;
+  let lamp = lvl[level * LS + 1u].xyz;
   let dv = lamp - p;
   let f = 1.0 / (1.0 + 0.5 * dot(dv, dv));
   let nl = 0.75 + 0.25 * saturate(dot(n, dv / max(length(dv), 1e-4)));
@@ -889,6 +981,40 @@ fn page_light_n(p: vec3f, n: vec3f, level: u32) -> f32 {
   return (0.98 + 0.5 * f * nl) / sc.tone.x;
 }
 fn page_light(p: vec3f, level: u32) -> f32 { return page_light_n(p, vec3f(0.0, 0.0, 1.0), level); }
+
+// Shading of the sheet under the swinging cover: the soft shadow of a key light high, front and left of the book (6 taps in its
+// cone) plus the form factor of the board seen from the point (analytic, 2D strip), both fading out as the cover lies flat.
+const MG_KEY = vec3f(-0.5, 0.62, 0.6);
+fn mg_cover_vis(p: vec3f, n: vec3f) -> f32 {
+  let sg = mg_view_sg();
+  let em = sc.rd0.z;
+  let fade = 1.0 - smoothstep(0.88, 1.0, sc.rd4.y);
+  if (fade <= 0.0) { return 1.0; }
+  // key light direction in world space: x as is, toward-viewer component along the viewer side of z
+  let kd = normalize(vec3f(MG_KEY.x, MG_KEY.y, sg * MG_KEY.z));
+  let t1 = normalize(cross(kd, vec3f(0.0, 1.0, 0.0)));
+  let t2 = cross(kd, t1);
+  var lit = 0.0;
+  for (var i = 0u; i < 6u; i++) {
+    let a = f32(i) * 1.0471976 + 0.3;
+    let r = 0.09 * sqrt((f32(i) + 0.5) / 6.0);
+    let dir = normalize(kd + (t1 * cos(a) + t2 * sin(a)) * r * 2.0);
+    let ch = mg_cover(p + n * 0.001, dir, sg);
+    lit += select(1.0, 0.0, ch.t > 0.0);
+  }
+  lit /= 6.0;
+  // ambient: form factor of the board strip from the sheet point, in the cross-section plane
+  let px = (p.x - sc.rd1.x) / em;
+  let psi = mg_cover_psi();
+  let e = vec2f(cos(psi), sin(psi));
+  let sw = mg_f(MH_SHEETW);
+  let q = vec2f(px, 0.0);
+  let ua = normalize(vec2f(0.0, 0.0) - q);
+  let ub = normalize(e * sw - q);
+  let ff = clamp(0.5 * abs(ua.x - ub.x), 0.0, 1.0);
+  let vis = (0.45 + 0.55 * lit) * (1.0 - 0.45 * ff);
+  return mix(1.0, vis, fade);
+}
 
 struct PShade { alb: vec3f, e: f32 };
 
@@ -908,23 +1034,28 @@ fn page_shade(ph: PHit, wp: vec3f, level: u32) -> PShade {
   if (sc.rd4.x >= 0.0 && ph.face == 0u && abs(sc.rd1.w) < 0.5 && ph.p.x >= spx) { mg_peel = sc.rd4.x; }
   let fw = pix_fw(ph.t) / em / max(ph.cs, 0.15);
   var out = MgOut(vec3f(0.0), 0.0);
-  if (ph.face == 2u) {
+  var cov = vec3f(0.0);
+  if (ph.face >= 3u) {
+    // the cover board: art on the outside, a dark tone of it on the edges
+    var uv = vec2f(0.5);
+    if (ph.face == 3u) { uv = vec2f(ph.a / sw, ph.p.y / shh); }
+    if (sc.rd0.y >= 0.0) {
+      let mg = objs[u32(sc.rd0.y)];
+      cov = textureSampleLevel(atlas, atlas_s, (mg.tx.xy + uv * mg.tx.zw) / 2048.0, 0.0).rgb;
+    } else { cov = mg_paper(); }
+    if (ph.face == 4u) { cov *= 0.22; }
+    out.col = cov;
+  } else if (ph.face == 2u) {
     out.col = mg_paper() * 0.92;
   } else {
     out = spread_albedo(ph.spread, ph.p, fw);
   }
   var alb = out.col;
-  let k = sc.rd0.x;
-  if (ph.face == 0u && ph.spread == 0u && ph.p.x >= spx && sc.rd0.y >= 0.0 && k < 0.995) {
-    let mg = objs[u32(sc.rd0.y)];
-    let uv = (ph.p - vec2f(spx, 0.0)) / vec2f(sw, shh);
-    let cover = textureSampleLevel(atlas, atlas_s, (mg.tx.xy + uv * mg.tx.zw) / 2048.0, 0.0).rgb;
-    alb = mix(cover, alb, smoothstep(0.9, 0.99, k));
-  }
   var e = page_light_n(wp, ph.n, level);
-  if (!single) { e *= 1.0 - sc.rd5.y * exp(-ph.a / 1.6); }
+  if (sc.rd4.z > 0.5 && ph.face == 0u) { e *= mg_cover_vis(wp, ph.n); }
+  if (!single && ph.face < 3u) { e *= 1.0 - sc.rd5.y * exp(-ph.a / 1.6); }
   if (out.coat > 0.0) {
-    let lamp = lvl[level * 3u + 1u].xyz;
+    let lamp = lvl[level * LS + 1u].xyz;
     let hv = normalize(normalize(lamp - wp) - ph.vd);
     e *= 1.0 + 0.4 * out.coat * pow(saturate(dot(ph.n, hv)), 48.0);
   }

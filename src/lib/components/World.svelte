@@ -38,7 +38,10 @@
 				room = r;
 				ws.failed = r === null;
 				ws.live = r !== null;
-				if (!r) delete document.documentElement.dataset.gpu;
+				if (!r) {
+					console.error('world: createRoom returned null, the room is not live (see the room: error above)');
+					delete document.documentElement.dataset.gpu;
+				}
 				ws.floors = r?.floors ?? [];
 				if (r) r.setAudio(audio);
 				r?.onReader((e) => {
