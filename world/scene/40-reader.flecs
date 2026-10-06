@@ -1,0 +1,15 @@
+// The in-world reader (docs/READER.md, docs/WORLD.md "Reader").
+// Sheet: one page of an article, Kind 10 ("page" surface). Instances are created by article_open as
+// children of the article, chained with (Next, ...) / (Prev, ...), and deleted when the close finishes.
+prefab Sheet : Solid {
+  Kind: {10}
+  Albedo: {0.9, 0.88, 0.82}
+  Half: {0.31, 0.434, 0.002}
+}
+
+// Every article entity is an instance of Issue: it carries the reading and scroll state.
+// Reading is {t, vel, target}, Scroll is {y_em, target_em, vel, max_em}.
+prefab Issue {
+  Reading: {0, 0, 0}
+  Scroll: {0, 0, 0, 0}
+}

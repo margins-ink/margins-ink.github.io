@@ -2,6 +2,7 @@
 	import '../../app.css';
 	import { page } from '$app/state';
 	import type { LayoutData } from './$types';
+	import World from '$lib/components/World.svelte';
 
 	const { data, children }: { data?: LayoutData; children: any } = $props();
 
@@ -13,6 +14,8 @@
 		<title>{data.title}</title>
 	{/if}
 </svelte:head>
+
+<World />
 
 <div class="shell" class:landing={isLanding}>
 	{@render children?.()}

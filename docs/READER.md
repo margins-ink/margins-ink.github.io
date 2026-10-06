@@ -214,3 +214,17 @@ Deviations from the spec:
 - Hidden posts are built and flagged `hidden` in index.json.
 
 Unsupported: no post failed the build. The only component tags in the corpus are Cite, References, StickyNote (plus inline code/em/strong/a/span/kbd/br); any other tag or script content throws with file:line. Tables, footnotes and blockquotes are implemented but no real post exercises them.
+
+## Stage 3-6 notes (reader in the world)
+
+Status: wired end to end. Click a magazine -> `goto('/thoughts/<slug>')` -> World.svelte (persistent canvas in `(site)/+layout`) calls `room.setReading(slug)` -> Flecs `article_open` -> ReadingTween drives `camT`/`lift` -> shader draws the sheet stack (kind 10 'page', `reader.wgsl.ts`) in `cs_view`. Escape/Back returns to `/`; deep links open in the reading pose.
+
+Layout: one `reader` u32 storage buffer (binding 22/23 region, see `reader.wgsl.ts` header) plus an rgba8unorm-srgb texture array for images; Scene uniform grew to 512 bytes (rd0..rd3). cs_view stays within 8 storage buffers.
+
+Traps:
+- Sheets must not be drawn while the magazine is still flying (doubled cover). Gate: `page_trace` returns nothing for k < 0.9; `pickSheet` in `reader.ts` mirrors it. Change both together.
+- The magazine row is parked at y-50 once k > 0.995, else its cover shows through the gap between sheets.
+- Worktree needs its own `pnpm install --frozen-lockfile --offline`; a symlinked node_modules gives Vite 403 on `@fs`.
+- Never `git add -A` here: `world/.toolchain` and `static/reader` are symlinks.
+
+Not done: acceptance screenshots in docs/upstream/reader/shots, zoom crispness at DPR 2, 120 Hz timing runs, back/forward test, Hyperion (images/math) check, `pnpm build` prerender check, removal of dead `focusObj` in room.ts.

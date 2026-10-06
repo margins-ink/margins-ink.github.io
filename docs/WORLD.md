@@ -94,3 +94,30 @@ Traps:
 8. Hash maps in std call WASI `random_get`; it must exist in the import object.
 
 Rebuild: `bun run build:world` (writes `src/lib/gpu/room/world.wasm`, which is committed so the dev server works without a Rust toolchain).
+
+## Reader (articles as Flecs entities)
+
+`scene/40-reader.flecs` declares `prefab Sheet : Solid { Kind: {10} ... }` (one page sheet) and `prefab Issue { Reading, Scroll }`.
+Every article entity (`articles::<slug>`) is `IsA Issue` and carries `Article`, `Reading {t, vel, target}` (spring state, 0 shelf .. 1 reading)
+and `Scroll {y_em, target_em, vel, max_em}`. `article_open` instantiates one `Sheet` per page, `ChildOf` the article,
+with `Page {index, y0_em, h_em}`, the relation `(HasPage, page)` on the article and the chain `(Next, page)` / `(Prev, page)`
+between pages; the close finishing (or a snap close, or opening another article) despawns them. `world/src/reader.rs` holds the glue and the four systems
+(declared in this order, one pipeline pass per `world_tick`): `ReadingTween` (exact critically damped spring, omega 9 rad/s, no overshoot at any dt,
+snaps within 1e-3), `ScrollIntegrate` (fling decays 0.95 per 60 Hz frame, clamps to `[0, max_em]`, `y_em` = target), `SheetCull`
+(tags `Visible`, counts the first/count of visible sheets, max 3), `PackObjs` (writes the state buffer).
+
+Exports added to `lib.rs` (all `extern "C"`): `world_tick(dt_ms)`, `article_open(index, page_count, sheet_w, sheet_h, gap, snap) -> 0 ok`,
+`article_close(snap)`, `scroll_by(dy_em)`, `scroll_to(y_em)`, `scroll_fling(v_em_s)` (extra), `set_viewport(view_h_em)`,
+`set_reading_pose(cx, cy, cz, half_w, half_h)`, `event_poll() -> kind<<24 | arg` (1 Opened(article index), 2 Closed, 3 ScrollEnd, 4 PageChanged(page)),
+`reader_state_ptr() -> *const f32`, `world_entity_count()`. TS wrapper: `world.reader` (`ReaderApi` in `world.ts`, state indices in `RS`).
+
+State buffer (40 f32): 0 t, 1 target, 2 scroll_em, 3 scroll max, 4 active article (-1 none), 5 active magazine object index (-1), 6 lift = smoothstep(0,0.28,t),
+7 camT = smootherstep(0.15,1,t), 8 first visible page, 9 visible count (<=3), 10 page at view centre, 11 page_count (not written yet, JS knows it),
+12..40 animated magazine row in the 28-float `objs` format (the `objs` upload keeps the shelf pose). Magazine: position lerps to the reading pose with
+`fly = smootherstep(0.12,1,t)` plus a 0.06 m z bump `lift * (1 - fly)`, lean about x goes to 0 over the lift, half extents go to `(half_w, half_h, 0.006)`.
+
+Traps:
+1. Systems must not borrow the glue state (`RS`): `world_tick` clones the `World` handle out and calls `progress_time` with no borrow held; systems read `thread_local` `Cell`s (dt, active article, viewport, scroll) instead.
+2. Entity count: `world.count(Wildcard)` is stable across open/close only after one warm-up cycle (the first open lazily creates tables); the smoke test takes its baseline after one cycle.
+3. Memory growth detaches `Float32Array` views: `world.reader.state()` re-derives the view on every call; do not cache it across a call that can allocate (`open`, `tick`).
+4. `scripts/reader-smoke.ts` (bun) is the leak test: 50 open/close/switch cycles, spring overshoot check, event order, scroll clamp.

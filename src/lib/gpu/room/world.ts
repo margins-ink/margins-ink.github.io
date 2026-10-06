@@ -22,6 +22,32 @@ export interface World {
 	lvl: Float32Array;
 	/** Object index of the magazine showing items[i], or -1. */
 	links: Int32Array;
+	/** Reader state machine (Reading/Scroll/Page entities, see docs/WORLD.md "Reader"). */
+	reader: ReaderApi;
+}
+
+export type ReaderEvent = { kind: 'opened' | 'closed' | 'scrollEnd' | 'page'; arg: number };
+
+/** Indices into `ReaderApi.state()`. */
+export const RS = {
+	t: 0, target: 1, scroll: 2, scrollMax: 3, article: 4, magObj: 5, lift: 6, camT: 7,
+	firstPage: 8, visible: 9, centrePage: 10, pageCount: 11, mag: 12
+} as const;
+
+export interface ReaderApi {
+	tick(dtMs: number): void;
+	open(index: number, pageCount: number, sheetW: number, sheetH: number, gap: number, snap: boolean): boolean;
+	close(snap: boolean): void;
+	scrollBy(dyEm: number): void;
+	scrollTo(yEm: number): void;
+	/** Start a fling in em/s. */
+	fling(vEmS: number): void;
+	setViewport(viewHEm: number): void;
+	setReadingPose(cx: number, cy: number, cz: number, halfW: number, halfH: number): void;
+	poll(): ReaderEvent | null;
+	/** 40 floats, a live view onto wasm memory (valid until the next call into wasm that may grow it). */
+	state(): Float32Array;
+	entityCount(): number;
 }
 
 const rect = (r: { x: number; y: number; w: number; h: number }) => [r.x, r.y, r.w, r.h];
@@ -30,7 +56,7 @@ const rect = (r: { x: number; y: number; w: number; h: number }) => [r.x, r.y, r
  * The module needs only a handful of WASI preview1 calls (clock, random seed for hash maps, empty environment, stderr).
  * Implemented here so no WASI shim dependency is shipped.
  */
-function wasiImports(getMem: () => WebAssembly.Memory) {
+export function wasiImports(getMem: () => WebAssembly.Memory) {
 	const dv = () => new DataView(getMem().buffer);
 	const dec = new TextDecoder();
 	return {
@@ -80,6 +106,39 @@ interface Exports {
 	world_build(): number;
 	world_buf(id: number): number;
 	world_buf_len(id: number): number;
+	world_tick(dtMs: number): void;
+	article_open(index: number, pageCount: number, sheetW: number, sheetH: number, gap: number, snap: number): number;
+	article_close(snap: number): void;
+	scroll_by(dy: number): void;
+	scroll_to(y: number): void;
+	scroll_fling(v: number): void;
+	set_viewport(h: number): void;
+	set_reading_pose(cx: number, cy: number, cz: number, hw: number, hh: number): void;
+	event_poll(): number;
+	reader_state_ptr(): number;
+	world_entity_count(): number;
+}
+
+const EVENTS: ReaderEvent['kind'][] = ['opened', 'closed', 'scrollEnd', 'page'];
+
+function readerApi(x: Exports): ReaderApi {
+	return {
+		tick: (dt) => x.world_tick(dt),
+		open: (i, n, w, h, g, snap) => x.article_open(i, n, w, h, g, snap ? 1 : 0) === 0,
+		close: (snap) => x.article_close(snap ? 1 : 0),
+		scrollBy: (d) => x.scroll_by(d),
+		scrollTo: (y) => x.scroll_to(y),
+		fling: (v) => x.scroll_fling(v),
+		setViewport: (h) => x.set_viewport(h),
+		setReadingPose: (a, b, c, d, e) => x.set_reading_pose(a, b, c, d, e),
+		poll() {
+			const v = x.event_poll();
+			return v === 0 ? null : { kind: EVENTS[(v >>> 24) - 1], arg: v & 0xffffff };
+		},
+		// re-derived on every call: a grown memory detaches old views
+		state: () => new Float32Array(x.memory.buffer, x.reader_state_ptr(), 40),
+		entityCount: () => x.world_entity_count()
+	};
 }
 
 export async function loadWorld(items: Thought[]): Promise<World> {
@@ -109,6 +168,7 @@ export async function loadWorld(items: Thought[]): Promise<World> {
 		objs: new Float32Array(bytes(0)),
 		panes: new Float32Array(bytes(1)),
 		lvl: new Float32Array(bytes(2)),
-		links: new Int32Array(bytes(3))
+		links: new Int32Array(bytes(3)),
+		reader: readerApi(x)
 	};
 }

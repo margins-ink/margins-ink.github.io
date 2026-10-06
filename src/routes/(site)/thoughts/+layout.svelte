@@ -5,7 +5,6 @@
 	import TableOfContents from '$lib/components/TableOfContents.svelte';
 	import PageNav from '$lib/components/PageNav.svelte';
 	import EraRail from '$lib/components/EraRail.svelte';
-	import ArticleHero from '$lib/components/ArticleHero.svelte';
 	import { thoughts } from '$lib/thoughts';
 	import { accentFor, issue, longDate } from '$lib/theme';
 	import { plainTitle, renderTitle } from '$lib/title';
@@ -26,7 +25,6 @@
 	);
 	const isPaginated = $derived((data.pageCount ?? 1) > 1);
 	const accent = $derived(data.slug ? accentFor(data.slug) : { light: '#57534e', dark: '#d6d3d1' });
-	let heroLive = $state(false);
 	const older = $derived(thoughts.find((t) => t.no === (data.no ?? 0) - 1));
 	const newer = $derived(thoughts.find((t) => t.no === (data.no ?? 0) + 1));
 </script>
@@ -36,17 +34,14 @@
 </svelte:head>
 
 {#if data.title}
-	<div class="issue" style:--al={accent.light} style:--ad={accent.dark}>
+	<div class="issue reader-dom" style:--al={accent.light} style:--ad={accent.dark}>
 		<div class="folio">
 			<a href="/">Andrew Gazelka</a>
 			<span>No. {issue(data.no ?? 0)}</span>
 			<span>{data.date ? longDate(data.date) : ''}</span>
 		</div>
 
-		<header class="opener" class:hero={heroLive}>
-			{#if data.slug}
-				<div class="render"><ArticleHero slug={data.slug} bind:live={heroLive} /></div>
-			{/if}
+		<header class="opener">
 			<div class="numeral" aria-hidden="true">{issue(data.no ?? 0)}</div>
 			<div class="opener-text">
 				<h1>{@html renderTitle(data.title)}</h1>
@@ -90,6 +85,18 @@
 {/if}
 
 <style>
+	/* With WebGPU the article is drawn inside the world (World.svelte). This copy stays in the DOM, visually hidden,
+	   as the one accessible and indexable representation (docs/READER.md section 4). */
+	:global(html[data-gpu]) .reader-dom {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		padding: 0;
+		overflow: hidden;
+		clip-path: inset(50%);
+		border: 0;
+	}
 	.issue {
 		--acc: var(--al);
 		padding: 1.25rem 0 6rem;
@@ -126,27 +133,7 @@
 		border-bottom: 1px solid var(--text-primary);
 	}
 	.opener {
-		position: relative;
-		isolation: isolate;
 		min-height: min(70svh, 560px);
-	}
-	.render {
-		position: absolute;
-		inset: 0 calc(50% - 50vw);
-		z-index: -2;
-	}
-	.opener.hero::before {
-		content: '';
-		position: absolute;
-		inset: 0 calc(50% - 50vw);
-		z-index: -1;
-		background: linear-gradient(90deg, var(--background) 0%, var(--background) 38%, transparent 72%);
-	}
-	.opener.hero .numeral {
-		display: none;
-	}
-	.opener.hero .opener-text {
-		max-width: 38rem;
 	}
 	.numeral {
 		font-family: var(--font-serif);

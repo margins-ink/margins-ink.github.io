@@ -27,6 +27,12 @@ vec_component!(Lean { angle } [0.0]);
 // Lying flat, turned by `theta + per_floor * floor_index` about the vertical axis.
 vec_component!(Flat { theta, per_floor } [0.0, 0.0]);
 
+// Reading state of an article: t is the spring state (0 on the shelf .. 1 reading pose), vel its velocity.
+vec_component!(Reading { t, vel, target } [0.0, 0.0, 0.0]);
+// Scroll state of the sheet stack in em: y follows target, vel is the fling speed (em/s).
+vec_component!(Scroll { y_em, target_em, vel, max_em } [0.0, 0.0, 0.0, 0.0]);
+vec_component!(Page { index, y0_em, h_em } [0.0, 0.0, 0.0]);
+
 /// Shader treatment of an object (see docs/WORLD.md).
 #[derive(Component, Clone, Copy, Debug, Default)]
 #[flecs(meta)]
@@ -69,6 +75,18 @@ pub struct Uses;
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Displayed;
 
+/// Relation `(HasPage, page)` on an Article: its sheets.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct HasPage;
+/// Relations `(Next, page)` / `(Prev, page)` on a Page: the ordered chain.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct Next;
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct Prev;
+/// Tag set by SheetCull on sheets that intersect the view.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct Visible;
+
 pub fn register(world: &World) {
     world.component_named::<Center>("Center");
     world.component_named::<Half>("Half");
@@ -88,4 +106,11 @@ pub fn register(world: &World) {
     world.component_named::<TexMap>("TexMap");
     world.component_named::<Uses>("Uses");
     world.component_named::<Displayed>("Displayed");
+    world.component_named::<Reading>("Reading");
+    world.component_named::<Scroll>("Scroll");
+    world.component_named::<Page>("Page");
+    world.component_named::<HasPage>("HasPage");
+    world.component_named::<Next>("Next");
+    world.component_named::<Prev>("Prev");
+    world.component_named::<Visible>("Visible");
 }

@@ -6,6 +6,7 @@
 
 mod components;
 mod export;
+mod reader;
 mod scene;
 
 use std::cell::RefCell;
@@ -49,7 +50,8 @@ pub extern "C" fn world_input(len: u32) -> *mut u8 {
 pub extern "C" fn world_build() -> u32 {
     let result = INPUT.with(|i| scene::build(&i.borrow()));
     OUTPUT.with(|o| match result {
-        Ok(out) => {
+        Ok((out, world, ids)) => {
+            reader::store(world, ids, &out);
             *o.borrow_mut() = out;
             0
         }
@@ -90,4 +92,64 @@ pub extern "C" fn world_buf_len(id: u32) -> u32 {
             _ => o.error.len(),
         }) as u32
     })
+}
+
+/// Advance the reader's systems by `dt_ms` (clamped to 0..100).
+#[no_mangle]
+pub extern "C" fn world_tick(dt_ms: f32) {
+    reader::tick(dt_ms);
+}
+
+/// Open article `index` (input order): creates its sheets and sets Reading.target to 1. 0 on success.
+#[no_mangle]
+pub extern "C" fn article_open(index: u32, page_count: u32, sheet_w: f32, sheet_h: f32, gap: f32, snap: u32) -> u32 {
+    reader::article_open(index, page_count, sheet_w, sheet_h, gap, snap != 0)
+}
+
+#[no_mangle]
+pub extern "C" fn article_close(snap: u32) {
+    reader::article_close(snap != 0);
+}
+
+#[no_mangle]
+pub extern "C" fn scroll_by(dy_em: f32) {
+    reader::scroll_by(dy_em);
+}
+
+#[no_mangle]
+pub extern "C" fn scroll_to(y_em: f32) {
+    reader::scroll_to(y_em);
+}
+
+/// Extra (not in the base contract): start a fling in em/s.
+#[no_mangle]
+pub extern "C" fn scroll_fling(v_em_s: f32) {
+    reader::scroll_fling(v_em_s);
+}
+
+#[no_mangle]
+pub extern "C" fn set_viewport(view_h_em: f32) {
+    reader::set_viewport(view_h_em);
+}
+
+#[no_mangle]
+pub extern "C" fn set_reading_pose(cx: f32, cy: f32, cz: f32, half_w: f32, half_h: f32) {
+    reader::set_reading_pose(cx, cy, cz, half_w, half_h);
+}
+
+/// 0 none; kind << 24 | arg. 1 Opened(article), 2 Closed, 3 ScrollEnd, 4 PageChanged(page).
+#[no_mangle]
+pub extern "C" fn event_poll() -> u32 {
+    reader::event_poll()
+}
+
+/// 40 f32 of reader state (layout in docs/WORLD.md).
+#[no_mangle]
+pub extern "C" fn reader_state_ptr() -> *const f32 {
+    reader::state_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn world_entity_count() -> u32 {
+    reader::entity_count()
 }

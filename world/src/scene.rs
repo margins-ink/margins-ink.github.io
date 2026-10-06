@@ -10,6 +10,7 @@ const SCRIPTS: &[(&str, &str)] = &[
     ("prefabs", include_str!("../scene/10-prefabs.flecs")),
     ("palettes", include_str!("../scene/20-palettes.flecs")),
     ("rooms", include_str!("../scene/30-rooms.flecs")),
+    ("reader", include_str!("../scene/40-reader.flecs")),
 ];
 
 #[derive(Deserialize)]
@@ -35,7 +36,7 @@ pub struct FloorInfo {
     pub sub: String,
 }
 
-pub fn build(json: &[u8]) -> Result<Output, String> {
+pub fn build(json: &[u8]) -> Result<(Output, World, Vec<u64>), String> {
     let input: Input = serde_json::from_slice(json).map_err(|e| format!("input json: {e}"))?;
     let world = World::new();
     register(&world);
@@ -50,7 +51,14 @@ pub fn build(json: &[u8]) -> Result<Output, String> {
         .items
         .iter()
         .enumerate()
-        .map(|(i, t)| world.entity_named(&format!("articles::{}", t.slug)).set(Article { index: i as u32 }))
+        .map(|(i, t)| {
+            world
+                .entity_named(&format!("articles::{}", t.slug))
+                .is_a(world.lookup("Issue"))
+                .set(Article { index: i as u32 })
+                .set(Reading::default())
+                .set(Scroll::default())
+        })
         .collect();
 
     // Floors: one per year in first-seen order, then the Archive in the basement.
@@ -133,5 +141,7 @@ pub fn build(json: &[u8]) -> Result<Output, String> {
         }
     }
 
-    export::pack(&world, &input.signs, &input.map, &floors, &articles, specs.iter().map(|s| &s.info))
+    let out = export::pack(&world, &input.signs, &input.map, &floors, &articles, specs.iter().map(|s| &s.info))?;
+    let ids = articles.iter().map(|a| *a.id()).collect();
+    Ok((out, world, ids))
 }
