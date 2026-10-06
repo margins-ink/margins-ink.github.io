@@ -50,6 +50,9 @@ enum Kind {
     Open,
     Close,
     Scroll,
+    GateRattle,
+    DoorSlide,
+    LatchClunk,
 }
 
 fn kind_from(k: u32) -> Option<Kind> {
@@ -62,6 +65,9 @@ fn kind_from(k: u32) -> Option<Kind> {
         5 => Kind::Open,
         6 => Kind::Close,
         7 => Kind::Scroll,
+        8 => Kind::GateRattle,
+        9 => Kind::DoorSlide,
+        10 => Kind::LatchClunk,
         _ => return None,
     })
 }
@@ -134,6 +140,29 @@ fn build(b: &mut Builder, kind: Kind, i: f32) -> Part {
             ],
             secs: 2.2,
         },
+        // Scissor gate: fast metallic chatter of many small bars.
+        Kind::GateRattle => Part {
+            parts: vec![b.noise(3200.0, 1.6, 0.6, 0.01, 3.5, 47.0, 0.85), b.noise(1100.0, 1.0, 0.35, 0.02, 4.0, 29.0, 0.7)],
+            secs: 1.1,
+        },
+        // Sliding doors: low rumble on a track with a soft end bump.
+        Kind::DoorSlide => Part {
+            parts: vec![b.noise(260.0, 0.7, 0.7, 0.12, 2.2, 5.0, 0.3), b.mode(70.0, 0.35, 9.0)],
+            secs: 1.5,
+        },
+        // Latch: heavy iron clunk, intensity lowers the pitch.
+        Kind::LatchClunk => {
+            let f0 = 120.0 - 40.0 * i;
+            Part {
+                parts: vec![
+                    b.mode(f0, 0.9, 18.0),
+                    b.mode(f0 * 2.7, 0.4, 40.0),
+                    b.mode(f0 * 5.1, 0.15, 70.0),
+                    b.lowpassed_noise(900.0, 0.6, 60.0),
+                ],
+                secs: 0.9,
+            }
+        }
         // Passing a floor: a faint ratchet tick plus a short air whoosh.
         Kind::FloorPass => Part {
             parts: vec![b.noise(900.0, 1.2, 0.35, 0.01, 12.0, 0.0, 0.0), b.mode(110.0, 0.30, 22.0)],

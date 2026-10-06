@@ -1,0 +1,237 @@
+// The elevator (docs/ELEVATOR.md): hall wall of every floor, cabin, gate, doors, dial and shaft furniture.
+// Hall wall pieces are plain floor objects (children of Room). Everything under `Lift` is the cab list: cab frame
+// (x centre, y up from the cab floor, z toward the camera; camera eye (0, 1.55, 5.2) facing -z; hall wall z 3.9..4.0,
+// hall doors z 3.84, cab front wall z 4.20..4.32, gate z 4.40). Parts tagged with `Rig` are repositioned every tick
+// by the Flecs systems (world/src/elevator.rs); their Center here is only the initial value.
+// Rig: {role, a, b, row}. Roles: 1 gate bar, 2 gate rail/post, 3 hall door leaf, 4 needle, 5 dial lamp, 6 call button,
+// 7 rail fishplate, 8 counterweight, 9 cable, 10 door seam light, 11 cab lamp. `row` is filled by the exporter.
+
+prefab CabBrass : Solid { Albedo: {0.78, 0.55, 0.22}
+  Material: {0.26, 0.95} }
+prefab CabOak : Wood { Albedo: {0.42, 0.24, 0.11}
+  Material: {0.3, 0} }
+prefab CabOakDark : CabOak { Albedo: {0.26, 0.14, 0.07} }
+prefab CabEnamel : Solid { Albedo: {0.05, 0.045, 0.04}
+  Material: {0.2, 0} }
+prefab CabTile : Solid { Albedo: {0.62, 0.57, 0.47}
+  Material: {0.45, 0} }
+prefab CabIron : Solid { Albedo: {0.09, 0.09, 0.10}
+  Material: {0.5, 0.8} }
+prefab CabSphere : CabBrass { Kind: {8} }
+
+// ---- hall wall: one per floor, inside the front plane (z 3.9..4.0), door aperture 2.0 wide and 2.0 high ----
+prefab HallStone : Solid { Albedo: {0.46, 0.4, 0.33}
+  Material: {0.7, 0} }
+prefab HallWall {
+  jamb_l : HallStone { Center: {-2.15, 1.6, 3.95}
+    Half: {1.15, 1.6, 0.05} }
+  jamb_r : HallStone { Center: {2.15, 1.6, 3.95}
+    Half: {1.15, 1.6, 0.05} }
+  head   : HallStone { Center: {0, 2.6, 3.95}
+    Half: {1.0, 0.6, 0.05} }
+  trim_l : CabBrass { Center: {-1.012, 1.0, 4.003}
+    Half: {0.02, 1.0, 0.006} }
+  trim_r : CabBrass { Center: {1.012, 1.0, 4.003}
+    Half: {0.02, 1.0, 0.006} }
+  trim_t : CabBrass { Center: {0, 2.012, 4.003}
+    Half: {1.032, 0.02, 0.006} }
+  sill   : CabBrass { Center: {0, 0.01, 3.95}
+    Half: {1.0, 0.01, 0.05} }
+  plaque : CabBrass { Center: {0, 2.5, 4.004}
+    Half: {0.22, 0.08, 0.005} }
+}
+
+// ---- cabin parts ----
+prefab CabFloor {
+  base  : CabTile { Center: {0, -0.02, 5.35}
+    Half: {1.4, 0.02, 1.15} }
+  inset : CabTile { Center: {0, 0.002, 5.35}
+    Half: {1.2, 0.003, 0.95}
+    Albedo: {0.30, 0.27, 0.23} }
+  worn  : CabTile { Center: {0.15, 0.0055, 4.95}
+    Half: {0.55, 0.001, 0.3}
+    Albedo: {0.48, 0.43, 0.36}
+    Material: {0.3, 0} }
+}
+
+prefab CabShade : CabSphere { Half: {0.11, 0.11, 0.11}
+  Albedo: {1, 0.9, 0.7}
+  Glow: {6.5, 4.2, 2.1}
+  LampColour: {5.5, 3.5, 1.7}
+  Rig: {11, 0, 0, 0} }
+prefab CabCeiling {
+  panel  : CabOak { Center: {0, 2.52, 5.35}
+    Half: {1.4, 0.02, 1.15}
+    Albedo: {0.62, 0.5, 0.34} }
+  beam_a : CabOakDark { Center: {0, 2.46, 4.75}
+    Half: {1.4, 0.04, 0.05} }
+  beam_b : CabOakDark { Center: {0, 2.46, 6.0}
+    Half: {1.4, 0.04, 0.05} }
+  flange : CabBrass { Center: {0, 2.48, 5.3}
+    Half: {0.15, 0.02, 0.15} }
+  shade  : CabShade { Center: {0, 2.36, 5.3} }
+}
+
+prefab CabWallL {
+  slab  : CabOak { Center: {-1.43, 1.25, 5.35}
+    Half: {0.03, 1.25, 1.15} }
+  rail  : CabBrass { Center: {-1.385, 1.1, 5.35}
+    Half: {0.02, 0.025, 1.15} }
+  kick  : CabBrass { Center: {-1.39, 0.07, 5.35}
+    Half: {0.015, 0.07, 1.15} }
+  pan_a : CabOakDark { Center: {-1.392, 0.58, 4.95}
+    Half: {0.012, 0.36, 0.34} }
+  pan_b : CabOakDark { Center: {-1.392, 0.58, 5.75}
+    Half: {0.012, 0.36, 0.34} }
+}
+prefab CabWallR {
+  slab  : CabOak { Center: {1.43, 1.25, 5.35}
+    Half: {0.03, 1.25, 1.15} }
+  rail  : CabBrass { Center: {1.385, 1.1, 5.35}
+    Half: {0.02, 0.025, 1.15} }
+  kick  : CabBrass { Center: {1.39, 0.07, 5.35}
+    Half: {0.015, 0.07, 1.15} }
+  pan_a : CabOakDark { Center: {1.392, 0.58, 5.35}
+    Half: {0.012, 0.36, 0.34} }
+  pan_b : CabOakDark { Center: {1.392, 0.58, 6.1}
+    Half: {0.012, 0.36, 0.28} }
+}
+
+// handrails: a bar on two brackets. The right one is short, the control panel is on that wall by the door.
+prefab CabRailL {
+  bar  : CabBrass { Center: {-1.31, 0.9, 5.4}
+    Half: {0.018, 0.018, 0.85} }
+  br_a : CabBrass { Center: {-1.355, 0.9, 4.85}
+    Half: {0.045, 0.012, 0.012} }
+  br_b : CabBrass { Center: {-1.355, 0.9, 5.95}
+    Half: {0.045, 0.012, 0.012} }
+}
+prefab CabRailR {
+  bar  : CabBrass { Center: {1.31, 0.9, 5.8}
+    Half: {0.018, 0.018, 0.55} }
+  br_a : CabBrass { Center: {1.355, 0.9, 5.35}
+    Half: {0.045, 0.012, 0.012} }
+  br_b : CabBrass { Center: {1.355, 0.9, 6.25}
+    Half: {0.045, 0.012, 0.012} }
+}
+
+// brass plate on the right wall; the round call buttons (CabButton) are added by elevator.rs, one per floor
+prefab CabPanel {
+  plate : CabBrass { Center: {1.388, 1.3, 4.6}
+    Half: {0.012, 0.3, 0.12} }
+}
+
+// cab front: jambs, header with the dial, brass trim and sill. The aperture is x -1..1, y 0..2.
+prefab CabFront {
+  jamb_l : CabOak { Center: {-1.2, 1.25, 4.26}
+    Half: {0.2, 1.25, 0.06} }
+  jamb_r : CabOak { Center: {1.2, 1.25, 4.26}
+    Half: {0.2, 1.25, 0.06} }
+  header : CabOak { Center: {0, 2.25, 4.26}
+    Half: {1.0, 0.25, 0.06} }
+  trim_l : CabBrass { Center: {-1.012, 1.0, 4.325}
+    Half: {0.022, 1.0, 0.012} }
+  trim_r : CabBrass { Center: {1.012, 1.0, 4.325}
+    Half: {0.022, 1.0, 0.012} }
+  trim_t : CabBrass { Center: {0, 2.012, 4.325}
+    Half: {1.034, 0.022, 0.012} }
+  sill   : CabBrass { Center: {0, 0.012, 4.28}
+    Half: {1.0, 0.012, 0.1} }
+}
+
+// floor indicator: brass bezel, dark enamel face, hub and a needle sweeping a 120 degree arc; floor lamps are added by elevator.rs
+prefab CabNeedle : CabBrass { Half: {0.11, 0.007, 0.004}
+  Albedo: {0.85, 0.2, 0.12}
+  Material: {0.3, 0.3}
+  Center: {0, 2.19, 4.343}
+  Rig: {4, 0, 0, 0} }
+prefab CabDial {
+  bezel  : CabBrass { Center: {0, 2.25, 4.322}
+    Half: {0.46, 0.2, 0.004} }
+  plate  : CabEnamel { Center: {0, 2.25, 4.328}
+    Half: {0.43, 0.17, 0.004} }
+  hub    : CabSphere { Center: {0, 2.08, 4.345}
+    Half: {0.03, 0.03, 0.03} }
+  needle : CabNeedle {}
+}
+
+// rig parts created by elevator.rs from these
+prefab CabGateBar : CabBrass { Half: {0.25, 0.011, 0.011}
+  Center: {0, 1, 4.4}
+  Rig: {1, 0, 0, 0} }
+prefab CabGateRail : CabBrass { Half: {0.025, 0.03, 0.02}
+  Center: {0, 1, 4.4} }
+prefab CabLeaf : CabOakDark { Half: {0.505, 1.0, 0.03}
+  Center: {0, 1, 3.84}
+  Rig: {3, 0, 0, 0} }
+prefab CabDialLamp : CabSphere { Half: {0.02, 0.02, 0.02}
+  Albedo: {1.0, 0.6, 0.2}
+  Glow: {0.2, 0.12, 0.04}
+  Rig: {5, 0, 0, 0} }
+prefab CabButton : CabSphere { Half: {0.028, 0.028, 0.028}
+  Glow: {0, 0, 0}
+  Rig: {6, 0, 0, 0} }
+prefab CabSeam : Solid { Albedo: {1, 0.9, 0.7}
+  Half: {0.012, 0.95, 0.006}
+  Glow: {0, 0, 0}
+  Center: {0, -50, 3.895}
+  Rig: {10, 0, 0, 0} }
+
+// shaft furniture seen through the gate: guide rails with scrolling fishplates, the counterweight and its cables
+prefab CabPlate : CabBrass { Half: {0.055, 0.075, 0.025}
+  Center: {0, 1, 4.08} }
+prefab CabCounterweight : CabIron { Half: {0.2, 0.6, 0.04}
+  Center: {0.62, -50, 4.12}
+  Rig: {8, 0, 0, 0} }
+prefab CabCable : CabIron { Half: {0.007, 0.5, 0.007}
+  Center: {0.55, -50, 4.12}
+  Material: {0.4, 0.7} }
+prefab CabShaft {
+  rail_l : CabIron { Center: {-0.93, 1.25, 4.08}
+    Half: {0.025, 1.9, 0.02} }
+  rail_r : CabIron { Center: {0.93, 1.25, 4.08}
+    Half: {0.025, 1.9, 0.02} }
+  fp_l0 : CabPlate { Center: {-0.93, 0.6, 4.08}
+    Rig: {7, -1, 0, 0} }
+  fp_l1 : CabPlate { Center: {-0.93, 1.8, 4.08}
+    Rig: {7, -1, 1, 0} }
+  fp_l2 : CabPlate { Center: {-0.93, 3.0, 4.08}
+    Rig: {7, -1, 2, 0} }
+  fp_l3 : CabPlate { Center: {-0.93, 4.2, 4.08}
+    Rig: {7, -1, 3, 0} }
+  fp_r0 : CabPlate { Center: {0.93, 0.6, 4.08}
+    Rig: {7, 1, 0, 0} }
+  fp_r1 : CabPlate { Center: {0.93, 1.8, 4.08}
+    Rig: {7, 1, 1, 0} }
+  fp_r2 : CabPlate { Center: {0.93, 3.0, 4.08}
+    Rig: {7, 1, 2, 0} }
+  fp_r3 : CabPlate { Center: {0.93, 4.2, 4.08}
+    Rig: {7, 1, 3, 0} }
+  cw      : CabCounterweight {}
+  cable_a : CabCable { Rig: {9, 0, 0, 0} }
+  cable_b : CabCable { Rig: {9, 1, 0, 0} }
+}
+
+// ---- the whole cab list ----
+prefab Cabin {
+  floor   : CabFloor {}
+  ceiling : CabCeiling {}
+  wall_l  : CabWallL {}
+  wall_r  : CabWallR {}
+  rail_l  : CabRailL {}
+  rail_r  : CabRailR {}
+  panel   : CabPanel {}
+  front   : CabFront {}
+  dial    : CabDial {}
+}
+prefab Lift : Cabin {
+  shaft      : CabShaft {}
+  gate_bot   : CabGateRail { Rig: {2, 0, 0, 0}
+    Center: {0, 0.03, 4.4} }
+  gate_top   : CabGateRail { Rig: {2, 1, 0, 0}
+    Center: {0, 1.97, 4.4} }
+  gate_front : CabGateRail { Rig: {2, 2, 0, 0}
+    Center: {1.0, 1.0, 4.4} }
+  gate_hinge : CabGateRail { Rig: {2, 3, 0, 0}
+    Center: {-1.0, 1.0, 4.4} }
+}

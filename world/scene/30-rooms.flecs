@@ -20,6 +20,7 @@ prefab DeskSurface : Wood {
 prefab Room {
   shell : Shell { Center: {0, 1.6, 2.0}
     Half: {3.3, 1.6, 2.0} }
+  hall  : HallWall {}
   sign  : Card  { Center: {0.2, 2.15, 0.03}
     Half: {0.75, 0.132, 0.012}
     Material: {0.28, 0}
@@ -101,9 +102,6 @@ prefab Lobby : Furnished {
   d_curtain_l : Curtain { Center: {1.2, 1.97, 0.12} }
   d_curtain_r : Curtain { Center: {2.8, 1.97, 0.12}
     (Pairs, d_curtain_l) }
-  d_art_a : PosterSun { Center: {-0.1, 1.84, 0.02} }
-  d_art_b : PosterSea { Center: {0.2, 1.84, 0.02} }
-  d_art_c : PosterRose { Center: {0.5, 1.84, 0.02} }
   d_rug : RugTerracotta { Center: {0, 0.02, 3.0}
     d_cat : Cat { Center: {-1.0, 0, 0.25}
       Rests }
@@ -133,13 +131,10 @@ prefab Upper : Furnished {
   d_curtain_l : CurtainViolet { Center: {1.2, 1.97, 0.12} }
   d_curtain_r : CurtainViolet { Center: {2.8, 1.97, 0.12}
     (Pairs, d_curtain_l) }
-  d_clock : Clock { Center: {0.2, 2.75, 0.012} }
   d_wshelf : WallShelf { Center: {-2.75, 1.72, 0.1}
     d_books : BookStack { Center: {-0.25, 0, 0}
       Rests }
     d_fig : Figurine { Center: {0.05, 0, 0}
-      Rests }
-    d_cactus : CactusWhite { Center: {0.3, 0, 0}
       Rests }
   }
   d_rug : RugNavy { Center: {0, 0.02, 3.0}
@@ -167,8 +162,6 @@ prefab Lower : Furnished {
   desk : FurnishedDesk {
     d_rp : RecordPlayer { Center: {1.7, 0, -0.25}
       Rests }
-    d_books : BookStack { Center: {-1.9, 0, 0.15}
-      Rests }
   }
   d_neon : SignOn { Center: {-1.6, 2.4, 0.011} }
   d_strip : NeonLime { Center: {-0.3, 0.955, 0.45}
@@ -177,8 +170,6 @@ prefab Lower : Furnished {
   d_curtain_l : CurtainMustard { Center: {1.2, 1.97, 0.12} }
   d_curtain_r : CurtainMustard { Center: {2.8, 1.97, 0.12}
     (Pairs, d_curtain_l) }
-  d_art_a : PosterSea { Center: {0.1, 1.84, 0.02} }
-  d_art_b : PosterRose { Center: {0.4, 1.84, 0.02} }
   d_bookcase : Bookcase { Center: {-2.85, 0.55, 0.012} }
   d_armchair : ArmchairForest { Center: {2.93, 0.22, 1.4} }
   d_rug : RugForest { Center: {0, 0.02, 3.0}
@@ -204,8 +195,6 @@ prefab Basement : Room {
       Rests }
     d_radio : Radio { Center: {-1.7, 0, -0.2}
       Rests }
-    d_mug : MugYellow { Center: {0.5, 0, 0.3}
-      Rests }
   }
   crate_a : Wood { Center: {-2.2, 0.4, 2.4}
     Half: {0.4, 0.4, 0.4}
@@ -230,8 +219,6 @@ prefab Basement : Room {
       Rests }
   }
   d_pendant : PendantRed { Center: {-0.8, 2.5, 1.6} }
-  d_clock : Clock { Center: {-1.6, 2.5, 0.012} }
   d_art_a : WideDusk { Center: {-2.6, 1.95, 0.02} }
-  d_art_b : WideSea { Center: {2.7, 1.9, 0.02} }
   d_lamp : FloorLampAmber { Center: {3.0, 1.62, 3.0} }
 }

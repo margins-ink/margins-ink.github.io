@@ -1,9 +1,9 @@
 import wasmUrl from './audio.wasm?url';
 import workletUrl from './worklet.js?url';
 
-export type AudioEventKind = 'floorPass' | 'ding' | 'grab' | 'place' | 'paperTurn' | 'open' | 'close' | 'scroll';
+export type AudioEventKind = 'floorPass' | 'ding' | 'grab' | 'place' | 'paperTurn' | 'open' | 'close' | 'scroll' | 'gateRattle' | 'doorSlide' | 'latchClunk';
 const KIND_ID: Record<AudioEventKind, number> = {
-	floorPass: 0, ding: 1, grab: 2, place: 3, paperTurn: 4, open: 5, close: 6, scroll: 7
+	floorPass: 0, ding: 1, grab: 2, place: 3, paperTurn: 4, open: 5, close: 6, scroll: 7, gateRattle: 8, doorSlide: 9, latchClunk: 10
 };
 
 export interface RoomAudio {

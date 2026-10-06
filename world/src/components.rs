@@ -28,6 +28,19 @@ vec_component!(Lean { angle } [0.0]);
 vec_component!(Euler { x, y, z } [0.0, 0.0, 0.0]);
 // Lying flat, turned by `theta + per_floor * floor_index` about the vertical axis.
 vec_component!(Flat { theta, per_floor } [0.0, 0.0]);
+// HDR emission of a cab object (may exceed 1). Exported into the row's tex.xyz with tex.w = 1 (docs/ELEVATOR.md).
+vec_component!(Glow { r, g, b } [0.0, 0.0, 0.0]);
+
+/// A cab part that the elevator systems reposition every tick. `role` selects the rule (docs/ELEVATOR.md), `a` and `b`
+/// are its parameters, `row` is the object's row in the cab list (set by the exporter).
+#[derive(Component, Clone, Copy, Debug, Default)]
+#[flecs(meta)]
+pub struct Rig {
+    pub role: u32,
+    pub a: f32,
+    pub b: f32,
+    pub row: u32,
+}
 
 // Reading state of an article: t is the spring state (0 on the shelf .. 1 reading pose), vel its velocity.
 vec_component!(Reading { t, vel, target } [0.0, 0.0, 0.0]);
@@ -105,6 +118,8 @@ pub fn register(world: &World) {
     world.component_named::<Lean>("Lean");
     world.component_named::<Flat>("Flat");
     world.component_named::<Euler>("Euler");
+    world.component_named::<Glow>("Glow");
+    world.component_named::<Rig>("Rig");
     world.component_named::<Kind>("Kind");
     world.component_named::<Dims>("Dims");
     world.component_named::<Floor>("Floor");

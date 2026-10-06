@@ -8,6 +8,7 @@ use serde::Deserialize;
 const SCRIPTS: &[(&str, &str)] = &[
     ("building", include_str!("../scene/00-building.flecs")),
     ("prefabs", include_str!("../scene/10-prefabs.flecs")),
+    ("elevator", include_str!("../scene/11-elevator.flecs")),
     ("decor", include_str!("../scene/12-decor.flecs")),
     ("palettes", include_str!("../scene/20-palettes.flecs")),
     ("rooms", include_str!("../scene/30-rooms.flecs")),
@@ -142,7 +143,13 @@ pub fn build(json: &[u8]) -> Result<(Output, World, Vec<u64>), String> {
         }
     }
 
-    let out = export::pack(&world, &input.signs, &input.map, &floors, &articles, specs.iter().map(|s| &s.info))?;
+    let cab = crate::elevator::spawn(&world, floors.len());
+    let cabpack = export::pack_cab(&world, cab)?;
+    let out = export::pack(&world, &input.signs, &input.map, &floors, &articles, specs.iter().map(|s| &s.info), &cabpack)?;
+    let level_h = world.lookup("Building").try_cloned::<&Dims>().map_or(3.28, |d| d.level_h);
+    crate::elevator::setup(&world, cab, cabpack.rows.clone(), floors.len(), level_h);
+    let cl = floors.len() * 20;
+    crate::elevator::cab_info(out.lvl[cl] as u32, out.lvl[cl + 1] as u32);
     let ids = articles.iter().map(|a| *a.id()).collect();
     Ok((out, world, ids))
 }

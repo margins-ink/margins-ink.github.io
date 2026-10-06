@@ -5,6 +5,7 @@
 //! `src/lib/gpu/room/room.ts` uploads unchanged. See docs/WORLD.md.
 
 mod components;
+mod elevator;
 mod export;
 mod magazine;
 mod reader;

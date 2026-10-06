@@ -14,7 +14,7 @@ fn lean(a: f64) -> M3 {
 }
 
 /// Local axes (rows) of the rotation Ry(y) * Rx(x) * Rz(z).
-fn euler(x: f64, y: f64, z: f64) -> M3 {
+pub(crate) fn euler(x: f64, y: f64, z: f64) -> M3 {
     let (sx, cx) = x.sin_cos();
     let (sy, cy) = y.sin_cos();
     let (sz, cz) = z.sin_cos();
@@ -77,6 +77,47 @@ fn floor_pos(e: EntityView, k: usize) -> [f32; 3] {
     p
 }
 
+/// The cab list: every object under the cab entity in cab frame (no floor offset), in entity order. Objects with a `Rig`
+/// get their row index written back so the Rig systems can rewrite exactly that row each tick.
+pub struct CabPack {
+    pub rows: Vec<f32>,
+    /// Ceiling lamp: centre xyz + radius, colour rgb + 0.
+    pub lamp: [f32; 4],
+    pub lamp_col: [f32; 4],
+}
+
+pub fn pack_cab(world: &World, cab: EntityView) -> Result<CabPack, String> {
+    let mut ids = Vec::new();
+    collect(cab, &mut ids);
+    ids.sort_unstable();
+    let mut rows = Vec::with_capacity(ids.len() * 28);
+    let mut lamp = None;
+    for (i, &id) in ids.iter().enumerate() {
+        let e = world.entity_from_id(id);
+        let kind = e.try_cloned::<&Kind>().ok_or("cab object without Kind")?.id;
+        let half = e.try_cloned::<&Half>().ok_or("cab object without Half")?;
+        let c = floor_pos(e, 0);
+        let rot = rotation(e, 0);
+        let alb = e.try_cloned::<&Albedo>().unwrap_or_default();
+        let mat = e.try_cloned::<&Material>().unwrap_or_default();
+        let tex = e.try_cloned::<&Glow>().map_or([0.0; 4], |g| [g.r, g.g, g.b, 1.0]);
+        if let Some(col) = e.try_cloned::<&LampColour>() {
+            lamp = Some(([c[0], c[1], c[2], half.x], [col.r, col.g, col.b, 0.0]));
+        }
+        rows.extend([c[0], c[1], c[2], kind as f32, half.x, half.y, half.z, 0.0]);
+        for (r, row) in rot.iter().enumerate() {
+            rows.extend([row[0], row[1], row[2], [mat.roughness, mat.metallic, 0.0][r]]);
+        }
+        rows.extend([alb.r, alb.g, alb.b, 0.0]);
+        rows.extend(tex);
+        if let Some(r) = e.try_cloned::<&Rig>() {
+            e.set(Rig { row: i as u32, ..r });
+        }
+    }
+    let (lamp, lamp_col) = lamp.ok_or("cab has no lamp (an object with LampColour)")?;
+    Ok(CabPack { rows, lamp, lamp_col })
+}
+
 pub fn pack<'a>(
     world: &World,
     signs: &[[f32; 4]],
@@ -84,6 +125,7 @@ pub fn pack<'a>(
     floors: &[EntityView<'a>],
     articles: &[EntityView<'a>],
     infos: impl Iterator<Item = &'a FloorInfo>,
+    cab: &CabPack,
 ) -> Result<Output, String> {
     let dims = world.lookup("Building").try_cloned::<&Dims>().ok_or("Building has no Dims")?;
     let mut out = Output::default();
@@ -163,6 +205,17 @@ pub fn pack<'a>(
         out.lvl.extend(ac);
     }
 
+    // The cab list goes last in objs, with its own lvl row (index = floor count, lvl[3] = 1 marks it) and a zero pane row.
+    // It is not part of any floor: the shader traces it for the primary ray only, lit analytically from its lamp.
+    let cab_start = out.objs.len() / 28;
+    let cab_count = cab.rows.len() / 28;
+    out.objs.extend(&cab.rows);
+    out.lvl.extend([cab_start as f32, cab_count as f32, 0.0, 1.0]);
+    out.lvl.extend(cab.lamp);
+    out.lvl.extend(cab.lamp_col);
+    out.lvl.extend([0.0; 8]);
+    out.panes.extend([0.0; 16]);
+
     for a in articles {
         let mag = a.target(Displayed::id(), 0);
         out.links.push(mag.and_then(|m| index_of.get(&*m.id()).copied()).unwrap_or(u32::MAX));
@@ -183,6 +236,13 @@ pub fn pack<'a>(
         #[serde(rename = "roomD")]
         room_d: f32,
         floors: Vec<F<'a>>,
+        cab: CabMeta,
+    }
+    #[derive(serde::Serialize)]
+    struct CabMeta {
+        start: u32,
+        count: u32,
+        level: u32,
     }
     let floors_meta: Vec<_> = infos.map(|i| F { label: &i.label, title: &i.title, sub: &i.sub }).collect();
     out.meta = serde_json::to_vec(&Meta {
@@ -190,6 +250,7 @@ pub fn pack<'a>(
         room_h: dims.room_h,
         room_d: dims.room_d,
         floors: floors_meta,
+        cab: CabMeta { start: cab_start as u32, count: cab_count as u32, level: floors.len() as u32 },
     })
     .map_err(|e| e.to_string())?;
     Ok(out)
