@@ -1,0 +1,4 @@
+// Building-wide dimensions. The camera, the shader uniform and the volume bake read these through the export.
+Building {
+  Dims: {level_h: 3.28, room_h: 3.2, room_d: 4.0}
+}

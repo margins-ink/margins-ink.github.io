@@ -1,7 +1,10 @@
 import type { Thought } from '$lib/thoughts';
 import { accentFor } from '$lib/theme';
-import { ATLAS, MAP, buildAtlas, signRect, tileRect } from './atlas';
+import { ATLAS, buildAtlas } from './atlas';
 import { TRACE } from './shader';
+import { loadWorld, type Floor } from './world';
+
+export type { Floor };
 
 export interface Hotspot {
 	id: string;
@@ -10,12 +13,6 @@ export interface Hotspot {
 	y: number;
 	w: number;
 	h: number;
-}
-
-export interface Floor {
-	label: string;
-	title: string;
-	sub: string;
 }
 
 export interface Room {
@@ -32,172 +29,8 @@ export interface Room {
 
 const SPP = 160;
 const BUILD_SPP = 96;
-const LEVEL_H = 3.28;
-const ROOM_H = 3.2;
-const ROOM_D = 4.0;
 const CAM_Z = 5.2;
 type V3 = [number, number, number];
-
-interface ObjSpec {
-	kind: number;
-	c: V3;
-	h: V3;
-	rot?: [V3, V3, V3];
-	alb?: V3;
-	tex?: [number, number, number, number];
-	link?: string;
-}
-
-const I3: [V3, V3, V3] = [
-	[1, 0, 0],
-	[0, 1, 0],
-	[0, 0, 1]
-];
-const lean = (a: number): [V3, V3, V3] => [
-	[1, 0, 0],
-	[0, Math.cos(a), -Math.sin(a)],
-	[0, Math.sin(a), Math.cos(a)]
-];
-const flat = (theta: number): [V3, V3, V3] => [
-	[Math.cos(theta), 0, -Math.sin(theta)],
-	[-Math.sin(theta), 0, -Math.cos(theta)],
-	[0, 1, 0]
-];
-
-interface LevelSpec {
-	floor: Floor;
-	objs: ObjSpec[];
-	panes: number[];
-	lamp: V3;
-	lampColour: V3;
-	hasWindow: boolean;
-}
-
-const PALETTES: { plaster: V3; wainscot: V3 }[] = [
-	{ plaster: [0.74, 0.66, 0.52], wainscot: [0.12, 0.27, 0.22] },
-	{ plaster: [0.55, 0.62, 0.72], wainscot: [0.13, 0.17, 0.28] },
-	{ plaster: [0.72, 0.58, 0.5], wainscot: [0.3, 0.12, 0.1] },
-	{ plaster: [0.5, 0.5, 0.47], wainscot: [0.2, 0.2, 0.2] }
-];
-
-function buildLevels(items: Thought[]): LevelSpec[] {
-	const rect = (i: number): [number, number, number, number] => {
-		const r = tileRect(i);
-		return [r.x, r.y, r.w, r.h];
-	};
-	const sign = (i: number): [number, number, number, number] => {
-		const r = signRect(i);
-		return [r.x, r.y, r.w, r.h];
-	};
-
-	const indexed = items.map((t, i) => ({ t, i }));
-	const years = [...new Set(indexed.filter((x) => !x.t.archived).map((x) => x.t.date.slice(0, 4)))];
-	const floors = years.map((y, k) => ({
-		floor: { label: y, title: k === 0 ? 'Andrew Gazelka' : y, sub: k === 0 ? `${y} · latest` : '' } as Floor,
-		mags: indexed.filter((x) => !x.t.archived && x.t.date.startsWith(y)),
-		basement: false
-	}));
-	const archived = indexed.filter((x) => x.t.archived);
-	if (archived.length)
-		floors.push({
-			floor: { label: 'Archive', title: 'Archive', sub: 'Common knowledge now, or I think differently' },
-			mags: archived,
-			basement: true
-		});
-
-	return floors.map((f, k) => {
-		const pal = f.basement ? PALETTES[3] : PALETTES[Math.min(k, 2)];
-		const dy = -k * LEVEL_H;
-		const objs: ObjSpec[] = [];
-		const add = (o: ObjSpec) =>
-			objs.push({ rot: I3, alb: [0.5, 0.5, 0.5], tex: [0, 0, 1, 1], ...o, c: [o.c[0], o.c[1] + dy, o.c[2]] });
-
-		add({
-			kind: 4,
-			c: [0, ROOM_H / 2, ROOM_D / 2],
-			h: [3.3, ROOM_H / 2, ROOM_D / 2],
-			alb: pal.plaster,
-			tex: [...pal.wainscot, 0]
-		});
-		add({ kind: 6, c: [-0.3, 1.0, 0.27], h: [2.0, 0.03, 0.27], alb: [0.4, 0.25, 0.13] });
-
-		const panes: number[] = [];
-		const hasWindow = !f.basement;
-		if (hasWindow) {
-			add({ kind: 0, c: [2.0, 1.95, 0.04], h: [0.62, 0.82, 0.03], alb: [0.82, 0.8, 0.74] });
-			for (const [dx, wy] of [
-				[-0.3, 0.4],
-				[0.3, 0.4],
-				[-0.3, -0.4],
-				[0.3, -0.4]
-			]) {
-				add({ kind: 1, c: [2.0 + dx, 1.95 + wy, 0.08], h: [0.27, 0.37, 0.01] });
-				panes.push(2.0 + dx, 1.95 + wy + dy, 0, 0);
-			}
-		}
-
-		add({ kind: 2, c: [0.2, 2.15, 0.03], h: [0.75, 0.132, 0.012], tex: sign(k) });
-
-		add({ kind: 6, c: [0, 0.76, 1.3], h: [2.6, 0.03, 0.85], alb: [0.35, 0.22, 0.12] });
-		for (const sx of [-2.5, 2.5])
-			for (const z of [0.55, 2.05])
-				add({ kind: 0, c: [sx, 0.365, z], h: [0.04, 0.365, 0.04], alb: [0.18, 0.12, 0.08] });
-		add({ kind: 0, c: [0, 0.008, 3.0], h: [2.4, 0.008, 0.9], alb: [0.35, 0.1, 0.08] });
-
-		if (k === 0) {
-			add({ kind: 0, c: [-1.5, 2.4, 0.045], h: [0.96, 0.69, 0.045], alb: [0.1, 0.06, 0.03] });
-			add({ kind: 2, c: [-1.5, 2.4, 0.095], h: [0.9, 0.6328, 0.006], tex: [MAP.x, MAP.y, MAP.w, MAP.h] });
-		}
-		if (!f.basement) {
-			add({ kind: 0, c: [-1.0, 0.802, 1.2], h: [0.22, 0.012, 0.15], alb: [0.55, 0.55, 0.58] });
-			add({ kind: 0, c: [-0.3, 0.84, 1.4], h: [0.04, 0.05, 0.04], alb: [0.85, 0.85, 0.8] });
-			add({ kind: 0, c: [0.3, 0.8, 1.55], h: [0.12, 0.01, 0.17], rot: flat(0.3 + k), alb: [0.1, 0.12, 0.3] });
-			add({ kind: 0, c: [1.45, 1.1, 0.3], h: [0.07, 0.07, 0.07], alb: [0.6, 0.3, 0.2] });
-			for (const [x, y, z, r] of [
-				[1.45, 1.3, 0.3, 0.1],
-				[1.38, 1.4, 0.3, 0.08],
-				[1.53, 1.37, 0.28, 0.08]
-			])
-				add({ kind: 8, c: [x, y, z], h: [r, 0, 0], alb: [0.15, 0.4, 0.18] });
-		} else {
-			for (const [x, z, s] of [
-				[-2.2, 2.4, 0.4],
-				[-1.5, 2.9, 0.3],
-				[2.0, 2.6, 0.45]
-			])
-				add({ kind: 6, c: [x, s, z], h: [s, s, s], alb: [0.45, 0.33, 0.2] });
-		}
-
-		const lampPos: V3 = f.basement ? [0.0, 2.7, 1.4] : [-1.9, 1.2, 0.3];
-		if (!f.basement) add({ kind: 0, c: [-1.9, 1.07, 0.3], h: [0.05, 0.04, 0.05], alb: [0.15, 0.15, 0.15] });
-		const lampR = f.basement ? 0.1 : 0.07;
-		add({ kind: 9, c: lampPos, h: [lampR, 0, 0] });
-
-		const a = (8 * Math.PI) / 180;
-		const n = f.mags.length;
-		f.mags.forEach(({ t, i }, m) => {
-			const x = n === 1 ? 0.15 : n > 3 ? (m - (n - 1) / 2) * 0.62 - 0.2 : -0.35 + m * 0.65;
-			const hy = 0.29;
-			add({
-				kind: 2,
-				c: [x, 1.03 + hy * Math.cos(a), 0.34 - hy * Math.sin(a)],
-				h: [0.21, hy, 0.006],
-				rot: lean(a),
-				tex: rect(i),
-				link: t.slug
-			});
-		});
-
-		return {
-			floor: f.floor,
-			objs,
-			panes,
-			lamp: [lampPos[0], lampPos[1] + dy, lampPos[2]] as V3,
-			lampColour: (f.basement ? [3.5, 2.2, 1.0] : [4, 2.4, 1.1]) as V3,
-			hasWindow
-		};
-	});
-}
 
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -227,10 +60,22 @@ export async function createRoom(
 	const format = navigator.gpu.getPreferredCanvasFormat();
 	ctx.configure({ device, format, alphaMode: 'opaque' });
 	const mq = matchMedia('(prefers-color-scheme: dark)');
-	const levels = buildLevels(items);
-	const objs = levels.flatMap((l) => l.objs);
-	const focusObj = opts.focus ? objs.find((o) => o.link === opts.focus) : undefined;
-	const levelOf = levels.flatMap((l, k) => l.objs.map(() => k));
+	// the scene is declared in the Flecs world (world/scene/*.flecs) and packed in world.wasm
+	const world = await loadWorld(items).catch((e) => {
+		console.error('room: world.wasm failed', e);
+		return null;
+	});
+	if (!world) return null;
+	const { levelH: LEVEL_H, roomH: ROOM_H, roomD: ROOM_D } = world;
+	const levels = world.floors;
+	const data = world.objs;
+	const focusIdx = opts.focus ? items.findIndex((t) => t.slug === opts.focus) : -1;
+	const focusObj = focusIdx >= 0 && world.links[focusIdx] >= 0 ? world.links[focusIdx] : undefined;
+	/** Linked (magazine) objects in object order. */
+	const linked = [...items.keys()]
+		.filter((i) => world.links[i] >= 0)
+		.map((i) => ({ id: items[i].slug, o: world.links[i] }))
+		.sort((a, b) => a.o - b.o);
 
 	device.pushErrorScope('validation');
 	const module = device.createShaderModule({ code: TRACE });
@@ -247,39 +92,23 @@ export async function createRoom(
 	});
 	const pkBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const bakePipe = pipe('bake_sun');
+	const bakeProbePipe = pipe('bake_probes');
 	const presentPipe = device.createRenderPipeline({
 		layout: 'auto',
 		vertex: { module, entryPoint: 'vs' },
 		fragment: { module, entryPoint: 'fs', targets: [{ format }] }
 	});
 
-	const data = new Float32Array(objs.length * 28);
-	objs.forEach((o, i) => {
-		const r = o.rot!;
-		const alb = [...o.alb!, o.kind === 4 ? levelOf[i] * 2 : 0];
-		data.set([...o.c, o.kind, ...o.h, 0, ...r[0], 0, ...r[1], 0, ...r[2], 0, ...alb, ...o.tex!], i * 28);
-	});
 	const storage = (size: number) =>
 		device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
 	const objBuf = storage(data.byteLength);
 	device.queue.writeBuffer(objBuf, 0, data);
 
-	const paneData = new Float32Array(levels.length * 16);
-	levels.forEach((l, k) => paneData.set(l.panes, k * 16));
-	const paneBuf = storage(paneData.byteLength);
-	device.queue.writeBuffer(paneBuf, 0, paneData);
+	const paneBuf = storage(world.panes.byteLength);
+	device.queue.writeBuffer(paneBuf, 0, world.panes);
 
-	const lvlData = new Float32Array(levels.length * 12);
-	let start = 0;
-	levels.forEach((l, k) => {
-		const lampR = l.hasWindow ? 0.07 : 0.1;
-		lvlData.set([start, l.objs.length, l.hasWindow ? 4 : 0, 0], k * 12);
-		lvlData.set([...l.lamp, lampR], k * 12 + 4);
-		lvlData.set([...l.lampColour, 0], k * 12 + 8);
-		start += l.objs.length;
-	});
-	const lvlBuf = storage(lvlData.byteLength);
-	device.queue.writeBuffer(lvlBuf, 0, lvlData);
+	const lvlBuf = storage(world.lvl.byteLength);
+	device.queue.writeBuffer(lvlBuf, 0, world.lvl);
 
 	const sceneBuf = device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
@@ -288,6 +117,8 @@ export async function createRoom(
 		format: 'rgba8unorm',
 		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
 	});
+	const PROBE = [48, 24, 32];
+	const probeBuf = storage(levels.length * PROBE[0] * PROBE[1] * PROBE[2] * 6 * 16);
 	const VOL = [96, 48, 64];
 	const volBuf = storage(levels.length * VOL[0] * VOL[1] * VOL[2] * 4);
 	{
@@ -355,7 +186,7 @@ export async function createRoom(
 	let spots: Hotspot[] = [];
 
 	const accents = items.map((t) => (mq.matches ? accentFor(t.slug).dark : accentFor(t.slug).light));
-	const signs = levels.map((l) => l.floor);
+	const signs = levels;
 
 	async function upload() {
 		if (atlasDark === mq.matches) return;
@@ -368,7 +199,8 @@ export async function createRoom(
 	const camera = (aspect: number, y: number) => {
 		if (focusObj) {
 			// close, slightly low, hero-lit look at one magazine, framed on the right third
-			const [mx, my] = focusObj.c;
+			const mx = data[focusObj * 28];
+		const my = data[focusObj * 28 + 1];
 			const pos: V3 = [mx - 0.15, my - 0.05, 2.3];
 			const fwd = norm(sub([mx - 0.85, my + 0.02, 0.3], pos));
 			const rgt = norm(cross(fwd, [0, 1, 0]));
@@ -426,19 +258,18 @@ export async function createRoom(
 		const aspect = cssW / cssH;
 		const cam = camera(aspect, liveY());
 		const out: Hotspot[] = [];
-		for (const o of objs) {
-			if (!o.link) continue;
+		for (const { id, o } of linked) {
+			const b = o * 28;
 			let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
 			let behind = false;
 			for (const sx of [-1, 1])
 				for (const sy of [-1, 1])
 					for (const sz of [-1, 1]) {
-						const l: V3 = [sx * o.h[0], sy * o.h[1], sz * o.h[2]];
-						const r = o.rot!;
+						const l: V3 = [sx * data[b + 4], sy * data[b + 5], sz * data[b + 6]];
 						const wp: V3 = [
-							o.c[0] + l[0] * r[0][0] + l[1] * r[1][0] + l[2] * r[2][0],
-							o.c[1] + l[0] * r[0][1] + l[1] * r[1][1] + l[2] * r[2][1],
-							o.c[2] + l[0] * r[0][2] + l[1] * r[1][2] + l[2] * r[2][2]
+							data[b] + l[0] * data[b + 8] + l[1] * data[b + 12] + l[2] * data[b + 16],
+							data[b + 1] + l[0] * data[b + 9] + l[1] * data[b + 13] + l[2] * data[b + 17],
+							data[b + 2] + l[0] * data[b + 10] + l[1] * data[b + 14] + l[2] * data[b + 18]
 						];
 						const v = sub(wp, cam.pos);
 						const z = dot(v, cam.fwd);
@@ -453,7 +284,7 @@ export async function createRoom(
 						y0 = Math.min(y0, y); y1 = Math.max(y1, y);
 					}
 			if (behind || y1 < 0 || y0 > cssH || x1 < 0 || x0 > cssW) continue;
-			out.push({ id: o.link, x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+			out.push({ id, x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
 		}
 		spots = out;
 		onLayout(out);
@@ -545,10 +376,10 @@ export async function createRoom(
 				{ binding: 2, resource: { buffer: accum } },
 				{ binding: 3, resource: atlasTex.createView() },
 				{ binding: 4, resource: sampler },
-				{ binding: 5, resource: { buffer: paneBuf } },
 				{ binding: 7, resource: { buffer: lvlBuf } },
 				{ binding: 8, resource: { buffer: gbuf } },
-				{ binding: 14, resource: { buffer: cache } }
+				{ binding: 14, resource: { buffer: cache } },
+				{ binding: 20, resource: { buffer: probeBuf } }
 			]
 		});
 		bindK = device!.createBindGroup({
@@ -724,10 +555,40 @@ export async function createRoom(
 		kick();
 	};
 
+	/** Bake the noise-free ambient probes (the scene is static; redone when the sky changes). */
+	function bakeProbes() {
+		const bind = device!.createBindGroup({
+			layout: bakeProbePipe.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: { buffer: sceneBuf } },
+				{ binding: 1, resource: { buffer: objBuf } },
+				{ binding: 3, resource: atlasTex.createView() },
+				{ binding: 4, resource: sampler },
+				{ binding: 5, resource: { buffer: paneBuf } },
+				{ binding: 7, resource: { buffer: lvlBuf } },
+				{ binding: 19, resource: { buffer: probeBuf } }
+			]
+		});
+		const enc0 = device!.createCommandEncoder();
+		enc0.clearBuffer(probeBuf);
+		device!.queue.submit([enc0.finish()]);
+		for (let pass = 0; pass < 12; pass++) {
+			writeScene(cw, ch, 1.55, pass + 1, 0, false);
+			const enc = device!.createCommandEncoder();
+			const cp = enc.beginComputePass();
+			cp.setPipeline(bakeProbePipe);
+			cp.setBindGroup(0, bind);
+			cp.dispatchWorkgroups(PROBE[0] / 4, PROBE[1] / 4, Math.ceil((levels.length * PROBE[2]) / 4));
+			cp.end();
+			device!.queue.submit([enc.finish()]);
+		}
+	}
+
 	async function restart() {
 		if (dead) return;
 		await upload();
 		resize();
+		bakeProbes();
 		built = levels.map(() => false);
 		building = null;
 		frame = 0;
@@ -780,7 +641,7 @@ export async function createRoom(
 			cancelAnimationFrame(raf);
 			ro.disconnect();
 			mq.removeEventListener('change', restart);
-			for (const b of [accum, gbuf, bufB, bufC, cache, baccum, bgbuf, bbufB, bbufC, volBuf]) b?.destroy();
+			for (const b of [accum, gbuf, bufB, bufC, cache, baccum, bgbuf, bbufB, bbufC, volBuf, probeBuf]) b?.destroy();
 			atlasTex.destroy();
 		}
 	};

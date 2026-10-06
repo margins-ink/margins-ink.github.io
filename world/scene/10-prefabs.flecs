@@ -1,0 +1,58 @@
+// Object prefabs. Kind selects the shader's treatment (see docs/WORLD.md):
+// 0 plain box, 1 glass pane (sky light), 2 textured card (atlas rect in Tex), 4 room shell,
+// 6 wood-grain box, 8 sphere (foliage), 9 emissive sphere (lamp).
+// Positions are local to the parent entity when the parent has a Center, otherwise local to the floor.
+prefab Object {
+  Albedo: {0.5, 0.5, 0.5}
+  Tex: {0, 0, 1, 1}
+}
+prefab Solid : Object { Kind: {0} }
+prefab Glass : Object { Kind: {1} }
+prefab Card  : Object { Kind: {2} }
+prefab Shell : Object { Kind: {4} }
+prefab Wood  : Object { Kind: {6} }
+prefab Leaf  : Object { Kind: {8} }
+prefab Bulb  : Object { Kind: {9} }
+
+// Four-pane window; the panes are the level's sky lights.
+prefab Window : Solid {
+  Albedo: {0.82, 0.8, 0.74}
+  Half: {0.62, 0.82, 0.03}
+  pane_tl : Glass { Center: {-0.3, 0.4, 0.04}
+    Half: {0.27, 0.37, 0.01} }
+  pane_tr : Glass { Center: {0.3, 0.4, 0.04}
+    Half: {0.27, 0.37, 0.01} }
+  pane_bl : Glass { Center: {-0.3, -0.4, 0.04}
+    Half: {0.27, 0.37, 0.01} }
+  pane_br : Glass { Center: {0.3, -0.4, 0.04}
+    Half: {0.27, 0.37, 0.01} }
+}
+
+// Terracotta pot with three foliage spheres.
+prefab Plant : Solid {
+  Albedo: {0.6, 0.3, 0.2}
+  Half: {0.07, 0.07, 0.07}
+  leaf_a : Leaf { Center: {0, 0.2, 0}
+    Half: {0.1, 0, 0}
+    Albedo: {0.15, 0.4, 0.18} }
+  leaf_b : Leaf { Center: {-0.07, 0.3, 0}
+    Half: {0.08, 0, 0}
+    Albedo: {0.15, 0.4, 0.18} }
+  leaf_c : Leaf { Center: {0.08, 0.27, -0.02}
+    Half: {0.08, 0, 0}
+    Albedo: {0.15, 0.4, 0.18} }
+}
+
+// Desk lamp: dark base with a warm bulb above it. The bulb is the level's lamp.
+prefab DeskLamp : Solid {
+  Albedo: {0.15, 0.15, 0.15}
+  Half: {0.05, 0.04, 0.05}
+  bulb : Bulb { Center: {0, 0.13, 0}
+    Half: {0.07, 0, 0}
+    LampColour: {4, 2.4, 1.1} }
+}
+
+prefab Magazine : Card {
+  Half: {0.21, 0.29, 0.006}
+  Lean: {angle: 0.13962634}
+}
