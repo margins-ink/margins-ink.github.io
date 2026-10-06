@@ -241,14 +241,11 @@ export function buildTextLayer(model: ReadingModel, doc: HTMLElement, opts: Text
 
 		switch (b.kind) {
 			case BlockKind.hero: {
-				let h1: HTMLElement | null = null, dek: HTMLElement | null = null, meta: HTMLElement | null = null;
-				const hasDisplay = Array.from({ length: b.lineCount }, (_, k) => lines[b.firstLine + k].font).includes(5);
-				groupLines(el, b, b.firstLine, b.lineCount, (li) => {
-					const f = lines[li].font;
-					if (f === 5 || !hasDisplay) return h1 ??= gEl('h1', 'hero-title');
-					if (f === 4) return meta ??= gEl('p', 'hero-meta');
-					return dek ??= gEl('p', 'dek');
-				});
+				// the build emits the title, dek and byline as three hero blocks (level 1, 2, 3)
+				const tag = b.level === 2 ? 'p' : b.level === 3 ? 'p' : 'h1';
+				const cls = b.level === 2 ? 'dek' : b.level === 3 ? 'hero-meta' : 'hero-title';
+				let g: HTMLElement | null = null;
+				groupLines(el, b, b.firstLine, b.lineCount, () => (g ??= gEl(tag, cls)));
 				break;
 			}
 			case BlockKind.list: case BlockKind.refs: case BlockKind.footnotes: {
