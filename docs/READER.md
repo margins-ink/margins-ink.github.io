@@ -181,3 +181,36 @@ Stage 6: polish and removal of the lab route. In-world find bar (v2 backlog item
 - Biggest dependency: shader.ts/room.ts are under rewrite by the ECS lane; stage 3 and 4 wait for it. Stages 1-2 are independent and can start now.
 - Storage-buffer limit (3.1) is the one external constraint; everything else is ours to change.
 - The cheaper alternative (MSDF or Canvas2D page textures into the existing atlas path) is a smaller version of the same ceiling: both are bounded by a texel resolution that the 6x zoom exceeds, so they need zoom-bucket re-rasterisation, which is what the analytic approach removes. Cost of the proper design: a Slug band builder in the build step (ported from the MIT `slug-webgpu` builder, about 400 lines) and a WGSL evaluator (about 200 lines); both are one-time. Fallback if Slug per-pixel cost misses acceptance check 3: same bands, but render only visible glyph quads into a page-window texture at screen density, resampled 1:1 (no change to the layout format, no change to the build).
+
+## Stage 1-2 notes
+
+Implemented: stage 1 (glyph curve data, Slug bands) and stage 2 (build-time layout, one binary per article and width class). Nothing from stage 3 on.
+
+Commands (pnpm repo, bun runs the scripts):
+- `bun scripts/reader/build.ts [--force] [--only slug] [--md file.md]` writes `static/reader/` (gitignored, generated): `fonts.<hash>.bin`, `<slug>.<wide|narrow>.<hash>.bin`, `index.json`, `img/*.webp`. Skips itself when the input stamp matches. `scripts/reader/vite-plugin.ts` runs it at dev/build start.
+- `bun scripts/reader/validate.ts [slug...]`: 13 checks per article and class (glyph ids resolve, glyphs inside page bounds, line ranges tile glyphs, reading order, links/anchors resolve, h/v band walks agree, text length within 5% of an independent source-derived count). Green on all 11 posts, including ifd, hyperion, optimal-parkour.
+- `bun test src/lib/reader/bands.test.ts`: band winding vs harfbuzz outline (88k points) and vs opentype.js (35k points), 0 mismatches; planted-corruption control is caught; container round trip.
+- `bun scripts/reader/dump.ts <slug> [--class wide|narrow] [--png] [--dark]`: rasterises sheets from the binary into `$TMPDIR/reader-dump` for eyeballing.
+
+Layout: `src/lib/reader/format.ts` (container, records, f16), `slug-cpu.ts` (CPU band walk, shared with the future shader), `scripts/reader/{fonts,geom,parse,math,images,layout,build,validate,dump}.ts`. Fonts and licences (all OFL) in `docs/upstream/reader/fonts/` with SOURCE.md.
+
+What worked:
+- harfbuzzjs does shaping, variable instancing (`new hb.Variation(tag, v)`) and outlines; cubics split to quads at 1/4096 em.
+- MathJax 4 SVG (fontCache none) flattened to quads; each distinct path becomes a glyph in a per-article extra table (glyphId bit 31). Needs `@mathjax/mathjax-newcm-font` listed explicitly under pnpm.
+- Min-raggedness DP line breaking, widow/orphan 2, keep-with-next headings; build takes about 4.5 s cold.
+
+Traps:
+- harfbuzzjs `setVariations` rejects plain objects.
+- Missing glyphs (U+2208, U+2124, emoji) fall back to Fira Code then Noto Emoji; anything still missing fails the build.
+- Do not add `x += adv` twice when building segments (shows as letter-spaced text); the dump catches it.
+- Round-trip tests must compare f32-rounded values (`Math.fround`).
+- macOS sed: no `/d;` forms; use `-i ''`.
+
+Deviations from the spec:
+- Newsreader opsz is 18 (the axis default), not 16.
+- Pages record carries an extra f32 `coverage`; links carry a `page` field; `ItemType.eqn` is unused.
+- Line breaking is a DP per paragraph segment, not 3-line look-ahead.
+- Code glyphs beyond the measure are in Glyphs/Lines but not in grid cells (clipped block); the validator allows it.
+- Hidden posts are built and flagged `hidden` in index.json.
+
+Unsupported: no post failed the build. The only component tags in the corpus are Cite, References, StickyNote (plus inline code/em/strong/a/span/kbd/br); any other tag or script content throws with file:line. Tables, footnotes and blockquotes are implemented but no real post exercises them.
