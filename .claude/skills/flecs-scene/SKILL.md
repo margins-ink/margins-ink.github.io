@@ -106,3 +106,12 @@ The room is declared in Flecs script and packed by `world/src/export.rs`; `bun r
 - The page is WebGPU only: DOM = head tags + one canvas per mode + (error state only) one `#gpu-error` line from `app.html`. Route `.svx` files are compiled to frontmatter only (`src/lib/frontmatter-preprocess.js`); never render their body, never add a mirror, `inert` article or no-WebGPU article. Shelf books are canvas hit regions (`ws.spots`), so tests click canvas coordinates, not `a.spot` (the shared `/Volumes/Projects/tmp/cdp/lib.ts` `openBook` still looks for `a.spot`: click `ws.spots` centres instead).
 - SvelteKit's `#svelte-announcer` writes the page title into the DOM after each navigation; the root layout removes it with a MutationObserver. A stray text node check: `tests/e2e/reading/checks.ts` section 4 (planted `<p>` control).
 - Another headless Chrome may already own CDP :9333 (check `ps` for `remote-debugging-port=9333`); use a different port and your own `--user-data-dir`, and kill only yours.
+
+## Hot reload (2026-10-06, verified: scripts/scene-reload.test.ts, scripts/scene-hot-test.ts; docs/WORLD.md "Hot reload")
+
+- Save a `.flecs` file with `bun run dev` open: about 30 ms to pixels, state kept. A bad script leaves the scene intact and shows a toast.
+- A script entity must never share a name with a Rust component (`Lights {}` did): the component id moves onto a script-owned entity, and the next `ecs_script_update` deletes it, which silently stops the pipeline (state buffer all zeros after a reload). Check with `bun test scripts/scene-reload.test.ts`.
+- `ecs_script_update` is not transactional for evaluation errors (it deletes what the script made): always dry run in a scratch world first (`scene::reload` does).
+- `new Uint8Array(memory.buffer, wasmCall(), n)` evaluates `memory.buffer` before the call; if the call grows memory the buffer is detached. Call first, then build the view. Vite swallows a rejected `hot.on` listener promise: catch and log inside it.
+- Tests that edit scene files run their own dev server on a copy (`SCENE_DIR`), never the shared tree: a half-written script breaks the home page for everyone.
+- The first scroll after load teleports the cab to that floor (`room.setProgress`), later scrolls ride; tests consume the first one.

@@ -440,6 +440,25 @@ pub fn setup(world: &World, articles: &[u64], out: &Output) {
     }
 }
 
+/// Hot reload: the magazines were re-spawned and re-packed, so refresh each article's shelf pose and object index.
+/// The book's springs, phase and clock are untouched.
+pub fn relink(world: &World, articles: &[u64], out: &Output) {
+    for (i, &id) in articles.iter().enumerate() {
+        let a = world.entity_from_id(id);
+        let Some(mut shelf) = a.try_cloned::<&Shelf>() else { continue };
+        let obj = out.links.get(i).copied().unwrap_or(u32::MAX);
+        if obj == u32::MAX {
+            shelf.obj = -1.0;
+        } else {
+            let o = obj as usize * 28;
+            shelf.row.copy_from_slice(&out.objs[o..o + 28]);
+            shelf.obj = obj as f32;
+            shelf.lean = shelf.row[17].atan2(shelf.row[18]);
+        }
+        a.set(shelf);
+    }
+}
+
 // ---- state machine ----
 
 fn systems(world: &World, select_ph: EntityView, spring_ph: EntityView, pack_ph: EntityView) {

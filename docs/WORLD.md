@@ -97,6 +97,21 @@ Traps:
 
 Rebuild: `bun run build:world` (writes `src/lib/gpu/room/world.wasm`, which is committed so the dev server works without a Rust toolchain).
 
+## Hot reload of the scene scripts (dev only)
+
+Save a `world/scene/*.flecs` file while `bun run dev` runs and the page shows it in about 30 ms (median of 6 saves, headless Chrome, 1280x800: 23 to 73 ms from the file write to the GPU being done with the new frame; `scripts/scene-hot-test.ts`). No wasm rebuild, no page reload; the camera, the cab (position, doors, springs, target) and the book keep their state.
+
+How it works (verified in the vendored flecs 4.1.2 C, `ecs_script_update` in flecs_ecs_sys/src/flecs.c, and the manual in docs/upstream/flecs-script/):
+- The scripts load as named script entities `scene::<name>` (`world.script_named`), so every entity a script creates is tagged `(EcsScript, script)`. `ecs_script_update` deletes the tagged entities, then evaluates the new source. A parse error returns before anything is deleted; an evaluation error deletes everything the script made and does not roll back.
+- So `scene::reload(name, src)` (world/src/scene.rs) first dry-runs the whole scene (scripts, floors, magazines, cab, pack) with the candidate source in a scratch world; any error is returned as text and the live world is untouched. Then, live: `detach` (delete the children of every floor and of the cab, drop their prefab links), `ecs_script_update` the script and every script after it (later scripts use its prefabs), re-instance the floors and the cab on their old entity ids, re-pack. Floors, the cab and the articles keep their ids, so the Rust singletons and the state on them (Elevator, Slide, Latch, Needle, ScrollIn, Hold, the book springs, Reading, Scroll) survive; `book::relink` refreshes each book's shelf row and `elevator::reload` the cab rows.
+- Wasm exports: `scene_buf(len)` (write `name\nsource`), `scene_override()` (before `world_build`: start from the file on disk instead of the baked copy), `scene_reload()` (0 ok, 1 error text in `world_buf(5)`).
+- Vite: `scripts/scene-hot.ts` (plugin, dev only) watches `world/scene` and sends `scene:reload {name, src, saved}` over the HMR socket; `src/lib/gpu/room/scene-hot.ts` (loaded only under `import.meta.env.DEV`) calls `World.reloadScene`; `room.ts reloadScene` re-uploads objs/panes/lvl, the lightmap layout, re-bakes the sun volume and restarts the lightmap and probe bake (lighting converges again in about 16 s; the view in between uses the old-geometry-free direct light). A bad script gives a `console.error` and a red toast and keeps the old scene. Production builds keep `include_str!`; none of the dev code is imported.
+- Buffers get 1.5x headroom in dev; a scene that outgrows it (or changes the floor count) tells you to reload the page.
+
+What does not hot reload: Rust components and systems (`world/src/*.rs`) need `bun run build:world`; the module is not hot swapped (its state lives in wasm memory, so a swap would need a state save and restore; not done). Names: never declare a script entity named like a Rust component (`Lights {}` in decor once became the Rust component's id; the next update deleted it and stopped the pipeline: scripts/scene-reload.test.ts has the planted control). `bun test scripts/scene-reload.test.ts` (wasm only, 0.3 s) and `bun scripts/scene-hot-test.ts` (own dev server on :5185 over a copy of the scenes, own headless Chrome on :9333) are the tests.
+
+Natural extension: the magazine and reading declarations are not Flecs scripts (they are built in Rust from the article model), so there is nothing to reload there; if they became `.flecs` they could use the same `scene_reload` path with their own scripts and dry run.
+
 ## Reader (articles as Flecs entities)
 
 `scene/40-reader.flecs` declares `prefab Sheet : Solid { Kind: {10} ... }` (one page sheet) and `prefab Issue { Reading, Scroll }`.

@@ -12,7 +12,7 @@
 
 // ---- relation vocabulary (plain entities used as relation or target; ignored by today's exporter) ----------------
 Hangs {}
-Lights {}
+Illuminates {}
 Near {}
 Pairs {}
 Tint {}
@@ -33,7 +33,7 @@ prefab Plank : Wood { Albedo: {0.32, 0.2, 0.1} }
 
 // ---- neon: kind 3, glows with the floor's accent colour, LampColour is the HDR tube colour ---------------------
 prefab Neon : Object { Kind: {3}
-  (Lights, Interior) }
+  (Illuminates, Interior) }
 prefab NeonPink : Neon { LampColour: {6, 0.8, 3.2} }
 prefab NeonCyan : Neon { LampColour: {0.6, 4.2, 6} }
 prefab NeonLime : Neon { LampColour: {1.4, 6, 0.8} }
@@ -124,7 +124,7 @@ prefab SignOld : NeonSign {
 
 // ---- lamps (Lamp: tag base for everything that lights the room by intent) -------------------------------------
 prefab Lamp : Solid {
-  (Lights, Interior)
+  (Illuminates, Interior)
 }
 // Floor lamp: the shade is the root (variants recolour it); pole and base hang below it. Floor prop: Center.y 1.62.
 prefab FloorLamp : Lamp {

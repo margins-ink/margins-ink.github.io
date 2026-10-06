@@ -66,6 +66,61 @@ pub extern "C" fn world_build() -> u32 {
     })
 }
 
+thread_local! {
+    static SCENE_BUF: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Reserve `len` bytes for a scene script update, written as `name`, a newline, then the source. Returns their address.
+#[no_mangle]
+pub extern "C" fn scene_buf(len: u32) -> *mut u8 {
+    SCENE_BUF.with(|b| {
+        let mut b = b.borrow_mut();
+        b.clear();
+        b.resize(len as usize, 0);
+        b.as_mut_ptr()
+    })
+}
+
+fn scene_script() -> Result<(String, String), String> {
+    SCENE_BUF.with(|b| {
+        let text = std::str::from_utf8(&b.borrow()).map_err(|e| format!("scene source is not utf-8: {e}"))?.to_owned();
+        let (name, src) = text.split_once('\n').ok_or("scene_buf: expected `name\\nsource`")?;
+        Ok((name.to_owned(), src.to_owned()))
+    })
+}
+
+/// Dev: before `world_build`, use the script in the scene buffer instead of the baked copy. 0 ok, 1 error (`world_buf(5)`).
+#[no_mangle]
+pub extern "C" fn scene_override() -> u32 {
+    match scene_script().and_then(|(n, s)| scene::override_source(&n, &s)) {
+        Ok(()) => 0,
+        Err(e) => {
+            OUTPUT.with(|o| o.borrow_mut().error = e.into_bytes());
+            1
+        }
+    }
+}
+
+/// Dev hot reload: update the named script from the scene buffer in place and re-pack (docs/WORLD.md "Hot reload").
+/// 0 ok (read the buffers again); 1 error: the message is `world_buf(5)` and the previous scene is intact.
+#[no_mangle]
+pub extern "C" fn scene_reload() -> u32 {
+    let result = scene_script().and_then(|(name, src)| {
+        let world = reader::world().ok_or("the room is not built")?;
+        INPUT.with(|i| scene::reload(&world, &i.borrow(), &name, &src))
+    });
+    OUTPUT.with(|o| match result {
+        Ok(out) => {
+            *o.borrow_mut() = out;
+            0
+        }
+        Err(e) => {
+            o.borrow_mut().error = e.into_bytes();
+            1
+        }
+    })
+}
+
 /// Address of output buffer `id`: 0 objs, 1 panes, 2 lvl, 3 links, 4 meta JSON, 5 error text.
 #[no_mangle]
 pub extern "C" fn world_buf(id: u32) -> *const u8 {

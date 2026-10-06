@@ -210,9 +210,14 @@ pub fn poll() -> u32 {
 
 /// Create the cab entity and the rig parts that depend on the floor count (gate bars, door leaves, dial lamps, call
 /// buttons, door seams). Call after the scripts ran and before `export::pack_cab`.
-pub fn spawn<'a>(world: &'a World, n: usize) -> EntityView<'a> {
+pub fn spawn<'a>(world: &'a World, n: usize, existing: Option<u64>) -> EntityView<'a> {
     let n = n.clamp(1, MAX_FLOORS);
-    let cab = world.entity_named("cab").is_a(world.lookup("Lift"));
+    // a hot reload re-instances the same cab entity, so the state on it (position, doors, springs) and the ids the systems hold survive
+    let cab = match existing {
+        Some(id) => world.entity_from_id(id),
+        None => world.entity_named("cab"),
+    }
+    .is_a(world.lookup("Lift"));
     let bar = world.lookup("CabGateBar");
     for r in 0..GATE_R {
         for u in 0..GATE_U {
@@ -810,6 +815,12 @@ pub extern "C" fn elevator_state_ptr() -> *const f32 {
 #[no_mangle]
 pub extern "C" fn elevator_rows_ptr() -> *const f32 {
     ROWS.with(|r| r.borrow().as_ptr())
+}
+
+/// Hot reload: the cab list was re-packed (new rows, maybe a new level height). State and phases are untouched.
+pub fn reload(rows: Vec<f32>, level_h: f32) {
+    LH.with(|c| c.set(level_h));
+    ROWS.with(|r| *r.borrow_mut() = rows);
 }
 
 /// Record where the cab list sits in objs (from `export::pack`); the host reads these from the state buffer.

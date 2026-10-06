@@ -43,6 +43,11 @@ fn with<T>(f: impl FnOnce(&mut Rs) -> T) -> Option<T> {
     RS.with(|r| r.borrow_mut().as_mut().map(f))
 }
 
+/// The live world (for the dev hot reload), when the room is built.
+pub fn world() -> Option<World> {
+    with(|rs| rs.world.clone())
+}
+
 fn active() -> i32 {
     ACTIVE.with(|a| a.get())
 }

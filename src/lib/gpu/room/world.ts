@@ -3,6 +3,9 @@ import { createReading } from '../../ecs/reading';
 import type { Reading, ReadingExports, ScrollExports } from '../../reading/abi';
 import { ATLAS, MAP, SIGN, signRect, tileRect } from './atlas';
 import wasmUrl from './world.wasm?url';
+import { instantiateWasi } from '../../wasi';
+
+export { wasiImports } from '../../wasi';
 
 export interface Floor {
 	label: string;
@@ -30,6 +33,20 @@ export interface World {
 	reading: Reading;
 	/** the raw wasm exports */
 	exports: unknown;
+	/** Dev hot reload: update the named script (`decor`, `rooms`, ...) in place and re-pack. Returns the new buffers, or `{ error }` with the previous scene intact (docs/WORLD.md "Hot reload"). */
+	reloadScene(name: string, src: string): SceneUpdate | { error: string };
+}
+
+/** The packed scene after a hot reload (the same fields as `World`). */
+export interface SceneUpdate {
+	floors: Floor[];
+	levelH: number;
+	roomH: number;
+	roomD: number;
+	objs: Float32Array;
+	panes: Float32Array;
+	lvl: Float32Array;
+	links: Int32Array;
 }
 
 /** Events of the book (`event_poll`). The page has its own ring: `Reading.poll()` (READING_EVENTS in reading/abi.ts). */
@@ -58,57 +75,12 @@ export interface ReaderApi {
 
 const rect = (r: { x: number; y: number; w: number; h: number }) => [r.x, r.y, r.w, r.h];
 
-/**
- * The module needs only a handful of WASI preview1 calls (clock, random seed for hash maps, empty environment, stderr).
- * Implemented here so no WASI shim dependency is shipped.
- */
-export function wasiImports(getMem: () => WebAssembly.Memory) {
-	const dv = () => new DataView(getMem().buffer);
-	const dec = new TextDecoder();
-	return {
-		wasi_snapshot_preview1: {
-			environ_sizes_get: (a: number, b: number) => {
-				dv().setUint32(a, 0, true);
-				dv().setUint32(b, 0, true);
-				return 0;
-			},
-			environ_get: () => 0,
-			clock_time_get: (_id: number, _prec: bigint, out: number) => {
-				dv().setBigUint64(out, BigInt(Math.round(performance.now() * 1e6)), true);
-				return 0;
-			},
-			fd_close: () => 0,
-			fd_fdstat_get: () => 8,
-			fd_prestat_get: () => 8,
-			fd_prestat_dir_name: () => 8,
-			fd_seek: () => 8,
-			fd_write: (fd: number, iov: number, n: number, out: number) => {
-				const v = dv();
-				let total = 0;
-				for (let i = 0; i < n; i++) {
-					const p = v.getUint32(iov + i * 8, true);
-					const l = v.getUint32(iov + i * 8 + 4, true);
-					total += l;
-					if (fd >= 1) console.warn('world.wasm:', dec.decode(new Uint8Array(getMem().buffer, p, l)));
-				}
-				v.setUint32(out, total, true);
-				return 0;
-			},
-			poll_oneoff: () => 8,
-			random_get: (p: number, n: number) => {
-				crypto.getRandomValues(new Uint8Array(getMem().buffer, p, n));
-				return 0;
-			},
-			proc_exit: (code: number) => {
-				throw new Error(`world.wasm exited with ${code}`);
-			}
-		}
-	};
-}
-
 interface Exports extends ReadingExports, ScrollExports {
 	world_input(len: number): number;
 	world_build(): number;
+	scene_buf(len: number): number;
+	scene_override(): number;
+	scene_reload(): number;
 	world_buf(id: number): number;
 	world_buf_len(id: number): number;
 	world_tick(dtMs: number): void;
@@ -147,7 +119,7 @@ function readerApi(x: Exports): ReaderApi {
 
 export async function loadWorld(items: Thought[]): Promise<World> {
 	let memory!: WebAssembly.Memory;
-	const { instance } = await WebAssembly.instantiateStreaming(fetch(wasmUrl), wasiImports(() => memory));
+	const instance = await instantiateWasi(fetch(wasmUrl), () => memory);
 	const x = instance.exports as unknown as Exports;
 	memory = x.memory;
 
@@ -158,23 +130,48 @@ export async function loadWorld(items: Thought[]): Promise<World> {
 			map: rect(MAP)
 		})
 	);
-	new Uint8Array(memory.buffer, x.world_input(input.length), input.length).set(input);
+	const inPtr = x.world_input(input.length);
+	new Uint8Array(memory.buffer, inPtr, input.length).set(input);
 
 	// the views are copied out: the wasm heap is garbage once this function returns
 	const bytes = (id: number) => memory.buffer.slice(x.world_buf(id), x.world_buf(id) + x.world_buf_len(id));
-	if (x.world_build() !== 0) throw new Error(new TextDecoder().decode(bytes(5)));
-	const meta = JSON.parse(new TextDecoder().decode(bytes(4)));
+	const text = (id: number) => new TextDecoder().decode(bytes(id));
+	const sendScript = (name: string, src: string) => {
+		const b = new TextEncoder().encode(`${name}\n${src}`);
+		// the call may grow the memory: read `memory.buffer` after it
+		const ptr = x.scene_buf(b.length);
+		new Uint8Array(memory.buffer, ptr, b.length).set(b);
+	};
+	const read = (): SceneUpdate => {
+		const meta = JSON.parse(text(4));
+		return {
+			floors: meta.floors,
+			levelH: meta.levelH,
+			roomH: meta.roomH,
+			roomD: meta.roomD,
+			objs: new Float32Array(bytes(0)),
+			panes: new Float32Array(bytes(1)),
+			lvl: new Float32Array(bytes(2)),
+			links: new Int32Array(bytes(3))
+		};
+	};
+	// dev: start from the .flecs files on disk instead of the copies baked into the wasm
+	if (import.meta.env.DEV) {
+		const { sceneSources } = await import('./scene-hot');
+		for (const [name, src] of Object.entries(await sceneSources())) {
+			sendScript(name, src);
+			if (x.scene_override() !== 0) console.error('world: scene_override', name, text(5));
+		}
+	}
+	if (x.world_build() !== 0) throw new Error(text(5));
 	return {
-		floors: meta.floors,
-		levelH: meta.levelH,
-		roomH: meta.roomH,
-		roomD: meta.roomD,
-		objs: new Float32Array(bytes(0)),
-		panes: new Float32Array(bytes(1)),
-		lvl: new Float32Array(bytes(2)),
-		links: new Int32Array(bytes(3)),
+		...read(),
 		reader: readerApi(x),
 		reading: createReading(x),
-		exports: x
+		exports: x,
+		reloadScene(name, src) {
+			sendScript(name, src);
+			return x.scene_reload() === 0 ? read() : { error: text(5) };
+		}
 	};
 }

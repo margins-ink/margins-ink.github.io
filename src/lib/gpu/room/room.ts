@@ -115,7 +115,7 @@ export async function createRoom(
 		return null;
 	});
 	if (!world) return null;
-	const { levelH: LEVEL_H, roomH: ROOM_H, roomD: ROOM_D } = world;
+	let { levelH: LEVEL_H, roomH: ROOM_H, roomD: ROOM_D } = world;
 	const elev = elevatorApi(world.exports as Parameters<typeof elevatorApi>[0]);
 	/** Floor (index) whose object range holds object `o`. */
 	const floorOfObj = (o: number) => {
@@ -123,14 +123,18 @@ export async function createRoom(
 		return 0;
 	};
 	const levels = world.floors;
-	const data = world.objs;
+	let data = world.objs;
+	/** Dev hot reload (docs/WORLD.md): the GPU buffers get headroom so a scene that grows a little can be uploaded in place. */
+	const CAP = import.meta.env.DEV ? 1.5 : 1;
 	const focusIdx = opts.focus ? items.findIndex((t) => t.slug === opts.focus) : -1;
 	const focusObj = focusIdx >= 0 && world.links[focusIdx] >= 0 ? world.links[focusIdx] : undefined;
 	/** Linked (magazine) objects in object order. */
-	const linked = [...items.keys()]
-		.filter((i) => world.links[i] >= 0)
-		.map((i) => ({ id: items[i].slug, o: world.links[i] }))
-		.sort((a, b) => a.o - b.o);
+	const linkedOf = () =>
+		[...items.keys()]
+			.filter((i) => world.links[i] >= 0)
+			.map((i) => ({ id: items[i].slug, o: world.links[i] }))
+			.sort((a, b) => a.o - b.o);
+	let linked = linkedOf();
 
 	device.pushErrorScope('validation');
 	const module = device.createShaderModule({ code: TRACE });
@@ -157,7 +161,7 @@ export async function createRoom(
 
 	const storage = (size: number) =>
 		device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-	const objBuf = storage(data.byteLength);
+	const objBuf = storage(Math.ceil((data.byteLength * CAP) / 16) * 16);
 	device.queue.writeBuffer(objBuf, 0, data);
 
 	const paneBuf = storage(world.panes.byteLength);
@@ -174,17 +178,17 @@ export async function createRoom(
 		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
 	});
 	// lightmaps: metadata and f16x3 texels live for the session; the f32 accumulator only while baking
-	const lmLayout = buildLightmapLayout(data, world.lvl);
-	const lmMetaBuf = storage(lmLayout.meta.byteLength);
+	let lmLayout = buildLightmapLayout(data, world.lvl);
+	const lmMetaBuf = storage(Math.ceil(lmLayout.meta.byteLength * CAP));
 	device.queue.writeBuffer(lmMetaBuf, 0, lmLayout.meta);
-	const lmBuf = storage(lmLayout.texels * 8);
+	const lmBuf = storage(Math.ceil(lmLayout.texels * 8 * CAP));
 	let lmAcc: GPUBuffer | null = null;
 	// raw progressive mean and the two a-trous ping-pong buffers; they live only during the bake
 	let lmRaw: GPUBuffer | null = null;
 	let lmTmp: GPUBuffer[] = [];
 	let bindD: GPUBindGroup[] = [];
-	const lmGroups = Math.ceil(lmLayout.texels / 64);
-	const lmGroupsX = Math.min(lmGroups, 4096);
+	let lmGroups = Math.ceil(lmLayout.texels / 64);
+	let lmGroupsX = Math.min(lmGroups, 4096);
 	console.debug('room: lightmap texels', lmLayout.texels);
 	// reflection probes: mip 0 is the path-traced radiance seen from the room centre, the rest is blurred for rough surfaces
 	const probeTex = device.createTexture({
@@ -205,7 +209,7 @@ export async function createRoom(
 	let probeSpp = PROBE_STEP;
 	const VOL = [96, 48, 64];
 	const volBuf = storage(levels.length * VOL[0] * VOL[1] * VOL[2] * 4);
-	{
+	const bakeSun = () => {
 		const bind = device.createBindGroup({
 			layout: bakePipe.getBindGroupLayout(0),
 			entries: [
@@ -228,7 +232,8 @@ export async function createRoom(
 		cp.dispatchWorkgroups(VOL[0] / 4, VOL[1] / 4, Math.ceil((levels.length * VOL[2]) / 4));
 		cp.end();
 		device.queue.submit([enc.finish()]);
-	}
+	};
+	bakeSun();
 	{
 		const err = await device.popErrorScope();
 		if (err) {
@@ -848,6 +853,7 @@ export async function createRoom(
 	if (import.meta.env.DEV) {
 		const g = globalThis as unknown as Record<string, unknown>;
 		g.__dbg = dbg;
+		g.__world = world;
 		g.__rs = () => Array.from(rs.slice(0, 64));
 	}
 
@@ -869,6 +875,47 @@ export async function createRoom(
 		layoutSpots();
 		kick();
 	}
+
+	const w0 = world;
+	/** Dev hot reload: the wasm re-ran the script (world/src/scene.rs `reload`); upload the new buffers, keep the camera, the cab and the book, rebake the lighting. Null when applied, else the error. */
+	async function reloadScene(name: string, src: string): Promise<string | null> {
+		const world = w0!;
+		const r = world.reloadScene(name, src);
+		if ('error' in r) return r.error;
+		const lm = buildLightmapLayout(r.objs, r.lvl);
+		if (r.lvl.length !== world.lvl.length || r.panes.length !== world.panes.length)
+			return 'the floor count changed: reload the page';
+		if (r.objs.byteLength > objBuf.size || lm.meta.byteLength > lmMetaBuf.size || lm.texels * 8 > lmBuf.size)
+			return 'the scene outgrew the dev buffers (1.5x): reload the page';
+		({ levelH: LEVEL_H, roomH: ROOM_H, roomD: ROOM_D } = r);
+		data = r.objs;
+		world.objs = r.objs;
+		world.panes = r.panes;
+		world.lvl = r.lvl;
+		world.links = r.links;
+		linked = linkedOf();
+		device!.queue.writeBuffer(objBuf, 0, data);
+		device!.queue.writeBuffer(paneBuf, 0, r.panes);
+		device!.queue.writeBuffer(lvlBuf, 0, r.lvl);
+		lmLayout = lm;
+		device!.queue.writeBuffer(lmMetaBuf, 0, lm.meta);
+		lmGroups = Math.ceil(lm.texels / 64);
+		lmGroupsX = Math.min(lmGroups, 4096);
+		// the bake buffers are sized by the texel count: drop them, startBake makes new ones
+		for (const b of [lmAcc, lmRaw, probeAcc, ...lmTmp]) b?.destroy();
+		lmAcc = lmRaw = probeAcc = null;
+		lmTmp = [];
+		bakeSun();
+		startBake();
+		frame = 0;
+		moving = false;
+		touch();
+		await new Promise((res) => requestAnimationFrame(res));
+		await device!.queue.onSubmittedWorkDone();
+		return null;
+	}
+	let detachHot = () => {};
+	if (import.meta.env.DEV && !focusObj) void import('./scene-hot').then((m) => (detachHot = m.attachSceneHot(reloadScene)));
 
 	const ro = new ResizeObserver(() => void restart());
 	ro.observe(canvas);
@@ -958,6 +1005,7 @@ export async function createRoom(
 		},
 		destroy() {
 			dead = true;
+			detachHot();
 			cancelAnimationFrame(raf);
 			ro.disconnect();
 			for (const b of [accum, gbuf, bufB, bufC, volBuf, lmMetaBuf, lmBuf, lmAcc, lmRaw, probeAcc, ...lmTmp]) b?.destroy();

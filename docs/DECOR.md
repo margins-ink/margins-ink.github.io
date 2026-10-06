@@ -33,7 +33,7 @@ Object > Solid
   Ball (Leaf sphere; Half {r,r,r} so Rests works)
   Neon (kind 3) > NeonPink NeonCyan NeonLime NeonAmber          (LampColour per floor)
   NeonSign (Hangs BackWall) > SignHi SignUp SignOn SignOld       (bars are Neon* children)
-  Lamp (Lights Interior)
+  Lamp (Illuminates Interior)
     FloorLamp > FloorLampRose FloorLampAmber      root = shade, pole and base below
     TableLamp                                      root = ceramic base, neck > shade stacked
     Pendant > PendantRed PendantBlack PendantBrass root = shade at y 2.5, cord > canopy up to the ceiling
@@ -60,7 +60,7 @@ Declared as plain entities at the top of 12-decor.flecs; the exporter ignores th
 | Relation | Use | Today | Meaning for later code |
 |---|---|---|---|
 | `(Hangs, BackWall)` | frames, clock, curtains, rod, wall shelf, neon signs | tag only | wall-mounted piece: Center.z is its half depth, snap to the wall plane at z = 0 |
-| `(Lights, Interior)` | every Lamp and every Neon | tag only | emitter that lights the room (spec S1/S2 gather these instead of the "last kind 9") |
+| `(Illuminates, Interior)` | every Lamp and every Neon | tag only | emitter that lights the room (spec S1/S2 gather these instead of the "last kind 9") |
 | `(Near, d_sofa)` | side table | tag only | placement intent (a layout checker can assert the distance) |
 | `(Pairs, x)` | `bc_r` to `bc_l`, `d_curtain_r` to `d_curtain_l` | tag only | matching set: same colour, mirrored placement |
 | `(Tint, Upholstery)` / `(Tint, Paint)` | upholstery, rugs, curtains / lamp shades, pendants, fridge, mugs, cactus pot, record player | tag only | spec S4: take Albedo from the floor palette's role colour |
@@ -91,7 +91,7 @@ lines (the scene does not depend on them).
   `shader.ts` `LS`, `n_lights`, the accent branch of the light sampler, `light_pdf` (area = 4 hx hy) loop over the list; the exporter collects every kind 3 object
   (rect centre `(c.x, c.y, c.z + half.z)`, half width `half.x`, colour `LampColour`, half height `half.y`), sorted by area, first 4. Different colours per piece then work too
   (`emission(kind 3)` would read the colour from the object, e.g. the object's tex.xyz, instead of the level).
-- **S2 lamps**: same for kind 9: collect all kind 9, keep up to 4 as point lights with their own `LampColour`, and use `Lights, Interior`-tagged objects only.
+- **S2 lamps**: same for kind 9: collect all kind 9, keep up to 4 as point lights with their own `LampColour`, and use `Illuminates, Interior`-tagged objects only.
   Then the floor lamp, table lamp and pendant bulbs become real emitters (shade glow, warm pools on the walls). Needs a `Bulb` child per decor lamp: FloorLamp `bulb` under the shade, TableLamp `bulb`, Pendant `bulb` (a small kind 9 sphere).
 - **S3 floor rest**: in `floor_pos`, when `e` has `Rests` and its parent is the floor entity (no `Half`), set `y = extent_y(e)`. Then floor props drop their written Center.y and become `Rests`.
 - **S4 palette tint**: add components `Upholstery {r,g,b}` and `Paint {r,g,b}` (`vec_component!` plus `component_named`) to the palette entities (`palette0 { Plaster ... Upholstery: {...} }`).

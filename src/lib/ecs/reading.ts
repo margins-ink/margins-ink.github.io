@@ -2,6 +2,7 @@
 // JS owns no reading state: every gesture ends in `input(kind, a, b)`, the springs, culling, section spy and figure clocks run in Flecs.
 import type { ReadingModel } from '../magazine/format';
 import { createScrollApi, packLoad, READING_EVENTS, type Reading, type ReadingExports, type ScrollExports } from '../reading/abi';
+import { instantiateWasi } from '../wasi';
 import wasmUrl from '../gpu/room/world.wasm?url';
 
 export function createReading(x: ReadingExports & ScrollExports): Reading {
@@ -33,10 +34,8 @@ export function createReading(x: ReadingExports & ScrollExports): Reading {
 
 /** Reader-only mode: world.wasm with a bare world that holds only the ReadingModule (no scene, no book). */
 export async function loadReadingOnly(): Promise<Reading> {
-	// dynamic: world.ts imports this file for the in-world host, a static import back would be a cycle
-	const { wasiImports } = await import('../gpu/room/world');
 	let memory!: WebAssembly.Memory;
-	const { instance } = await WebAssembly.instantiateStreaming(fetch(wasmUrl), wasiImports(() => memory));
+	const instance = await instantiateWasi(fetch(wasmUrl), () => memory);
 	const x = instance.exports as unknown as ReadingExports & ScrollExports;
 	memory = x.memory;
 	if (x.reading_init() !== 0) throw new Error('reading_init failed');
