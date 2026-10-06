@@ -4,14 +4,35 @@
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
+		<meta name="color-scheme" content="light dark" />
+		<style>
+			#gpu-error {
+				position: fixed;
+				inset: 0;
+				display: grid;
+				place-items: center;
+				padding: 2rem;
+				text-align: center;
+				font: 1rem/1.4 system-ui, sans-serif;
+				color: CanvasText;
+				background: Canvas;
+			}
+		</style>
 		<script>
-			// WebGPU pages draw the article in the world; the HTML article is then visually hidden (a11y/SEO copy only)
-			if ('gpu' in navigator) document.documentElement.dataset.gpu = '1';
+			// The page is the WebGPU render and nothing else. This is the only DOM text: an error state, not a fallback article.
+			window.__gpuError = function () {
+				if (document.getElementById('gpu-error')) return;
+				var d = document.createElement('div');
+				d.id = 'gpu-error';
+				d.textContent = 'This site is drawn with WebGPU. Your browser can not run it yet.';
+				document.body.appendChild(d);
+			};
+			if (!navigator.gpu) document.addEventListener('DOMContentLoaded', window.__gpuError);
 		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
+		<noscript><div id="gpu-error">This site is drawn with WebGPU. Your browser can not run it yet.</div></noscript>
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>

@@ -5,11 +5,12 @@
 	import World from '$lib/components/World.svelte';
 	import Reader from '$lib/components/Reader.svelte';
 	import { thoughtBySlug } from '$lib/thoughts';
+	import { SITE } from '$lib/meta';
 	import { goto } from '$app/navigation';
 
-	const { data, children }: { data?: LayoutData; children: any } = $props();
+	const { data }: { data: LayoutData } = $props();
 
-	const isLanding = $derived(page.url.pathname === '/');
+	const meta = $derived(data.meta);
 
 	// A cold load of /thoughts/<slug> is reader-only: no room, no bake, no probes, no elevator, only the page pass (docs/READING.md).
 	// The world mounts the first time the reader is left; from then on reading is in-world.
@@ -29,9 +30,18 @@
 </script>
 
 <svelte:head>
-	{#if data?.title}
-		<title>{data.title}</title>
-	{/if}
+	<title>{meta.title}</title>
+	<meta name="description" content={meta.description} />
+	<link rel="canonical" href={meta.canonical} />
+	<meta property="og:site_name" content={SITE} />
+	<meta property="og:type" content={meta.type} />
+	<meta property="og:title" content={meta.title} />
+	<meta property="og:description" content={meta.description} />
+	<meta property="og:url" content={meta.canonical} />
+	{#if meta.published}<meta property="article:published_time" content={meta.published} />{/if}
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:title" content={meta.title} />
+	<meta name="twitter:description" content={meta.description} />
 </svelte:head>
 
 {#if worldOn}
@@ -41,18 +51,3 @@
 		<Reader mode="only" slug={readerSlug} onClose={leave} />
 	{/key}
 {/if}
-
-<div class="shell" class:landing={isLanding} inert={readerSlug !== null && !worldOn} aria-hidden={readerSlug !== null && !worldOn ? true : undefined}>
-	{@render children?.()}
-</div>
-
-<style>
-	:global(body) {
-		max-width: none;
-		padding: 0;
-	}
-	.shell {
-		width: min(1120px, calc(100vw - 3rem));
-		margin: 0 auto;
-	}
-</style>

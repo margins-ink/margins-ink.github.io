@@ -1,8 +1,7 @@
 
 // The reader core (docs/READING_GPU.md): one fixed canvas drawn by the page pass, the Flecs ReadingModule (wasm) owning reading
-// state AND scrolling, GPU-drawn chrome, in-engine selection / find / links, and one hidden semantic mirror for assistive tech and SEO.
+// state AND scrolling, GPU-drawn chrome, in-engine selection / find / links. No DOM page content (docs/READING.md).
 // No scrolling DOM, no DOM text layer, no DOM chrome.
-import './mirror.css';
 import './reader.css';
 import { goto, pushState, replaceState } from '$app/navigation';
 import { page } from '$app/state';
@@ -17,7 +16,7 @@ import { barPxFor, cubicBezier, emPxFor, originXFor, scaleSteps, snapScale, widt
 import { createScrollState, layoutToDocY, readHistoryState, type SavedState, type ScrollController } from './scrollstate';
 import { attachScroll } from './input';
 import { THEME } from './theme';
-import { buildMirror, type Mirror } from './mirror';
+import { codeText, imageAlt } from './modeltext';
 import { hitTest, caretAt, type Hit, type ViewOpts } from './hit';
 import { press, dragTo, selectAll, selectionRects, copyText, selEmpty, selLo, selHi, type Gesture, type Sel } from './select';
 import { findInModel, nextHit, prevHit, hitFrom, rangesToRects, type FindHit } from './find';
@@ -55,7 +54,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		rootEl.dataset.mode = mode;
 		rootEl.dataset.class = String(cls);
 		rootEl.dataset.ready = String(ready);
-		rootEl.setAttribute('aria-label', title || 'Article');
 	}
 
 	// ---- runtime (plain variables: nothing here drives the template) ----
@@ -67,7 +65,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let reading: Reading | null = null;
 	let art: LoadedArticle | null = null;
 	let model: ReadingModel | null = null;
-	let mirror: Mirror | null = null;
 	let scrollSt: ScrollController | null = null;
 	let viewW = 0, viewH = 0, dpr = 1, emPx = 18, originX = 0, barPx = 40;
 	let scale = DEFAULT_SCALE;
@@ -192,7 +189,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		foldExpanded = open;
 		const inst = instant || reduced;
 		reading.input(INPUT.foldSet, open ? 1 : 0, inst ? 1 : 0);
-		mirror?.setExpanded(open);
 		try { localStorage.setItem(`reader:fold:${slug}`, open ? '1' : '0'); } catch { /* private mode */ }
 		if (inst) reading.tick(0);
 		if (!open) {
@@ -210,8 +206,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		articleDisposers = [];
 		scrollSt?.dispose();
 		scrollSt = null;
-		mirror?.root.remove();
-		mirror = null;
 		sel = null; gesture = null; popover = null; lightbox = null; findHits = []; findCur = -1;
 		find.open = false; tocOpen = false; aaOpen = false; focusLinkIdx = -1; focusFig = -1;
 	}
@@ -257,6 +251,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			setUiTables(loadUiTables(a.fonts));
 		} catch (e) {
 			console.error('reader: page pass failed', e);
+			window.__gpuError?.();
 			return;
 		}
 		if (my !== genToken || disposed || !pass || !reading || !root) return;
@@ -271,8 +266,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		if (model.foldH <= 0) foldExpanded = true;
 		foldBlockIdx = model.blocks.findIndex((b) => b.kind === BlockKind.fold);
 
-		mirror = buildMirror(model, { foldExpanded: true });
-		root.append(mirror.root);
 		codeBlocks = [];
 		enterBlocks = [];
 		model.blocks.forEach((b, i) => {
@@ -449,12 +442,8 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	}
 	const chromeAnim = createChromeAnim();
 
-	function codeLang(i: number): string {
-		const el = mirror?.blockEls[i];
-		const lab = el?.getAttribute('aria-label') ?? '';
-		const mt = /\(([^)]+)\)/.exec(lab);
-		return mt ? mt[1] : '';
-	}
+	/** the model carries no code language */
+	const codeLang = (_i: number): string => '';
 
 	// ---- actions (chrome clicks, keyboard-driven) ----
 
@@ -479,8 +468,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	}
 
 	function codeSource(i: number): string {
-		const el = mirror?.blockEls[i];
-		return (el?.querySelector('code')?.textContent ?? el?.textContent ?? '').replace(/\n$/, '');
+		return codeText(model!, i);
 	}
 
 	function copySelection() {
@@ -502,7 +490,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			if (wd >>> 28 === 2) { const im = m.images[wd & 0x0fffffff]; if (im) { imageId = im.imageId; w = im.x1 - im.x0; h = im.y1 - im.y0; em = { x0: im.x0, y0: im.y0, x1: im.x1, y1: im.y1 }; break; } }
 		}
 		if (imageId < 0) return;
-		const alt = mirror?.blockEls[block]?.querySelector('img')?.getAttribute('alt') ?? '';
+		const alt = imageAlt(m, block);
 		lightbox = { block, imageId, w, h, caption: alt, em };
 		reading?.input(INPUT.open, block);
 		needDraw = true;
@@ -926,7 +914,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	function focusLink(i: number) {
 		focusLinkIdx = i;
 		if (i >= 0) {
-			mirror?.focusLink(i);
 			const l = model!.links[i];
 			const y = layoutYPx(l.y0);
 			if (y < barPx + 20 || y > viewH - 40) reading?.scroll.scrollTo(Math.max(0, curY() + y - viewH * 0.4), !reduced);
@@ -1235,7 +1222,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			(window as unknown as { __reader: unknown }).__reader = {
 				get state() { return reading ? Array.from(reading.state()) : []; },
 				get model() { return model; },
-				get mirror() { return mirror; },
 				get reading() { return reading; },
 				get pass() { return pass; },
 				get frameObj() { return frame; },
@@ -1281,7 +1267,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let openedSlug = '';
 	rootEl.classList.add('reader');
 	rootEl.lang = 'en';
-	rootEl.setAttribute('role', 'document');
 	const unmount = mount();
 	const handle: ReaderHandle = {
 		setSlug(s: string) {

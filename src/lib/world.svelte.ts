@@ -4,7 +4,7 @@ import type { Floor, Hotspot } from '$lib/gpu/room/room';
 export const worldState = $state({
 	/** the WebGPU room is running */
 	live: false,
-	/** WebGPU is unavailable or the room failed to start: pages fall back to plain HTML */
+	/** WebGPU is unavailable or the room failed to start: the one-line error state is shown (app.html), nothing else */
 	failed: false,
 	spots: [] as Hotspot[],
 	floors: [] as Floor[],

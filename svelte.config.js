@@ -1,32 +1,10 @@
-import { mdsvex, escapeSvelte } from 'mdsvex';
 import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
-import { codeToHtml } from 'shiki';
-import { rehypePages } from './src/lib/rehype-pages.js';
-import { remarkInlineShiki } from './src/lib/remark-inline-shiki.js';
+import { frontmatterOnly } from './src/lib/frontmatter-preprocess.js';
 
 const config = {
-	preprocess: [
-		vitePreprocess(),
-		mdsvex({
-			remarkPlugins: [remarkInlineShiki],
-			rehypePlugins: [rehypePages],
-			highlight: {
-				highlighter: async (code, lang = 'text') => {
-					const html = await codeToHtml(code, {
-						lang,
-						themes: {
-							light: 'github-light',
-							dark: 'github-dark'
-						},
-						defaultColor: false
-					});
-					const escaped = escapeSvelte(html);
-					return `{@html \`${escaped}\` }`;
-				}
-			}
-		})
-	],
+	// Route .svx files are reading SOURCE (scripts/magazine); SvelteKit only sees their frontmatter (no body in the DOM).
+	preprocess: [frontmatterOnly(), vitePreprocess()],
 	kit: {
 		adapter: adapter({
 			pages: 'build',

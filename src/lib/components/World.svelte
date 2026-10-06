@@ -11,6 +11,8 @@
 	const audio = createAudio();
 	let canvas = $state<HTMLCanvasElement>();
 	let room = $state.raw<Room | null>(null);
+	/** keyboard-selected shelf book (index into ws.spots), -1 none */
+	let kbSpot = -1;
 
 	// The URL is the source of truth: /thoughts/<slug> is the reading state, everything else is the shelf.
 	const slug = $derived.by(() => {
@@ -22,7 +24,6 @@
 		ws.reading = slug;
 	});
 
-	const titleOf = (id: string) => thoughts.find((t) => t.slug === id)?.title ?? id;
 	const hrefOf = (id: string) => thoughts.find((t) => t.slug === id)?.route ?? '/';
 	const floorCount = $derived(Math.max(ws.floors.length, 1));
 	const current = $derived(Math.round(ws.progress * (floorCount - 1)));
@@ -41,7 +42,7 @@
 				ws.live = r !== null;
 				if (!r) {
 					console.error('world: createRoom returned null, the room is not live (see the room: error above)');
-					delete document.documentElement.dataset.gpu;
+					window.__gpuError?.();
 				}
 				ws.floors = r?.floors ?? [];
 				if (r) r.setAudio(audio);
@@ -60,7 +61,7 @@
 			.catch((e) => {
 				console.error('world:', e);
 				ws.failed = true;
-				delete document.documentElement.dataset.gpu;
+				window.__gpuError?.();
 			});
 		return () => {
 			cancelled = true;
@@ -182,6 +183,34 @@
 			pts.delete(e.pointerId);
 			dist = 0;
 		};
+		// shelf books are hit regions of the canvas, not DOM links: click opens, the pointer shows where, Tab/arrows/Enter do the same by keyboard
+		const spotAt = (e: { clientX: number; clientY: number }) => {
+			if (reading) return undefined;
+			const r = el.getBoundingClientRect();
+			const x = e.clientX - r.left;
+			const y = e.clientY - r.top;
+			return ws.spots.find((s) => x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h);
+		};
+		const click = (e: MouseEvent) => {
+			const s = spotAt(e);
+			if (s) void goto(hrefOf(s.id));
+		};
+		const hover = (e: PointerEvent) => {
+			el.style.cursor = e.pointerType === 'mouse' && spotAt(e) ? 'pointer' : '';
+		};
+		const key = (e: KeyboardEvent) => {
+			if (reading || !ws.spots.length || e.metaKey || e.ctrlKey || e.altKey) return;
+			const n = ws.spots.length;
+			if (e.key === 'ArrowRight' || (e.key === 'Tab' && !e.shiftKey && kbSpot < n - 1)) kbSpot = Math.min(n - 1, kbSpot + 1);
+			else if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey && kbSpot > 0)) kbSpot = Math.max(0, kbSpot - 1);
+			else if (e.key === 'Enter' && kbSpot >= 0) void goto(hrefOf(ws.spots[Math.min(kbSpot, n - 1)].id));
+			else return;
+			e.preventDefault();
+		};
+		el.addEventListener('click', click);
+		el.addEventListener('pointermove', hover);
+		el.addEventListener('keydown', key);
+		el.addEventListener('blur', () => (kbSpot = -1));
 		el.addEventListener('wheel', onwheel, { passive: false });
 		el.addEventListener('gesturestart', gs);
 		el.addEventListener('gesturechange', gc);
@@ -191,6 +220,9 @@
 		el.addEventListener('pointercancel', up);
 		el.addEventListener('dblclick', () => room?.resetView());
 		return () => {
+			el.removeEventListener('click', click);
+			el.removeEventListener('pointermove', hover);
+			el.removeEventListener('keydown', key);
 			el.removeEventListener('wheel', onwheel);
 			el.removeEventListener('gesturestart', gs);
 			el.removeEventListener('gesturechange', gc);
@@ -205,21 +237,10 @@
 <svelte:window {onscroll} />
 
 <div class="stage" class:live={ws.live} class:reading>
-	<canvas bind:this={canvas} aria-hidden="true"></canvas>
-	{#if ws.live && !reading}
-		{#each ws.spots as s (s.id)}
-			<a
-				class="spot"
-				href={hrefOf(s.id)}
-				aria-label={titleOf(s.id)}
-				style:left="{s.x}px"
-				style:top="{s.y}px"
-				style:width="{s.w}px"
-				style:height="{s.h}px"
-			></a>
-		{/each}
-	{/if}
+	<canvas bind:this={canvas} aria-hidden="true" tabindex={reading ? -1 : 0}></canvas>
 </div>
+<!-- scroll length of the elevator: the canvas maps page scroll to the floor. Empty, no content. -->
+{#if !reading}<div id="world-spacer" style:height="{Math.max(ws.floors.length, 4) * 90 + 10}svh"></div>{/if}
 {#if reading && slug && room && bookOpen}
 	{#key slug}
 		<Reader mode="world" {slug} fromWorld={canGoBack} reading={room.page} onClose={close} />
@@ -227,11 +248,11 @@
 {/if}
 
 <style>
-	:global(html[data-gpu]) {
+	:global(html) {
 		background: #1a1612;
 		scrollbar-width: none;
 	}
-	:global(html[data-gpu]::-webkit-scrollbar) {
+	:global(html::-webkit-scrollbar) {
 		display: none;
 	}
 	.stage {
@@ -256,13 +277,7 @@
 	.reading canvas {
 		touch-action: none;
 	}
-	.spot {
-		position: absolute;
-		display: block;
-		cursor: pointer;
-	}
-	.spot:focus-visible {
-		outline: 2px solid #fff;
-		outline-offset: 2px;
+	canvas:focus {
+		outline: none;
 	}
 </style>

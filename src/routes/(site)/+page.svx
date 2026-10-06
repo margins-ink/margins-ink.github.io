@@ -1,9 +1,3 @@
 ---
 title: Andrew Gazelka
 ---
-
-<script lang="ts">
-	import Contents from '$lib/components/Contents.svelte';
-</script>
-
-<Contents />

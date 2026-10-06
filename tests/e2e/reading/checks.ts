@@ -1,5 +1,5 @@
 // GPU reader acceptance checks (docs/READING_GPU.md "Verification"): scroll determinism and restore, one scrollbar and no DOM text layer,
-// a11y mirror, in-engine find (fold auto-expand, counts equal a naive scan of the mirror), selection and copy, scrollbar drag, code
+// no DOM article text (WebGPU only), in-engine find (fold auto-expand, counts equal a naive scan of the model text), selection and copy, scrollbar drag, code
 // horizontal scroll, culling equivalence. Run against a dev server and a headless Chrome on CDP_PORT:
 //   CDP_PORT=9333 bun tests/e2e/reading/checks.ts [baseUrl]
 // Every check that could pass vacuously has a planted-bug control that must FAIL when the bug is present.
@@ -76,28 +76,23 @@ const Y = (s: any) => s.ev(`__reader.state[25]`) as Promise<number>;
   await s.close();
 }
 
-// 4. a11y mirror: headings and links in the AX tree, one copy of the text, canvas hidden, shell inert, mirror text equals the model text
+// 4. no HTML page content: the DOM holds the head, one canvas and no text (WebGPU only; docs/READING.md). Planted control: a stray <p> of article text fails the same measure.
 {
   const s = await open(1440, 900, 'hyperion');
-  const ax = (await s.send('Accessibility.getFullAXTree')).nodes as any[];
-  const heads = ax.filter((n) => !n.ignored && n.role?.value === 'heading').map((n) => n.name?.value);
-  const texts = ax.filter((n) => !n.ignored && n.role?.value === 'StaticText').map((n) => n.name?.value as string);
-  check('headings exposed (hyperion)', heads.length >= 4, heads.slice(0, 6));
-  const dup = texts.filter((t, i) => t && t.length > 40 && texts.indexOf(t) !== i);
-  check('no duplicated text in the a11y tree', dup.length === 0, dup.slice(0, 2));
-  check('mirror is off-screen, not display:none', await s.ev(`(()=>{const m=document.querySelector('.sr-mirror');const r=m.getBoundingClientRect();const c=getComputedStyle(m);return c.display!=='none'&&c.visibility!=='hidden'&&r.right<0&&c.pointerEvents==='none'})()`));
-  check('mirror has real links with href', await s.ev(`document.querySelectorAll('.sr-mirror a[href]').length>0`));
-  check('SvelteKit prerendered fallback is inert while the reader is live', await s.ev(`(()=>{const e=document.querySelector('.shell');return !e||e.inert||e.getAttribute('aria-hidden')==='true'})()`));
-  const eq = JSON.parse(await s.ev(`(()=>{const n=t=>t.replace(/\\s+/g,' ').trim();const m=__reader.model;const mir=n(document.querySelector('.sr-mirror').textContent);const txt=n(new TextDecoder().decode(m.text));const words=txt.split(' ');let miss=0;for(const w of words){if(w.length>3&&!mir.includes(w))miss++}return JSON.stringify({miss,words:words.length})})()`));
-  check('mirror text contains the model text (mirror-vs-GPU equality)', eq.miss <= eq.words * 0.002, eq);
-  // control: a mirror that lost a paragraph fails the same measure
-  const eq2 = JSON.parse(await s.ev(`(()=>{const n=t=>t.replace(/\\s+/g,' ').trim();const m=__reader.model;const full=n(document.querySelector('.sr-mirror').textContent);const mir=full.slice(0,Math.floor(full.length*0.8));const txt=n(new TextDecoder().decode(m.text));const words=txt.split(' ');let miss=0;for(const w of words){if(w.length>3&&!mir.includes(w))miss++}return JSON.stringify({miss,words:words.length})})()`));
-  check('control: a truncated mirror is detected', eq2.miss > eq2.words * 0.002, eq2);
-  // Tab walks our links and syncs focus into the mirror
-  await s.mouse('mouseMoved', 700, 450);
-  await key(s, 'Tab', 'Tab', 9);
-  await Bun.sleep(300);
-  check('Tab focuses a mirror link', await s.ev(`!!document.activeElement&&document.activeElement.closest('.sr-mirror')!==null&&document.activeElement.tagName==='A'`));
+  const measure = `(()=>{const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);const txt=[];for(let n;n=w.nextNode();){const t=n.textContent.trim();const tag=n.parentElement&&n.parentElement.tagName;if(t&&tag!=='SCRIPT'&&tag!=='STYLE'&&tag!=='NOSCRIPT')txt.push(t.slice(0,60))}
+    const tags=document.body.querySelectorAll('p,h1,h2,h3,h4,h5,h6,article,li,a,pre,blockquote,figure,nav,main').length;
+    return JSON.stringify({txt,tags,canvases:document.querySelectorAll('canvas').length,hasGpuError:!!document.getElementById('gpu-error')})})()`;
+  const m0 = JSON.parse(await s.ev(measure));
+  const clean = (m: any) => m.txt.length === 0 && m.tags === 0 && !m.hasGpuError;
+  check('DOM has no text nodes and no content elements (hyperion)', clean(m0), m0);
+  check('exactly one canvas', m0.canvases === 1, m0);
+  check('page stays closed to the native scroller', await s.ev(`document.scrollingElement.scrollHeight<=innerHeight+1`));
+  // control: stray article text in a <p> must be caught by the same measure
+  await s.ev(`(()=>{const p=document.createElement('p');p.id='planted';p.textContent=new TextDecoder().decode(__reader.model.text).slice(0,200);document.body.append(p)})()`);
+  const m1 = JSON.parse(await s.ev(measure));
+  check('control: a planted <p> of article text is detected', !clean(m1), m1);
+  await s.ev(`document.getElementById('planted')?.remove()`);
+  check('control removed: clean again', clean(JSON.parse(await s.ev(measure))));
   await s.close();
 }
 
