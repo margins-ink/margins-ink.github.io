@@ -1,0 +1,180 @@
+// ColdOpen: a code editor types itself, a result slides in, the signature is deleted and the error appears, then a thought hold with a ring.
+template ColdOpen {
+  prop chapter = string: ""
+  prop code = string: ""
+  prop res = string: ""
+  prop err = string: ""
+  prop ask = string: ""
+  prop hold = f32: 10
+  prop l1 = string: ""
+  prop l2 = string: ""
+  prop l3 = string: ""
+  prop l4 = string: ""
+  prop g2 = f32: 0.5
+  prop g3 = f32: 0.5
+  prop g4 = f32: 1
+
+  co_fade : Transition {
+    Dur: {1}
+  }
+  co_ch : Mark {
+    Words: {$chapter}
+    Pos: {2, 1.6}
+    Ink: {"ink3"}
+    Em: {0.46}
+  }
+  co_ed : Plate {
+    Pos: {16, 9.6}
+    Size: {27, 13.4}
+  }
+  co_src : Code {
+    Words: {$code}
+    Pos: {4, 4.6}
+    Reveal: {0}
+    Lit: {-1}
+    Layer: {2}
+  }
+  co_res : Code {
+    Words: {$res}
+    Pos: {4, 14.6}
+    Ink: {"accent"}
+    Alpha: {0}
+    Layer: {2}
+  }
+  co_errp : Plate {
+    Pos: {16, 11.6}
+    Size: {24, 6.6}
+    Ink: {"panelHi"}
+    Alpha: {0}
+    Layer: {3}
+  }
+  co_errt : Code {
+    Words: {$err}
+    Pos: {5, 9.6}
+    Em: {0.5}
+    Alpha: {0}
+    Layer: {4}
+  }
+  co_ask : Mark {
+    Words: {$ask}
+    Pos: {16, 17.2}
+    Align: {"centre"}
+    Ink: {"accent"}
+    Em: {0.62}
+    Alpha: {0}
+    Layer: {4}
+  }
+  co_timer : Halo {
+    Pos: {16, 14.2}
+    Size: {4, 4}
+    Rad: {2}
+    Alpha: {0}
+    Layer: {5}
+  }
+  co_1 : CaptionLine {
+    Text: {$l1}
+  }
+  co_2 : CaptionLine {
+    Text: {$l2}
+    Gap: {$g2}
+  }
+  co_3 : CaptionLine {
+    Text: {$l3}
+    Gap: {$g3}
+  }
+  co_4 : CaptionLine {
+    Text: {$l4}
+    Gap: {$g4}
+  }
+  // the code types itself and the camera pushes in on the type
+  co_b1 : Beat {
+    Type: {9}
+    (On, co_src)
+    (Pin, co_1)
+    Word: {0, 0}
+  }
+  co_b2 : Beat {
+    Fly: {9, 6, 1.3, 5, "inout"}
+    (Pin, co_1)
+    Word: {0, 1}
+  }
+  // line 2: the check, the output slides in, the camera backs off
+  co_b3 : Beat {
+    Tween: {"Lit.line", 8, 0, ""}
+    (On, co_src)
+    (Pin, co_2)
+    Word: {0, 0}
+  }
+  co_b4 : Beat {
+    Fade: {0.5}
+    (On, co_res)
+    (Pin, co_2)
+    Word: {0, 0.3}
+  }
+  co_b5 : Beat {
+    Fly: {16, 9, 1, 2, "inout"}
+    (Pin, co_2)
+    Word: {0, 0}
+  }
+  co_b6 : Beat {
+    Ring: {1.4}
+    (On, co_res)
+    (Pin, co_2)
+    Word: {6, 0}
+  }
+  // line 3: the signature is selected and deleted, the error appears
+  co_b7 : Beat {
+    Tween: {"Lit.line", 4, 0, ""}
+    (On, co_src)
+    (Pin, co_3)
+    Word: {0, 0}
+  }
+  co_b8 : Beat {
+    Fade: {0.4}
+    (On, co_errp)
+    (Pin, co_3)
+    Word: {10, 0}
+  }
+  co_b9 : Beat {
+    Fade: {0.4}
+    (On, co_errt)
+    (Pin, co_3)
+    Word: {10, 0.2}
+  }
+  // line 4: freeze on the error, a thin ring counts the hold down
+  co_b10 : Beat {
+    Fade: {0.4}
+    (On, co_ask)
+    (Pin, co_4)
+    Word: {0, 0}
+  }
+  co_b11 : Beat {
+    Fade: {0.3}
+    (On, co_timer)
+    (Pin, co_4)
+    Word: {-1, 0}
+  }
+  co_b12 : Beat {
+    Tween: {"Size.w", 0.4, $hold, ""}
+    (On, co_timer)
+    (Pin, co_4)
+    Word: {-1, 0}
+  }
+  co_b13 : Beat {
+    Tween: {"Size.h", 0.4, $hold, ""}
+    (On, co_timer)
+    (Pin, co_4)
+    Word: {-1, 0}
+  }
+  co_b14 : Beat {
+    Tween: {"Rad.r", 0.2, $hold, ""}
+    (On, co_timer)
+    (Pin, co_4)
+    Word: {-1, 0}
+  }
+  co_gate : Beat {
+    Await: {"resume", 0, $hold}
+    (Pin, co_4)
+    Word: {-1, 0}
+  }
+}

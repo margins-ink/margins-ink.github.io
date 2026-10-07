@@ -1,0 +1,11 @@
+// The film vocabulary (docs/NARRATED.md, "Built contract"): tags and relations of the narrated films. The components (Say text, Pos, Tween,
+// Await ...) are registered by film::setup in Rust; this file only declares the tags and relations. One term per line. Entities here share the
+// root namespace with the Rust components and the museum: never reuse a component name for a script entity.
+Show {}
+Hide {}
+Placeholder {}
+Grabbable {}
+Mono {}
+Pin {}
+On {}
+After {}

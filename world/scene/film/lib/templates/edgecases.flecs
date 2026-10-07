@@ -1,0 +1,213 @@
+// EdgeCases: a typed line with its effect, and two edge cards that each hold a case and a one-line demo (the site's edge-case rule as a pattern).
+template EdgeCases {
+  prop chapter = string: ""
+  prop ty = string: ""
+  prop effect = string: ""
+  prop caseA = string: ""
+  prop demoA = string: ""
+  prop caseB = string: ""
+  prop demoB = string: ""
+  prop l1 = string: ""
+  prop l2 = string: ""
+  prop g2 = f32: 0.5
+
+  ec_fade : Transition {}
+  ec_ch : Mark {
+    Words: {$chapter}
+    Pos: {2, 1.6}
+    Ink: {"ink3"}
+    Em: {0.46}
+  }
+  ec_type : Code {
+    Words: {$ty}
+    Pos: {16, 5.4}
+    Align: {"centre"}
+    Em: {0.8}
+    Reveal: {0}
+  }
+  ec_eff : Mark {
+    Words: {$effect}
+    Pos: {16, 7.2}
+    Align: {"centre"}
+    Ink: {"accent"}
+    Em: {0.55}
+    Alpha: {0}
+  }
+  ec_tape : Plate {
+    Pos: {5, 10.4}
+    Size: {8, 1.6}
+    Ink: {"panelHi"}
+    Alpha: {0}
+  }
+  ec_lam : Plate {
+    Pos: {27, 10.4}
+    Size: {8, 1.6}
+    Ink: {"panelHi"}
+    Alpha: {0}
+  }
+  ec_tapet : Mark {
+    Words: {"a tape"}
+    Pos: {5, 10.7}
+    Align: {"centre"}
+    Em: {0.5}
+    Alpha: {0}
+    Layer: {2}
+  }
+  ec_lamt : Mark {
+    Words: {"a lambda"}
+    Pos: {27, 10.7}
+    Align: {"centre"}
+    Em: {0.5}
+    Alpha: {0}
+    Layer: {2}
+  }
+  ec_pa : Plate {
+    Pos: {9.5, 12.8}
+    Size: {13.4, 5.4}
+    Alpha: {0}
+  }
+  ec_pb : Plate {
+    Pos: {22.5, 12.8}
+    Size: {13.4, 5.4}
+    Alpha: {0}
+  }
+  ec_ta : Mark {
+    Words: {$caseA}
+    Pos: {9.5, 11.6}
+    Align: {"centre"}
+    Ink: {"accent"}
+    Em: {0.7}
+    Alpha: {0}
+    Layer: {2}
+  }
+  ec_da : Mark {
+    Words: {$demoA}
+    Pos: {9.5, 13.4}
+    Align: {"centre"}
+    Ink: {"ink2"}
+    Em: {0.46}
+    Alpha: {0}
+    Layer: {2}
+  }
+  ec_tb : Mark {
+    Words: {$caseB}
+    Pos: {22.5, 11.6}
+    Align: {"centre"}
+    Ink: {"accent"}
+    Em: {0.7}
+    Alpha: {0}
+    Layer: {2}
+  }
+  ec_db : Code {
+    Words: {$demoB}
+    Pos: {22.5, 13.4}
+    Align: {"centre"}
+    Ink: {"ink2"}
+    Em: {0.46}
+    Alpha: {0}
+    Layer: {2}
+  }
+  ec_1 : CaptionLine {
+    Text: {$l1}
+  }
+  ec_2 : CaptionLine {
+    Text: {$l2}
+    Gap: {$g2}
+  }
+  ec_b1 : Beat {
+    Type: {2}
+    (On, ec_type)
+    (Pin, ec_1)
+    Word: {0, 0.8}
+  }
+  ec_b2 : Beat {
+    Fade: {0.5}
+    (On, ec_eff)
+    (Pin, ec_1)
+    Word: {4, 0}
+  }
+  ec_b3 : Beat {
+    Tween: {"Alpha.a", 1, 0.6, "out"}
+    (On, ec_tape)
+    (Pin, ec_1)
+    Word: {9, 0}
+  }
+  ec_b4 : Beat {
+    Tween: {"Alpha.a", 1, 0.6, "out"}
+    (On, ec_lam)
+    (Pin, ec_1)
+    Word: {9, 0}
+  }
+  ec_b5 : Beat {
+    Tween: {"Alpha.a", 1, 0.6, ""}
+    (On, ec_tapet)
+    (Pin, ec_1)
+    Word: {9, 0.3}
+  }
+  ec_b6 : Beat {
+    Tween: {"Alpha.a", 1, 0.6, ""}
+    (On, ec_lamt)
+    (Pin, ec_1)
+    Word: {9, 0.3}
+  }
+  ec_b7 : Beat {
+    Tween: {"Pos.x", 13.5, 2.2, "inout"}
+    (On, ec_tape)
+    (Pin, ec_1)
+    Word: {13, 0}
+  }
+  ec_b8 : Beat {
+    Tween: {"Pos.x", 18.5, 2.2, "inout"}
+    (On, ec_lam)
+    (Pin, ec_1)
+    Word: {13, 0}
+  }
+  ec_b9 : Beat {
+    Tween: {"Pos.x", 13.5, 2.2, "inout"}
+    (On, ec_tapet)
+    (Pin, ec_1)
+    Word: {13, 0}
+  }
+  ec_b10 : Beat {
+    Tween: {"Pos.x", 18.5, 2.2, "inout"}
+    (On, ec_lamt)
+    (Pin, ec_1)
+    Word: {13, 0}
+  }
+  ec_c1 : Beat {
+    Fade: {0.6}
+    (On, ec_pa)
+    (Pin, ec_2)
+    Word: {0, 0}
+  }
+  ec_c2 : Beat {
+    Fade: {0.6}
+    (On, ec_ta)
+    (Pin, ec_2)
+    Word: {0, 0.1}
+  }
+  ec_c3 : Beat {
+    Fade: {0.6}
+    (On, ec_da)
+    (Pin, ec_2)
+    Word: {3, 0}
+  }
+  ec_c4 : Beat {
+    Fade: {0.6}
+    (On, ec_pb)
+    (Pin, ec_2)
+    Word: {17, 0}
+  }
+  ec_c5 : Beat {
+    Fade: {0.6}
+    (On, ec_tb)
+    (Pin, ec_2)
+    Word: {17, 0.1}
+  }
+  ec_c6 : Beat {
+    Fade: {0.6}
+    (On, ec_db)
+    (Pin, ec_2)
+    Word: {22, 0}
+  }
+}

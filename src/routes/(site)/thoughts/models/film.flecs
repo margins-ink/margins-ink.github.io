@@ -1,0 +1,1082 @@
+// "When you pay for computation" as a narrated film (docs/NARRATED.md "Built contract", shooting script docs/film/models.md).
+// One file, 11 scenes, every scene made of the templates in world/scene/film/lib/templates.flecs plus a few hand-written props and beats.
+// Everything the narrator says is DRAFT TEXT from the shooting script (Status "draft"): it still needs Andrew's edit before it is approved.
+// The voice is a value on the film (Narrator, below): the Qwen3-TTS preset speaker Aiden, no voice of a real person.
+// Missing exhibits are honest placeholder cards (tag Placeholder, hatched, labelled "PLACEHOLDER"); nothing fakes an exhibit that does not exist.
+// A line's `Text` is what the caption shows; `*word*` marks stress and `[pause]` a breath (both for the writer and the voice; the caption hides them).
+// Silence: the line after a hold carries the hold in its `Gap` (the voice file holds the silence); a hold at the end of a scene sits in `Tail`.
+
+models : Film, Narrator {
+  Title: {"When you pay for computation"}
+
+  // ---- 1. Cold open: the line the compiler cannot write (0:00 to 0:55) ----
+  cold_open : Scene {
+    Heading: {"Cold open: the line the compiler cannot write"}
+    Covers: {"a type that depends on a value, and the line inference cannot write"}
+    Still: {30}
+    Tail: {10.8}
+    ColdOpen: {
+      chapter: "1  Cold open",
+      code: "def Tuple : Nat → Type\n  | 0 => Unit\n  | n + 1 => Nat × Tuple n\n\ndef mkTuple : (n : Nat) → Tuple n\n  | 0 => ()\n  | n + 1 => (n, mkTuple n)\n\n#check mkTuple 3   -- mkTuple 3 : Tuple 3\n#eval mkTuple 3    -- (2, 1, 0, ())",
+      res: "mkTuple 3 : Tuple 3",
+      err: "error: Type mismatch\n  (n, mkTuple n)\nhas type\n  Nat × Unit\nbut is expected to have type\n  Unit",
+      ask: "Why can't the compiler write that line?",
+      hold: 10,
+      l1: "Here's a function. [pause] It builds a tuple. Give it three, and you get two, one, zero, and a unit.",
+      l2: "Look at the type. It has a three in it. *The type depends on the value you pass in.*",
+      l3: "Now I'll delete one line. Just the signature. [pause] Lean can work out types all day. It should cope. [pause] It doesn't.",
+      l4: "Pause the video. Why can't it write that line? Guess.",
+      g2: 0.5,
+      g3: 0.5,
+      g4: 1
+    }
+  }
+
+  // ---- 2. The question and the misconception (0:55 to 1:25) ----
+  question : Scene {
+    Heading: {"The question and the misconception"}
+    Covers: {"when does a computation happen, and the wall people draw between two kinds of programming"}
+    Still: {20}
+    MisconceptionTest: {
+      chapter: "2  The question",
+      l1: "The answer hides in a simpler question. When does a computation happen?",
+      l2: "Most of us carry a picture in our heads. There are two kinds of programming. Imperative, where the machine remembers things. Functional, where you write everything down. Two camps with a wall between them.",
+      l3: "I'm going to show you there's no wall."
+    }
+  }
+
+  // ---- 3. A tape that remembers everything (1:25 to 2:15) ----
+  tape : Scene {
+    Heading: {"A tape that remembers everything"}
+    Covers: {"the Turing machine: a head over a tape, and what the program never says"}
+    Still: {12}
+    DemoPause: {
+      chapter: "3  The tape",
+      ex: "models/turing",
+      preset: 0,
+      prompt: "Your turn: press Step and watch the tape",
+      note: "binary increment",
+      hold: 20,
+      l1: "Start with a Turing machine. A head sits over a tape. Each step, it reads a cell, writes a cell, moves, and changes state.",
+      l2: "Press step. Watch the tape. This one adds one to a binary number.",
+      l3: "Notice what the program never says. It never says what to carry forward. The tape remembers everything, so the program doesn't have to.",
+      g3: 20.4
+    }
+  }
+
+  // ---- 4. A machine with no tape, and an order you can feel (2:15 to 3:25) ----
+  lambda : Scene {
+    Heading: {"A machine with no tape, and an order you can feel"}
+    Covers: {"the lambda calculus, and evaluation order on ignore omega"}
+    Still: {30}
+    Tail: {15.8}
+    DemoPause: {
+      chapter: "4  The lambda calculus",
+      ex: "models/lambda",
+      preset: 0,
+      preset2: 1,
+      prompt: "Your turn: click the highlighted redex",
+      note: "2 = a function that applies its first argument twice",
+      hold: 20,
+      hold2: 15,
+      l1: "Now the other model. The lambda calculus has no tape. Nothing is overwritten. A program is an expression, and running it means plugging arguments into function bodies. If a later step needs something, you have to hand it over.",
+      l2: "Here, a number is a function. Two applies its first argument twice. So successor of two is a function applied to a function. Click the highlighted redex and it contracts.",
+      l3: "Now the trap. The order of those steps is a choice, and the machine usually hides it. Load \"ignore omega\". Omega loops forever. Ignore throws its argument away.",
+      l4: "In normal order, you never touch omega. It finishes. In applicative order, you evaluate the argument first, and it never does. *Same term. Different order.* Try both.",
+      g3: 20.4,
+      g4: 0.6
+    }
+  }
+
+  // ---- 5. Two machines, one set of functions (3:25 to 3:55) ----
+  two_machines : Scene {
+    Heading: {"Two machines, one set of functions"}
+    Covers: {"Turing and Church define the same functions; what differs is bookkeeping"}
+    Still: {10}
+    RevealScene: {
+      chapter: "5  One set of functions",
+      ex: "models/two-machines",
+      big: "Same functions",
+      sub: "What differs is bookkeeping",
+      card: "1936",
+      l1: "So which one is right? [pause] Both. Turing proved in nineteen thirty-six that they define the same functions. Church and Kleene tied lambda terms to the recursive functions the same year.",
+      l2: "Neither computes anything the other can't. What differs is bookkeeping."
+    }
+  }
+
+  // ---- 6. The wall has a door: do-notation (3:55 to 5:00) ----
+  do_notation : Scene {
+    Heading: {"The wall has a door: do-notation"}
+    Covers: {"a do block is the same program as the by-hand version, equal by rfl"}
+    Still: {35}
+    Equivalence: {
+      chapter: "6  Do-notation",
+      left: "def tick : StateM Nat Unit := modify (· + 1)\n\ndef threeTicks : StateM Nat Nat := do\n  tick\n  tick\n  tick\n  get\n\n#eval threeTicks.run' 0   -- 3",
+      right: "def threeTicksByHand (s : Nat) : Nat × Nat :=\n  let s := s + 1\n  let s := s + 1\n  let s := s + 1\n  (s, s)",
+      check: "example : threeTicks = threeTicksByHand := rfl",
+      verdict: "accepted by Lean",
+      l1: "Here's a counter, written in the imperative style. Tick three times, then read it. Mutable state, right there on the screen.",
+      l2: "And here's the same thing with no mutation at all. Each line just makes a new s. Lean's reference gives the rewrite. Every line of a do block becomes a function call that hands the rest of the block to the next step. Haskell's report specifies the same translation.",
+      l3: "Now I ask Lean: are these two the same? [pause] It says yes, and the proof is rfl. The two definitions are equal by unfolding alone. *The tape came back as an argument.*"
+    }
+    // row 4: two portrait cards (placeholders, licences not read) and a heap diagram; the do-notation unroller (exhibit 2) is not built
+    ca_1 : CaptionLine {
+      Text: {"Moggi gave effects like state a meaning as monads over a pure calculus. Wadler turned that into a way to write programs. And compilers run the conversion the other way: the machine GHC compiles Haskell to keeps unevaluated expressions as closures in a heap."}
+      Gap: {0.6}
+    }
+    ca_moggi : Hatch {
+      Pos: {5.2, 14.2}
+      Size: {8, 3.6}
+      Placeholder
+      Alpha: {0}
+    }
+    ca_moggit : Mark {
+      Words: {"PLACEHOLDER portrait\nMoggi, monads over a pure calculus"}
+      Pos: {5.2, 13.8}
+      Align: {"centre"}
+      Em: {0.38}
+      Ink: {"ink2"}
+      Alpha: {0}
+      Layer: {2}
+    }
+    ca_wadler : Hatch {
+      Pos: {14, 14.2}
+      Size: {8, 3.6}
+      Placeholder
+      Alpha: {0}
+    }
+    ca_wadlert : Mark {
+      Words: {"PLACEHOLDER portrait\nWadler, a way to write programs"}
+      Pos: {14, 13.8}
+      Align: {"centre"}
+      Em: {0.38}
+      Ink: {"ink2"}
+      Alpha: {0}
+      Layer: {2}
+    }
+    ca_heap : Plate {
+      Pos: {26, 14.2}
+      Size: {9, 4.6}
+      Ink: {"panelHi"}
+      Alpha: {0}
+    }
+    ca_heapt : Mark {
+      Words: {"STG machine, GHC\nclosures in a heap"}
+      Pos: {26, 13.2}
+      Align: {"centre"}
+      Em: {0.46}
+      Ink: {"accent"}
+      Alpha: {0}
+      Layer: {2}
+    }
+    ca_x1 : Plate {
+      Pos: {23.6, 15.2}
+      Size: {2.2, 1.2}
+      Ink: {"panel"}
+      Alpha: {0}
+      Layer: {2}
+    }
+    ca_x2 : Plate {
+      Pos: {26, 15.2}
+      Size: {2.2, 1.2}
+      Ink: {"panel"}
+      Alpha: {0}
+      Layer: {2}
+    }
+    ca_x3 : Plate {
+      Pos: {28.4, 15.2}
+      Size: {2.2, 1.2}
+      Ink: {"panel"}
+      Alpha: {0}
+      Layer: {2}
+    }
+    ca_ph2 : Hatch {
+      Pos: {8, 17.1}
+      Size: {13, 1.2}
+      Placeholder
+      Alpha: {0.6}
+    }
+    ca_ph2t : Mark {
+      Words: {"PLACEHOLDER: exhibit 2, do-notation unroller (not built)"}
+      Pos: {8, 17.4}
+      Align: {"centre"}
+      Em: {0.3}
+      Ink: {"ink3"}
+      Layer: {2}
+    }
+    ca_c0 : Beat {
+      Tween: {"Alpha.a", 0, 0.5, ""}
+      (On, eq_lp)
+      (Pin, ca_1)
+      Word: {0, -0.5}
+    }
+    ca_c0b : Beat {
+      Tween: {"Alpha.a", 0, 0.5, ""}
+      (On, eq_lt)
+      (Pin, ca_1)
+      Word: {0, -0.5}
+    }
+    ca_c0c : Beat {
+      Tween: {"Alpha.a", 0, 0.5, ""}
+      (On, eq_rp)
+      (Pin, ca_1)
+      Word: {0, -0.5}
+    }
+    ca_c0d : Beat {
+      Tween: {"Alpha.a", 0, 0.5, ""}
+      (On, eq_rt)
+      (Pin, ca_1)
+      Word: {0, -0.5}
+    }
+    ca_c0e : Beat {
+      Tween: {"Alpha.a", 0, 0.5, ""}
+      (On, eq_chk)
+      (Pin, ca_1)
+      Word: {0, -0.5}
+    }
+    ca_c0f : Beat {
+      Tween: {"Alpha.a", 0, 0.5, ""}
+      (On, eq_ok)
+      (Pin, ca_1)
+      Word: {0, -0.5}
+    }
+    ca_c0g : Beat {
+      Tween: {"Alpha.a", 0, 0.5, ""}
+      (On, eq_okt)
+      (Pin, ca_1)
+      Word: {0, -0.5}
+    }
+    ca_c0h : Beat {
+      Tween: {"Alpha.a", 0, 0.5, ""}
+      (On, eq_k1)
+      (Pin, ca_1)
+      Word: {0, -0.5}
+    }
+    ca_c0i : Beat {
+      Tween: {"Alpha.a", 0, 0.5, ""}
+      (On, eq_k2)
+      (Pin, ca_1)
+      Word: {0, -0.5}
+    }
+    ca_c0j : Beat {
+      Tween: {"Alpha.a", 0, 0.5, ""}
+      (On, eq_k3)
+      (Pin, ca_1)
+      Word: {0, -0.5}
+    }
+    ca_c1 : Beat {
+      Fade: {0.6}
+      (On, ca_moggi)
+      (Pin, ca_1)
+      Word: {0, 0}
+    }
+    ca_c2 : Beat {
+      Fade: {0.6}
+      (On, ca_moggit)
+      (Pin, ca_1)
+      Word: {0, 0.1}
+    }
+    ca_c3 : Beat {
+      Fade: {0.6}
+      (On, ca_wadler)
+      (Pin, ca_1)
+      Word: {9, 0}
+    }
+    ca_c4 : Beat {
+      Fade: {0.6}
+      (On, ca_wadlert)
+      (Pin, ca_1)
+      Word: {9, 0.1}
+    }
+    ca_c5 : Beat {
+      Fade: {0.6}
+      (On, ca_heap)
+      (Pin, ca_1)
+      Word: {20, 0}
+    }
+    ca_c6 : Beat {
+      Fade: {0.6}
+      (On, ca_heapt)
+      (Pin, ca_1)
+      Word: {20, 0.1}
+    }
+    ca_c7 : Beat {
+      Fade: {0.6}
+      (On, ca_x1)
+      (Pin, ca_1)
+      Word: {30, 0}
+    }
+    ca_c8 : Beat {
+      Fade: {0.6}
+      (On, ca_x2)
+      (Pin, ca_1)
+      Word: {32, 0}
+    }
+    ca_c9 : Beat {
+      Fade: {0.6}
+      (On, ca_x3)
+      (Pin, ca_1)
+      Word: {34, 0}
+    }
+  }
+
+  // ---- 7. The compiler is a computer too (5:00 to 5:45) ----
+  compiler : Scene {
+    Heading: {"The compiler is a computer too"}
+    Covers: {"the Rust trait solver adds two and three while type checking, and the recursion limit"}
+    Still: {20}
+    cm_fade : Transition {}
+    cm_ch : Mark {
+      Words: {"7  The compiler"}
+      Pos: {2, 1.6}
+      Ink: {"ink3"}
+      Em: {0.46}
+    }
+    cm_term : Plate {
+      Pos: {13.4, 9.6}
+      Size: {23.6, 13.4}
+    }
+    cm_src : Code {
+      Words: {"use std::marker::PhantomData;\nstruct Z;\nstruct S<N>(PhantomData<N>);\n\ntrait Add<B> \{ type Out; }\nimpl<B> Add<B> for Z \{ type Out = B; }\nimpl<A: Add<B>, B> Add<B> for S<A> \{ type Out = S<A::Out>; }\n\ntrait Val \{ const N: u32; }\nimpl Val for Z \{ const N: u32 = 0; }\nimpl<N: Val> Val for S<N> \{ const N: u32 = N::N + 1; }\n\nfn main() \{\n    // 2 + 3, worked out by the trait solver while type checking\n    println!(\"\{}\", <<S<S<Z>> as Add<S<S<S<Z>>>>>::Out as Val>::N); // 5\n}"}
+      Pos: {2.2, 4.4}
+      Em: {0.4}
+      Reveal: {0}
+      Lit: {-1}
+      Layer: {2}
+    }
+    cm_out : Code {
+      Words: {"$ cargo run\n5"}
+      Pos: {2.2, 14.6}
+      Em: {0.5}
+      Ink: {"accent"}
+      Alpha: {0}
+      Layer: {2}
+    }
+    cm_logo1 : Plate {
+      Pos: {27.4, 5.2}
+      Size: {8.4, 2.6}
+      Ink: {"panelHi"}
+      Alpha: {0}
+    }
+    cm_logo1t : Mark {
+      Words: {"Rust traits\nLeffler, 2017"}
+      Pos: {27.4, 4.7}
+      Align: {"centre"}
+      Em: {0.5}
+      Alpha: {0}
+      Layer: {2}
+    }
+    cm_logo2 : Plate {
+      Pos: {27.4, 8.4}
+      Size: {8.4, 2.6}
+      Ink: {"panelHi"}
+      Alpha: {0}
+    }
+    cm_logo2t : Mark {
+      Words: {"C++ templates\nVeldhuizen, 2003"}
+      Pos: {27.4, 7.9}
+      Align: {"centre"}
+      Em: {0.5}
+      Alpha: {0}
+      Layer: {2}
+    }
+    cm_logo3 : Plate {
+      Pos: {27.4, 11.6}
+      Size: {8.4, 2.6}
+      Ink: {"panelHi"}
+      Alpha: {0}
+    }
+    cm_logo3t : Mark {
+      Words: {"TypeScript types\nissue 14833"}
+      Pos: {27.4, 11.1}
+      Align: {"centre"}
+      Em: {0.5}
+      Alpha: {0}
+      Layer: {2}
+    }
+    cm_ph : Hatch {
+      Pos: {27.4, 15.4}
+      Size: {8.4, 3.4}
+      Placeholder
+    }
+    cm_pht : Mark {
+      Words: {"PLACEHOLDER\nexhibit 3: trait-solver\nstepper (not built)"}
+      Pos: {27.4, 14.7}
+      Align: {"centre"}
+      Em: {0.34}
+      Ink: {"ink2"}
+      Layer: {2}
+    }
+    cm_gauge : Plate {
+      Pos: {8.4, 16.9}
+      Size: {12, 0.6}
+      Ink: {"rule"}
+      Alpha: {0}
+      Layer: {3}
+    }
+    cm_fill : Plate {
+      Pos: {2.4, 16.9}
+      Size: {0.2, 0.6}
+      Ink: {"accent"}
+      Alpha: {0}
+      Layer: {4}
+    }
+    cm_lim : Mark {
+      Words: {"recursion depth 128"}
+      Pos: {14.6, 17.1}
+      Em: {0.46}
+      Ink: {"ink2"}
+      Alpha: {0}
+      Layer: {4}
+    }
+    cm_errp : Plate {
+      Pos: {13.4, 11.8}
+      Size: {21.6, 5}
+      Ink: {"panelHi"}
+      Alpha: {0}
+      Layer: {5}
+    }
+    cm_errt : Code {
+      Words: {"error[E0275]: overflow evaluating the requirement\n  = help: consider increasing the recursion limit"}
+      Pos: {3.2, 11}
+      Em: {0.42}
+      Alpha: {0}
+      Layer: {6}
+    }
+    cm_1 : CaptionLine {
+      Text: {"Computation can also move earlier. Into the compiler. This Rust program adds two and three, and prints five. Look at where the addition happens. The trait solver does it, while the program is still being type checked."}
+    }
+    cm_2 : CaptionLine {
+      Text: {"Those traits are a whole language. Shea Leffler built an interpreter for Smallfuck out of them. Veldhuizen sketched the same result for C plus plus templates. And a TypeScript issue shows it for TypeScript's types."}
+      Gap: {0.5}
+    }
+    cm_3 : CaptionLine {
+      Text: {"The compiler has a leash. The default depth is one hundred twenty-eight. Past that, you get error E zero two seven five, and a hint to raise the limit."}
+      Gap: {0.5}
+    }
+    cm_b1 : Beat {
+      Type: {9}
+      (On, cm_src)
+      (Pin, cm_1)
+      Word: {0, 0}
+    }
+    cm_b2 : Beat {
+      Tween: {"Lit.line", 13, 0, ""}
+      (On, cm_src)
+      (Pin, cm_1)
+      Word: {22, 0}
+    }
+    cm_b3 : Beat {
+      Fade: {0.5}
+      (On, cm_out)
+      (Pin, cm_1)
+      Word: {13, 0}
+    }
+    cm_b4 : Beat {
+      Ring: {1.4}
+      (On, cm_out)
+      (Pin, cm_1)
+      Word: {13, 0.3}
+    }
+    cm_b5 : Beat {
+      Fade: {0.5}
+      (On, cm_logo1)
+      (Pin, cm_2)
+      Word: {0, 0}
+    }
+    cm_b6 : Beat {
+      Fade: {0.5}
+      (On, cm_logo1t)
+      (Pin, cm_2)
+      Word: {0, 0.1}
+    }
+    cm_b7 : Beat {
+      Fade: {0.5}
+      (On, cm_logo2)
+      (Pin, cm_2)
+      Word: {9, 0}
+    }
+    cm_b8 : Beat {
+      Fade: {0.5}
+      (On, cm_logo2t)
+      (Pin, cm_2)
+      Word: {9, 0.1}
+    }
+    cm_b9 : Beat {
+      Fade: {0.5}
+      (On, cm_logo3)
+      (Pin, cm_2)
+      Word: {20, 0}
+    }
+    cm_b10 : Beat {
+      Fade: {0.5}
+      (On, cm_logo3t)
+      (Pin, cm_2)
+      Word: {20, 0.1}
+    }
+    cm_b11 : Beat {
+      Fade: {0.4}
+      (On, cm_gauge)
+      (Pin, cm_3)
+      Word: {0, 0}
+    }
+    cm_b12 : Beat {
+      Fade: {0.4}
+      (On, cm_fill)
+      (Pin, cm_3)
+      Word: {0, 0}
+    }
+    cm_b13 : Beat {
+      Fade: {0.4}
+      (On, cm_lim)
+      (Pin, cm_3)
+      Word: {0, 0}
+    }
+    cm_b14 : Beat {
+      Tween: {"Size.w", 12, 3.5, "out"}
+      (On, cm_fill)
+      (Pin, cm_3)
+      Word: {2, 0}
+    }
+    cm_b15 : Beat {
+      Tween: {"Pos.x", 8.4, 3.5, "out"}
+      (On, cm_fill)
+      (Pin, cm_3)
+      Word: {2, 0}
+    }
+    cm_b16 : Beat {
+      Fade: {0.3}
+      (On, cm_errp)
+      (Pin, cm_3)
+      Word: {12, 0}
+    }
+    cm_b17 : Beat {
+      Fade: {0.3}
+      (On, cm_errt)
+      (Pin, cm_3)
+      Word: {12, 0.1}
+    }
+  }
+
+  // ---- 8. Back to the hook: the line only you can write (5:45 to 6:40) ----
+  callback : Scene {
+    Heading: {"Back to the hook: the line only you can write"}
+    Covers: {"why the trait solver cannot, but a dependent type can, and why inference cannot write the signature"}
+    Still: {30}
+    Callback: {
+      chapter: "8  The line only you can write",
+      code: "def Tuple : Nat → Type\n  | 0 => Unit\n  | n + 1 => Nat × Tuple n\n\ndef mkTuple : (n : Nat) → Tuple n\n  | 0 => ()\n  | n + 1 => (n, mkTuple n)",
+      err: "error: Type mismatch\n  (n, mkTuple n)\nhas type\n  Nat × Unit\nbut is expected to have type\n  Unit",
+      quote: "\"some type information has to be\nmentioned by the programmer\"",
+      who: "Dowek, 1993",
+      missing: "PLACEHOLDER\nexhibit 1: mkTuple (Tuple n unfolds\none step per click). Not built.",
+      l1: "Now we can answer the question I left you with. The trait solver is blind to run time. It can add two and three. It can never see a number you type.",
+      l2: "A dependent type can, because in Lean the language of types and the language of values is the same language. A value picks the type.",
+      l3: "Lean reads the first arm and decides the answer is Unit, for every n. Then the second arm says: that's a pair. To succeed, it would have to invent Tuple from the arms. A function from values to types.",
+      l4: "In nineteen ninety-three, Dowek proved that working out types in the core of dependent types is undecidable. His words: some type information has to be mentioned by the programmer. [pause] So that signature is the one line inference can't write."
+    }
+  }
+
+  // ---- 9. Who pays for the inference: the codebase of hashes (6:40 to 7:50) ----
+  codebase : Scene {
+    Heading: {"Who pays for the inference: the codebase of hashes"}
+    Covers: {"inference is paid on every read; Unison stores a definition by the hash of its syntax tree"}
+    Still: {50}
+    Tail: {0.8}
+    pa_ed : Plate {
+      Pos: {9, 7}
+      Size: {14, 4.4}
+    }
+    pa_code : Code {
+      Words: {"def main := IO.println \"hi\""}
+      Pos: {2.6, 7.2}
+      Em: {0.6}
+      Layer: {2}
+    }
+    pa_tip : Plate {
+      Pos: {9, 10.4}
+      Size: {6, 1.4}
+      Ink: {"panelHi"}
+      Alpha: {0}
+      Layer: {3}
+    }
+    pa_tipt : Code {
+      Words: {"main : IO Unit"}
+      Pos: {9, 10.65}
+      Align: {"centre"}
+      Em: {0.46}
+      Ink: {"accent"}
+      Alpha: {0}
+      Layer: {4}
+    }
+    pa_mag : Halo {
+      Pos: {9, 7.2}
+      Size: {5, 5}
+      Rad: {2.5}
+      Ink: {"ink2"}
+      Alpha: {0}
+      Layer: {4}
+    }
+    pa_note : Mark {
+      Words: {"the text has no type in it"}
+      Pos: {9, 13}
+      Align: {"centre"}
+      Em: {0.5}
+      Ink: {"ink2"}
+      Alpha: {0}
+    }
+    pa_def : Plate {
+      Pos: {24, 6}
+      Size: {9, 2.4}
+      Ink: {"panelHi"}
+      Alpha: {0}
+    }
+    pa_deft : Mark {
+      Words: {"a definition"}
+      Pos: {24, 6.3}
+      Align: {"centre"}
+      Em: {0.55}
+      Alpha: {0}
+      Layer: {2}
+    }
+    pa_body : Plate {
+      Pos: {21, 11}
+      Size: {5.2, 2.2}
+      Alpha: {0}
+    }
+    pa_bodyt : Mark {
+      Words: {"body"}
+      Pos: {21, 11.3}
+      Align: {"centre"}
+      Em: {0.5}
+      Alpha: {0}
+      Layer: {2}
+    }
+    pa_hash : Plate {
+      Pos: {21, 15}
+      Size: {5.2, 2.2}
+      Ink: {"accentTint"}
+      Alpha: {0}
+    }
+    pa_hasht : Code {
+      Words: {"#7f3a"}
+      Pos: {21, 15.3}
+      Align: {"centre"}
+      Em: {0.55}
+      Ink: {"accent"}
+      Alpha: {0}
+      Layer: {2}
+    }
+    pa_name : Plate {
+      Pos: {27.6, 11}
+      Size: {5.2, 2.2}
+      Alpha: {0}
+    }
+    pa_namet : Mark {
+      Words: {"name"}
+      Pos: {27.6, 11.3}
+      Align: {"centre"}
+      Em: {0.5}
+      Alpha: {0}
+      Layer: {2}
+    }
+    pa_toy : Mark {
+      Words: {"toy hash, for the picture"}
+      Pos: {21, 17}
+      Align: {"centre"}
+      Em: {0.34}
+      Ink: {"ink3"}
+      Alpha: {0}
+    }
+    pa_1 : CaptionLine {
+      Text: {"Even where inference works, someone pays. Write main equals print hi, and Lean works out IO Unit. That type lives in your editor's hover. It never lives in the text, so every reader derives it again. A written signature is that work, stored once."}
+    }
+    pa_2 : CaptionLine {
+      Text: {"So what if the work could be stored for everyone, forever? Unison stores something else. A definition is identified by a hash of its syntax tree. Names are just separate metadata that don't change the hash."}
+      Gap: {0.6}
+    }
+    pa_b1 : Beat {
+      Fade: {0.4}
+      (On, pa_tip)
+      (Pin, pa_1)
+      Word: {11, 0}
+    }
+    pa_b2 : Beat {
+      Fade: {0.4}
+      (On, pa_tipt)
+      (Pin, pa_1)
+      Word: {11, 0.1}
+    }
+    pa_b3b : Beat {
+      Hide
+      Fade: {0.4}
+      (On, pa_tipt)
+      (Pin, pa_1)
+      Word: {20, 0}
+    }
+    pa_b4 : Beat {
+      Tween: {"Alpha.a", 0, 0.5, ""}
+      (On, pa_tip)
+      (Pin, pa_1)
+      Word: {20, 0}
+    }
+    pa_b5 : Beat {
+      Fade: {0.5}
+      (On, pa_mag)
+      (Pin, pa_1)
+      Word: {22, 0}
+    }
+    pa_b6 : Beat {
+      Fade: {0.5}
+      (On, pa_note)
+      (Pin, pa_1)
+      Word: {24, 0}
+    }
+    pa_b7 : Beat {
+      Fade: {0.5}
+      (On, pa_def)
+      (Pin, pa_2)
+      Word: {11, 0}
+    }
+    pa_b8 : Beat {
+      Fade: {0.5}
+      (On, pa_deft)
+      (Pin, pa_2)
+      Word: {11, 0.1}
+    }
+    pa_b9 : Beat {
+      Fade: {0.5}
+      (On, pa_body)
+      (Pin, pa_2)
+      Word: {16, 0}
+    }
+    pa_b10 : Beat {
+      Fade: {0.5}
+      (On, pa_bodyt)
+      (Pin, pa_2)
+      Word: {16, 0.1}
+    }
+    pa_b11 : Beat {
+      Fade: {0.5}
+      (On, pa_hash)
+      (Pin, pa_2)
+      Word: {20, 0}
+    }
+    pa_b12 : Beat {
+      Fade: {0.5}
+      (On, pa_hasht)
+      (Pin, pa_2)
+      Word: {20, 0.1}
+    }
+    pa_b13 : Beat {
+      Fade: {0.5}
+      (On, pa_toy)
+      (Pin, pa_2)
+      Word: {20, 0.2}
+    }
+    pa_b14 : Beat {
+      Fade: {0.5}
+      (On, pa_name)
+      (Pin, pa_2)
+      Word: {26, 0}
+    }
+    pa_b15 : Beat {
+      Fade: {0.5}
+      (On, pa_namet)
+      (Pin, pa_2)
+      Word: {26, 0.1}
+    }
+    DemoPause: {
+      chapter: "9  A codebase of hashes",
+      ex: "models/merkle",
+      preset: 0,
+      prompt: "Your turn: edit config, then util, then rename a name",
+      note: "toy hashes: four digits of FNV-1a, mine, not Unison's",
+      hold: 20,
+      l1: "Here's a toy codebase. The hashes are mine, not Unison's.",
+      l2: "Edit config, and parse stays reused. Edit util, and everything built on it changes. Now switch to rename, and click a name.",
+      l3: "[pause] Nothing moves. *Nothing recompiles.*",
+      l4: "The docs say it plainly. Once anyone has typechecked a definition and added it to the codebase, no one has to do that ever again. A pure test whose dependencies haven't changed doesn't rerun. And code moves to the data: the sender ships a bytecode tree, and only the hashes the other side is missing cross the wire.",
+      g1: 0.6,
+      g3: 20.4,
+      g4: 0.6
+    }
+    // the preamble clears when the merkle exhibit arrives
+    pa_h1 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, pa_ed)
+      (Pin, dp_1)
+      Word: {0, -0.6}
+    }
+    pa_h2 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, pa_code)
+      (Pin, dp_1)
+      Word: {0, -0.6}
+    }
+    pa_h3 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, pa_mag)
+      (Pin, dp_1)
+      Word: {0, -0.6}
+    }
+    pa_h4 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, pa_note)
+      (Pin, dp_1)
+      Word: {0, -0.6}
+    }
+    pa_h5 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, pa_def)
+      (Pin, dp_1)
+      Word: {0, -0.6}
+    }
+    pa_h6 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, pa_deft)
+      (Pin, dp_1)
+      Word: {0, -0.6}
+    }
+    pa_h7 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, pa_body)
+      (Pin, dp_1)
+      Word: {0, -0.6}
+    }
+    pa_h8 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, pa_bodyt)
+      (Pin, dp_1)
+      Word: {0, -0.6}
+    }
+    pa_h9 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, pa_hash)
+      (Pin, dp_1)
+      Word: {0, -0.6}
+    }
+    pa_h10 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, pa_hasht)
+      (Pin, dp_1)
+      Word: {0, -0.6}
+    }
+    pa_h11 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, pa_name)
+      (Pin, dp_1)
+      Word: {0, -0.6}
+    }
+    pa_h12 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, pa_namet)
+      (Pin, dp_1)
+      Word: {0, -0.6}
+    }
+    pa_h13 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, pa_toy)
+      (Pin, dp_1)
+      Word: {0, -0.6}
+    }
+    // the docs' three claims, shown as quotes while line 4 is read, over the exhibit; exhibit 5 (hash shipping) is not built
+    ph5 : Hatch {
+      Pos: {26.5, 17}
+      Size: {9, 1.1}
+      Placeholder
+    }
+    ph5t : Mark {
+      Words: {"PLACEHOLDER: exhibit 5, hash shipping (not built)"}
+      Pos: {26.5, 17.3}
+      Align: {"centre"}
+      Em: {0.28}
+      Ink: {"ink3"}
+      Layer: {2}
+    }
+    q1 : Mark {
+      Words: {"\"no one has to do that ever again\""}
+      Pos: {16, 2.2}
+      Align: {"centre"}
+      Em: {0.5}
+      Ink: {"accent"}
+      Alpha: {0}
+      Layer: {6}
+    }
+    q2 : Mark {
+      Words: {"\"no need to rerun a deterministic test\""}
+      Pos: {16, 2.2}
+      Align: {"centre"}
+      Em: {0.5}
+      Ink: {"accent"}
+      Alpha: {0}
+      Layer: {6}
+    }
+    q3 : Mark {
+      Words: {"\"only missing hashes cross the wire\""}
+      Pos: {16, 2.2}
+      Align: {"centre"}
+      Em: {0.5}
+      Ink: {"accent"}
+      Alpha: {0}
+      Layer: {6}
+    }
+    qb1 : Beat {
+      Fade: {0.4}
+      (On, q1)
+      (Pin, dp_4)
+      Word: {0, 1}
+    }
+    qb1h : Beat {
+      Hide
+      Fade: {0.4}
+      (On, q1)
+      (Pin, dp_4)
+      Word: {20, 0}
+    }
+    qb2 : Beat {
+      Fade: {0.4}
+      (On, q2)
+      (Pin, dp_4)
+      Word: {22, 0}
+    }
+    qb2h : Beat {
+      Hide
+      Fade: {0.4}
+      (On, q2)
+      (Pin, dp_4)
+      Word: {36, 0}
+    }
+    qb3 : Beat {
+      Fade: {0.4}
+      (On, q3)
+      (Pin, dp_4)
+      Word: {38, 0}
+    }
+  }
+
+  // ---- 10. Effects, and where the picture breaks (7:50 to 8:15) ----
+  effects : Scene {
+    Heading: {"Effects, and where the picture breaks"}
+    Covers: {"effects in the type, and the edges: cost and same behaviour"}
+    Still: {10}
+    EdgeCases: {
+      chapter: "10  Where the picture breaks",
+      ty: "Nat -> Nat ->\{Exception} Nat",
+      effect: "effect: \{Exception}",
+      caseA: "Cost",
+      demoA: "Church and Turing say nothing about it",
+      caseB: "Same behaviour?",
+      demoB: "x + 1  #a3f9\n1 + x  #07c2\n(toy hashes)",
+      l1: "Effects get the same treatment. In Unison, the type carries the effect, and the body reads like the tape. The docs say direct-style effects and monads have the same expressive power.",
+      l2: "The picture has edges. Church and Turing say nothing about cost. Whether a beta step is a fair unit of time stayed open until two thousand sixteen. And a hash only says two trees match. X plus one and one plus x hash differently."
+    }
+  }
+
+  // ---- 11. The reveal and the close (8:15 to 8:40) ----
+  reveal : Scene {
+    Heading: {"The reveal and the close"}
+    Covers: {"each border is a decision about when a computation runs and who keeps the result; write the signature by hand"}
+    Still: {10}
+    RevealScene: {
+      chapter: "11  When it runs",
+      ex: "models/two-machines",
+      big: "When does it run?",
+      sub: "compile time, run time, read time, once long ago",
+      card: "",
+      cw: 0,
+      l1: "Functional against imperative. Program against type. Inferred against written. They look like borders between kinds of thing. Each one is a decision about when a computation runs, and who keeps the result."
+    }
+    ph4 : Hatch {
+      Pos: {16, 17}
+      Size: {20, 1.2}
+      Placeholder
+    }
+    ph4t : Mark {
+      Words: {"PLACEHOLDER: exhibit 4, the \"when does it run\" timeline strip (not built)"}
+      Pos: {16, 17.3}
+      Align: {"centre"}
+      Em: {0.3}
+      Ink: {"ink3"}
+      Layer: {2}
+    }
+    wall_end : Rail {
+      Pos: {16, 11.8}
+      Size: {0, 4.2}
+      Ink: {"accent"}
+      Stroke: {0.28}
+      Layer: {4}
+    }
+    sb1 : Beat {
+      Fade: {0.6}
+      (On, rv_sub)
+      (Pin, rv_1)
+      Word: {26, 0}
+    }
+    wb1 : Beat {
+      Hide
+      Fade: {2}
+      (On, wall_end)
+      (Pin, rv_1)
+      Word: {20, 0}
+    }
+    Outro: {
+      code: "def Tuple : Nat → Type\n  | 0 => Unit\n  | n + 1 => Nat × Tuple n\n\n\n  | 0 => ()\n  | n + 1 => (n, mkTuple n)",
+      sig: "def mkTuple : (n : Nat) → Tuple n",
+      err: "error: Type mismatch\n  (n, mkTuple n)\nhas type\n  Nat × Unit\nbut is expected to have type\n  Unit",
+      l1: "A type is a computation scheduled before the program runs. A signature is one you scheduled by hand.",
+      l2: "Write it where no machine can schedule it for you.",
+      g1: 0.8,
+      g2: 0.6
+    }
+    // the exhibit and the big line leave when the editor returns
+    ox1 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, rv_ex)
+      (Pin, ou_1)
+      Word: {0, -0.6}
+    }
+    ox2 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, rv_big)
+      (Pin, ou_1)
+      Word: {0, -0.6}
+    }
+    ox3 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, ph4)
+      (Pin, ou_1)
+      Word: {0, -0.6}
+    }
+    ox4 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, ph4t)
+      (Pin, ou_1)
+      Word: {0, -0.6}
+    }
+    ox5 : Beat {
+      Hide
+      Fade: {0.5}
+      (On, rv_sub)
+      (Pin, ou_1)
+      Word: {0, -0.6}
+    }
+  }
+}

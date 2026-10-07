@@ -896,6 +896,7 @@ fn observers(world: &World) {
 pub fn setup(world: &World) {
     world.import::<ReadingModule>();
     crate::museum::setup(world);
+    crate::film::setup(world);
     WORLD.with(|w| *w.borrow_mut() = Some(world.clone()));
     rd_reset();
 }

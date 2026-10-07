@@ -1,0 +1,102 @@
+// The template library of the narrated films (docs/NARRATED.md section 15, "Built contract"). A scene is `name : Scene { Template: {slots} }`;
+// every slot has a default, an empty line slot (`l1 ... l5`) is skipped by the reader together with every beat pinned to it, and a template
+// brings its own props and beats, so a scene is the script and the slots. Children are named with the template's prefix (co_, mt_, dp_, rv_,
+// cb_, ou_, eq_, ec_) so two templates (or hand-written lines and a template) can share one scene. Stage 32 x 18, y down.
+// Strings in slots: `\{` for a brace; `\n` for a line break. Silence: the Await seconds of a hold sit in the `Gap` of the line after it (the voice
+// file carries the silence), or in the scene's `Tail` when the hold ends the scene.
+
+// The film prefab family. A film script is made of instances of these (`name : Prefab { ... }`) and of the templates in templates.flecs.
+// Stage: 32 x 18 units, origin top-left, y down; camera `Cam {x, y, zoom}` looks at (x, y) (default 16, 9, zoom 1). One palette: `Ink` names a
+// reader tone (panel ink ink2 ink3 accent accent2 rule ground accentTint panelHi accentDim), never a colour. No hue is authorable.
+
+// Theme: the defaults every prop inherits (one dark look; a variant may change size, never hue).
+prefab Theme {
+  Ink: {"ink"}
+  Alpha: {1}
+  Em: {0.7}
+  Stroke: {0.08}
+}
+
+// The film, the voice and the scene family.
+prefab Film {}
+// The narrator is a value: change `Voice` here (id and model revision) and rebuild the audio (scripts/film/build.ts). Default voice: the Qwen3-TTS
+// preset speaker Aiden; no voice of a real person is cloned.
+prefab Narrator {
+  Voice: {"qwen3-tts-mlx:Aiden", "52f4770fd9726457eae3d3b6aa92047a25a10776"}
+}
+prefab Scene {
+  Cam: {16, 9, 1}
+}
+// A scene child with this prefab fades the scene in from the ground over its Dur seconds.
+prefab Transition {
+  Dur: {0.5}
+}
+
+// A caption line spoken by the narrator. `Text` is what the caption shows, `Spoken` (default: Text) is what the voice reads: `[pause]` is a
+// breath (0.35 s), `*word*` marks stress for the writer only. Status: draft (placeholder text), approved, voiced.
+prefab CaptionLine {
+  Status: {"draft"}
+}
+
+// A beat is an entity with one action (Tween, Fade, Type, Burst, Ring, Do, Await, Fly, Sound), one time source (At seconds into the scene, or
+// (Pin, line) with Word {n, lead}, or (After, beat) with Delay) and optionally (On, prop).
+prefab Beat {}
+// A named sound cue (the procedural synth kinds); the player ignores it until the film mixes the room's synth in (deferred).
+prefab Cue : Beat {}
+// An audio lane marker (Narration, Music, Sfx): the film has the narration lane only; music and sfx are deferred.
+prefab Track {}
+
+// Props. The stock variants below are the kit; each is a prefab so an instance changes only what differs.
+prefab Prop : Theme {}
+prefab Plate : Prop {
+  Form: {"box"}
+  Ink: {"panel"}
+  Size: {4, 2}
+  Rad: {0.3}
+}
+prefab Dot : Prop {
+  Form: {"disc"}
+  Ink: {"accent"}
+  Rad: {0.3}
+}
+prefab Rail : Prop {
+  Form: {"line"}
+  Ink: {"rule"}
+  Size: {4, 0}
+  Stroke: {0.1}
+}
+prefab Dart : Prop {
+  Form: {"arrow"}
+  Ink: {"ink2"}
+  Size: {4, 0}
+  Stroke: {0.12}
+}
+prefab Halo : Prop {
+  Form: {"ring"}
+  Ink: {"accent"}
+  Size: {3, 3}
+  Rad: {1.5}
+}
+prefab Mark : Prop {
+  Form: {"label"}
+}
+prefab Code : Mark {
+  Mono
+  Em: {0.58}
+}
+prefab Hatch : Prop {
+  Form: {"hatch"}
+  Ink: {"rule"}
+  Size: {4, 2}
+}
+// An exhibit of the article, shown in the scene: `Mount {"id"}` and `Dock {x, y, w, h}` in stage units; the exhibit's frame is fitted into the dock.
+// A grabbable mount can be taken by the viewer (the film clock holds while they play).
+prefab ExhibitRef : Prop {
+  Alpha: {0}
+  Dock: {2, 3.2, 28, 12.8}
+}
+// Effects. An emitter is closed-form (a Burst beat releases n particles from the prop's Pos).
+prefab Effect : Prop {}
+prefab Camera {
+  Cam: {16, 9, 1}
+}

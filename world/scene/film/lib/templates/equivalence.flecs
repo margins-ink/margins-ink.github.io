@@ -1,0 +1,172 @@
+// Equivalence: two code blocks side by side, thin lines tie each line of the left to its translation on the right, then a check line.
+template Equivalence {
+  prop chapter = string: ""
+  prop left = string: ""
+  prop right = string: ""
+  prop check = string: ""
+  prop verdict = string: ""
+  prop l1 = string: ""
+  prop l2 = string: ""
+  prop l3 = string: ""
+  prop g2 = f32: 0.5
+  prop g3 = f32: 0.5
+
+  eq_fade : Transition {}
+  eq_ch : Mark {
+    Words: {$chapter}
+    Pos: {2, 1.6}
+    Ink: {"ink3"}
+    Em: {0.46}
+  }
+  eq_lp : Plate {
+    Pos: {8.6, 7}
+    Size: {14.6, 8.6}
+  }
+  eq_rp : Plate {
+    Pos: {23.4, 7}
+    Size: {14.6, 8.6}
+    Alpha: {0}
+  }
+  eq_lt : Code {
+    Words: {$left}
+    Pos: {1.8, 3.8}
+    Em: {0.4}
+    Lit: {-1}
+    Layer: {2}
+  }
+  eq_rt : Code {
+    Words: {$right}
+    Pos: {16.5, 3.8}
+    Em: {0.4}
+    Alpha: {0}
+    Lit: {-1}
+    Layer: {2}
+  }
+  eq_k1 : Rail {
+    Pos: {3.2, 5.45}
+    Size: {13.1, -1.2}
+    Ink: {"accent"}
+    Stroke: {0.05}
+    Alpha: {0}
+    Layer: {4}
+  }
+  eq_k2 : Rail {
+    Pos: {3.2, 6.05}
+    Size: {13.1, -1.2}
+    Ink: {"accent"}
+    Stroke: {0.05}
+    Alpha: {0}
+    Layer: {4}
+  }
+  eq_k3 : Rail {
+    Pos: {3.2, 6.65}
+    Size: {13.1, -1.2}
+    Ink: {"accent"}
+    Stroke: {0.05}
+    Alpha: {0}
+    Layer: {4}
+  }
+  eq_chk : Code {
+    Words: {$check}
+    Pos: {16, 14.2}
+    Align: {"centre"}
+    Em: {0.5}
+    Reveal: {0}
+    Layer: {2}
+  }
+  eq_ok : Dot {
+    Pos: {16, 16}
+    Rad: {0.35}
+    Alpha: {0}
+  }
+  eq_okt : Mark {
+    Words: {$verdict}
+    Pos: {17, 16.25}
+    Ink: {"accent"}
+    Em: {0.55}
+    Alpha: {0}
+  }
+  eq_1 : CaptionLine {
+    Text: {$l1}
+  }
+  eq_2 : CaptionLine {
+    Text: {$l2}
+    Gap: {$g2}
+  }
+  eq_3 : CaptionLine {
+    Text: {$l3}
+    Gap: {$g3}
+  }
+  eq_b1 : Beat {
+    Tween: {"Lit.line", 3, 0, ""}
+    (On, eq_lt)
+    (Pin, eq_1)
+    Word: {8, 0}
+  }
+  eq_b2 : Beat {
+    Tween: {"Lit.line", 4, 0, ""}
+    (On, eq_lt)
+    (Pin, eq_1)
+    Word: {9, 0}
+  }
+  eq_b3 : Beat {
+    Tween: {"Lit.line", 5, 0, ""}
+    (On, eq_lt)
+    (Pin, eq_1)
+    Word: {10, 0}
+  }
+  eq_b4 : Beat {
+    Tween: {"Alpha.a", 1, 0.8, "out"}
+    (On, eq_rp)
+    (Pin, eq_2)
+    Word: {0, 0}
+  }
+  eq_b5 : Beat {
+    Tween: {"Alpha.a", 1, 0.8, "out"}
+    (On, eq_rt)
+    (Pin, eq_2)
+    Word: {0, 0.2}
+  }
+  eq_b6 : Beat {
+    Fade: {0.4}
+    (On, eq_k1)
+    (Pin, eq_2)
+    Word: {6, 0}
+  }
+  eq_b7 : Beat {
+    Fade: {0.4}
+    (On, eq_k2)
+    (Pin, eq_2)
+    Word: {9, 0}
+  }
+  eq_b8 : Beat {
+    Fade: {0.4}
+    (On, eq_k3)
+    (Pin, eq_2)
+    Word: {12, 0}
+  }
+  eq_b9 : Beat {
+    Type: {1.6}
+    (On, eq_chk)
+    (Pin, eq_3)
+    Word: {0, 0}
+  }
+  eq_b10 : Beat {
+    Fade: {0.4}
+    (On, eq_ok)
+    (Pin, eq_3)
+    Word: {5, 0}
+  }
+  eq_b11 : Beat {
+    Fade: {0.4}
+    (On, eq_okt)
+    (Pin, eq_3)
+    Word: {5, 0.1}
+  }
+  eq_b12 : Beat {
+    Ring: {1.2}
+    (On, eq_ok)
+    (Pin, eq_3)
+    Word: {5, 0}
+  }
+}

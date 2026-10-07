@@ -1,0 +1,169 @@
+// Callback: the cold open's editor returns with its error on screen; a marker walks the code, a quoted card arrives, the signature line glows.
+// (The mkTuple exhibit is not built: the template shows an honest placeholder card in its place.)
+template Callback {
+  prop chapter = string: ""
+  prop code = string: ""
+  prop err = string: ""
+  prop quote = string: ""
+  prop who = string: ""
+  prop missing = string: ""
+  prop l1 = string: ""
+  prop l2 = string: ""
+  prop l3 = string: ""
+  prop l4 = string: ""
+  prop g2 = f32: 0.4
+  prop g3 = f32: 0.4
+  prop g4 = f32: 0.5
+
+  cb_fade : Transition {}
+  cb_ch : Mark {
+    Words: {$chapter}
+    Pos: {2, 1.6}
+    Ink: {"ink3"}
+    Em: {0.46}
+  }
+  cb_ed : Plate {
+    Pos: {10.2, 9.6}
+    Size: {17.6, 13.4}
+  }
+  cb_src : Code {
+    Words: {$code}
+    Pos: {2.2, 4.6}
+    Em: {0.46}
+    Lit: {-1}
+    Layer: {2}
+  }
+  cb_errp : Plate {
+    Pos: {10.2, 14.4}
+    Size: {16, 3.6}
+    Ink: {"panelHi"}
+    Layer: {3}
+  }
+  cb_errt : Code {
+    Words: {$err}
+    Pos: {2.8, 13}
+    Em: {0.36}
+    Layer: {4}
+  }
+  cb_card : Hatch {
+    Pos: {25.5, 6.4}
+    Size: {11, 6.4}
+    Placeholder
+  }
+  cb_cardt : Mark {
+    Words: {$missing}
+    Pos: {25.5, 6.2}
+    Align: {"centre"}
+    Ink: {"ink2"}
+    Em: {0.46}
+    Layer: {2}
+  }
+  cb_dowek : Plate {
+    Pos: {25.5, 13.6}
+    Size: {11, 6.2}
+    Ink: {"panelHi"}
+    Alpha: {0}
+    Layer: {3}
+  }
+  cb_quote : Mark {
+    Words: {$quote}
+    Pos: {25.5, 12.8}
+    Align: {"centre"}
+    Ink: {"ink"}
+    Em: {0.46}
+    Alpha: {0}
+    Layer: {4}
+  }
+  cb_who : Mark {
+    Words: {$who}
+    Pos: {25.5, 15.8}
+    Align: {"centre"}
+    Ink: {"accent"}
+    Em: {0.46}
+    Alpha: {0}
+    Layer: {4}
+  }
+  cb_clash : Rail {
+    Pos: {14, 14.6}
+    Size: {7, -5}
+    Ink: {"accent"}
+    Stroke: {0.12}
+    Alpha: {0}
+    Layer: {5}
+  }
+  cb_1 : CaptionLine {
+    Text: {$l1}
+  }
+  cb_2 : CaptionLine {
+    Text: {$l2}
+    Gap: {$g2}
+  }
+  cb_3 : CaptionLine {
+    Text: {$l3}
+    Gap: {$g3}
+  }
+  cb_4 : CaptionLine {
+    Text: {$l4}
+    Gap: {$g4}
+  }
+  cb_b1 : Beat {
+    Tween: {"Lit.line", 5, 0, ""}
+    (On, cb_src)
+    (Pin, cb_1)
+    Word: {0, 0}
+  }
+  cb_b2 : Beat {
+    Ring: {1.2}
+    (On, cb_ed)
+    (Pin, cb_1)
+    Word: {6, 0}
+  }
+  cb_b3 : Beat {
+    Tween: {"Lit.line", 0, 0, ""}
+    (On, cb_src)
+    (Pin, cb_2)
+    Word: {0, 0}
+  }
+  cb_b4 : Beat {
+    Tween: {"Lit.line", 2, 0, ""}
+    (On, cb_src)
+    (Pin, cb_3)
+    Word: {0, 0}
+  }
+  cb_b5 : Beat {
+    Fade: {0.5}
+    (On, cb_clash)
+    (Pin, cb_3)
+    Word: {14, 0}
+  }
+  cb_b6 : Beat {
+    Fade: {0.6}
+    (On, cb_dowek)
+    (Pin, cb_4)
+    Word: {0, 0}
+  }
+  cb_b7 : Beat {
+    Fade: {0.6}
+    (On, cb_quote)
+    (Pin, cb_4)
+    Word: {0, 0.2}
+  }
+  cb_b8 : Beat {
+    Fade: {0.6}
+    (On, cb_who)
+    (Pin, cb_4)
+    Word: {0, 0.3}
+  }
+  cb_b9 : Beat {
+    Tween: {"Lit.line", 4, 0, ""}
+    (On, cb_src)
+    (Pin, cb_4)
+    Word: {-1, -2.5}
+  }
+  cb_b10 : Beat {
+    Ring: {1.4}
+    (On, cb_ed)
+    (Pin, cb_4)
+    Word: {-1, -2.5}
+  }
+}

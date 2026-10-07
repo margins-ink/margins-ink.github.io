@@ -226,7 +226,7 @@ fn script_error(e: EntityView) -> Option<String> {
 }
 
 /// Register the components and run the vocabulary script in `world`. Called by `reading::setup` (also for bare worlds and scratch worlds).
-fn install(world: &World) -> Result<Voc, String> {
+pub(crate) fn install(world: &World) -> Result<Voc, String> {
     model::register(world);
     let src = VOCAB.with(|v| v.borrow().clone()).unwrap_or_else(|| SCRIPT.to_string());
     let s = world.script_named("museum::prefabs").build_from_code(&src);
@@ -234,6 +234,11 @@ fn install(world: &World) -> Result<Voc, String> {
         return Err(format!("museum script 60-museum.flecs: {e}"));
     }
     Voc::lookup(world)
+}
+
+/// For the film module's scratch worlds: the museum vocabulary and components.
+pub(crate) fn install_for_film(world: &World) -> Result<(), String> {
+    install(world).map(|_| ())
 }
 
 pub fn setup(world: &World) {
@@ -618,6 +623,50 @@ fn settle(g: &mut Reg, w: &World, ex: usize) {
         e.mirror(w, v);
     }
     sync(g);
+}
+
+/// `exhibit_drive`: the film plays an exhibit's controls. verb 0 load preset `n`, 1 press the Step button `n` times, 2 toggle Run, 3 Reset, 4 Toggle.
+/// 0 ok, 1 no such exhibit, 2 the exhibit has no such control.
+pub fn drive(ex: usize, verb: u32, n: u32) -> u32 {
+    let Ok(w) = world() else { return 1 };
+    let (r, dirty) = REG.with(|g| {
+        let mut g = g.borrow_mut();
+        let Some(e) = g.exs.get_mut(ex).and_then(|e| e.as_mut()) else { return (1, false) };
+        let want = match verb {
+            1 => Some(Verb::Step),
+            2 => Some(Verb::Run),
+            3 => Some(Verb::Reset),
+            4 => Some(Verb::Toggle),
+            _ => None,
+        };
+        let mut r = 0;
+        if verb == 0 {
+            match &mut e.fam {
+                Family::Tape(s) => s.load(&e.def, n as usize),
+                Family::Machine(d) => d.load(&e.def, n as usize),
+                Family::Timeline(_) => r = 2,
+            }
+            e.touch_state();
+        } else if let Some(v) = want {
+            match e.def.parts.iter().position(|p| p.verb == Some(v)) {
+                Some(i) => {
+                    for _ in 0..(if verb == 1 { n.max(1) } else { 1 }) {
+                        e.press(i);
+                    }
+                }
+                None => r = 2,
+            }
+        } else {
+            r = 2;
+        }
+        let d = flush(&w, e);
+        settle(&mut g, &w, ex);
+        (r, d)
+    });
+    if dirty {
+        reading::mark(&w, reading::D_EX);
+    }
+    r
 }
 
 pub fn pointer(ex: usize, kind: u32, x: f32, y: f32) -> u32 {

@@ -52,7 +52,7 @@ impl DrawList {
     pub fn count(&self) -> usize {
         self.items.len() / STRIDE
     }
-    fn push(&mut self, it: [f32; 8]) {
+    pub fn push(&mut self, it: [f32; 8]) {
         if self.count() >= MAX_ITEMS {
             self.dropped += 1;
             return;
@@ -83,6 +83,9 @@ impl DrawList {
     }
     /// A label with its baseline anchor at (x, y), `size` em, `max_w` em (0 none); align per ALIGN_*.
     pub fn label(&mut self, x: f32, y: f32, size: f32, max_w: f32, text: &str, tone: f32, flags: u32) {
+        self.push_label(x, y, size, max_w, text, tone, flags);
+    }
+    pub fn push_label(&mut self, x: f32, y: f32, size: f32, max_w: f32, text: &str, tone: f32, flags: u32) {
         if text.is_empty() {
             return;
         }

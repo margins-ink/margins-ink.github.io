@@ -1,0 +1,141 @@
+// RevealScene: a claim lands. The mounted exhibit (optional) stays, a big line types, a ring pulses, a small card appears (a year, a name).
+template RevealScene {
+  prop chapter = string: ""
+  prop ex = string: ""
+  prop big = string: ""
+  prop sub = string: ""
+  prop card = string: ""
+  prop cw = f32: 6
+  prop dx = f32: 2.5
+  prop dy = f32: 3.2
+  prop dw = f32: 27
+  prop dh = f32: 12.75
+  prop l1 = string: ""
+  prop l2 = string: ""
+  prop l3 = string: ""
+  prop g2 = f32: 0.4
+  prop g3 = f32: 0.5
+
+  rv_fade : Transition {}
+  rv_ch : Mark {
+    Words: {$chapter}
+    Pos: {2, 1.6}
+    Ink: {"ink3"}
+    Em: {0.46}
+  }
+  rv_ex : ExhibitRef {
+    Mount: {$ex}
+    Dock: {$dx, $dy, $dw, $dh}
+  }
+  rv_big : Mark {
+    Words: {$big}
+    Pos: {16, 2.3}
+    Align: {"centre"}
+    Em: {1.1}
+    Reveal: {0}
+    Layer: {4}
+  }
+  rv_sub : Mark {
+    Words: {$sub}
+    Pos: {16, 16.9}
+    Align: {"centre"}
+    Ink: {"ink2"}
+    Em: {0.6}
+    Alpha: {0}
+    Layer: {4}
+  }
+  rv_card : Plate {
+    Pos: {16, 9.4}
+    Size: {$cw, 2.2}
+    Ink: {"panelHi"}
+    Alpha: {0}
+    Layer: {5}
+  }
+  rv_cardt : Mark {
+    Words: {$card}
+    Pos: {16, 9.9}
+    Align: {"centre"}
+    Ink: {"accent"}
+    Em: {0.8}
+    Alpha: {0}
+    Layer: {6}
+  }
+  rv_pulse : Halo {
+    Pos: {16, 9.4}
+    Size: {5, 5}
+    Rad: {2.5}
+    Alpha: {0}
+    Layer: {4}
+  }
+  rv_1 : CaptionLine {
+    Text: {$l1}
+  }
+  rv_2 : CaptionLine {
+    Text: {$l2}
+    Gap: {$g2}
+  }
+  rv_3 : CaptionLine {
+    Text: {$l3}
+    Gap: {$g3}
+  }
+  rv_b1 : Beat {
+    Fade: {1}
+    (On, rv_ex)
+    (Pin, rv_1)
+    Word: {0, -0.3}
+  }
+  rv_b2 : Beat {
+    Type: {2.4}
+    (On, rv_big)
+    (Pin, rv_1)
+    Word: {0, 0}
+  }
+  rv_b3 : Beat {
+    Fade: {0.5}
+    (On, rv_card)
+    (Pin, rv_1)
+    Word: {9, 0}
+  }
+  rv_b4 : Beat {
+    Fade: {0.5}
+    (On, rv_cardt)
+    (Pin, rv_1)
+    Word: {9, 0.1}
+  }
+  rv_b5 : Beat {
+    Tween: {"Alpha.a", 1, 0.2, ""}
+    (On, rv_pulse)
+    (Pin, rv_1)
+    Word: {9, 0}
+  }
+  rv_b6 : Beat {
+    Ring: {1.6}
+    (On, rv_pulse)
+    (Pin, rv_1)
+    Word: {9, 0}
+  }
+  rv_b7 : Beat {
+    Tween: {"Alpha.a", 0, 0.6, ""}
+    (On, rv_card)
+    (Pin, rv_2)
+    Word: {0, 0}
+  }
+  rv_b8 : Beat {
+    Tween: {"Alpha.a", 0, 0.6, ""}
+    (On, rv_cardt)
+    (Pin, rv_2)
+    Word: {0, 0}
+  }
+  rv_b9 : Beat {
+    Tween: {"Alpha.a", 0, 0.6, ""}
+    (On, rv_pulse)
+    (Pin, rv_2)
+    Word: {0, 0}
+  }
+  rv_b10 : Beat {
+    Fade: {0.6}
+    (On, rv_sub)
+    (Pin, rv_2)
+    Word: {0, 0.2}
+  }
+}

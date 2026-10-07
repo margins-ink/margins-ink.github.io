@@ -1,0 +1,94 @@
+// Outro: back in the editor, the empty line gets its signature typed back, the error clears and the last frame holds on the caret.
+template Outro {
+  prop code = string: ""
+  prop sig = string: ""
+  prop err = string: ""
+  prop l1 = string: ""
+  prop l2 = string: ""
+  prop g1 = f32: 0.6
+  prop g2 = f32: 0.6
+
+  ou_ed : Plate {
+    Pos: {16, 9.6}
+    Size: {27, 13.4}
+    Alpha: {0}
+    Layer: {2}
+  }
+  ou_src : Code {
+    Words: {$code}
+    Pos: {4, 5.4}
+    Alpha: {0}
+    Layer: {3}
+  }
+  ou_sig : Code {
+    Words: {$sig}
+    Pos: {4, 8.88}
+    Ink: {"accent"}
+    Reveal: {0}
+    Layer: {4}
+  }
+  ou_errp : Plate {
+    Pos: {16, 14.2}
+    Size: {24, 5.6}
+    Ink: {"panelHi"}
+    Alpha: {0}
+    Layer: {3}
+  }
+  ou_errt : Code {
+    Words: {$err}
+    Pos: {5, 12.6}
+    Em: {0.5}
+    Alpha: {0}
+    Layer: {4}
+  }
+  ou_1 : CaptionLine {
+    Text: {$l1}
+    Gap: {$g1}
+  }
+  ou_2 : CaptionLine {
+    Text: {$l2}
+    Gap: {$g2}
+  }
+  ou_b1 : Beat {
+    Tween: {"Alpha.a", 1, 0.6, "out"}
+    (On, ou_ed)
+    (Pin, ou_1)
+    Word: {0, -0.4}
+  }
+  ou_b2 : Beat {
+    Tween: {"Alpha.a", 1, 0.6, "out"}
+    (On, ou_src)
+    (Pin, ou_1)
+    Word: {0, -0.3}
+  }
+  ou_b3 : Beat {
+    Tween: {"Alpha.a", 1, 0.5, ""}
+    (On, ou_errp)
+    (Pin, ou_1)
+    Word: {0, 0}
+  }
+  ou_b4 : Beat {
+    Tween: {"Alpha.a", 1, 0.5, ""}
+    (On, ou_errt)
+    (Pin, ou_1)
+    Word: {0, 0}
+  }
+  ou_b5 : Beat {
+    Type: {2.2}
+    (On, ou_sig)
+    (Pin, ou_2)
+    Word: {0, 0}
+  }
+  ou_b6 : Beat {
+    Tween: {"Alpha.a", 0, 0.5, ""}
+    (On, ou_errp)
+    (Pin, ou_2)
+    Word: {9, 0}
+  }
+  ou_b7 : Beat {
+    Tween: {"Alpha.a", 0, 0.5, ""}
+    (On, ou_errt)
+    (Pin, ou_2)
+    Word: {9, 0}
+  }
+}

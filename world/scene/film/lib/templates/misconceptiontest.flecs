@@ -1,0 +1,140 @@
+// MisconceptionTest: the two-machines figure on the wall; a bold amber wall between the two language families, two labels, then it flickers.
+// Positions assume the figure (36 x 17) docked at (2.5, 3.2) 27 x 12.75: x = 2.5 + 0.75 fx, y = 3.2 + 0.75 fy.
+template MisconceptionTest {
+  prop chapter = string: ""
+  prop ex = string: "models/two-machines"
+  prop wall = string: "Is that a wall?"
+  prop left = string: "a machine remembers"
+  prop right = string: "nothing is remembered"
+  prop l1 = string: ""
+  prop l2 = string: ""
+  prop l3 = string: ""
+  prop g2 = f32: 0.5
+  prop g3 = f32: 0.6
+
+  mt_fade : Transition {}
+  mt_ch : Mark {
+    Words: {$chapter}
+    Pos: {2, 1.6}
+    Ink: {"ink3"}
+    Em: {0.46}
+  }
+  mt_fig : ExhibitRef {
+    Mount: {$ex}
+    Dock: {2.5, 3.2, 27, 12.75}
+  }
+  mt_dim : Plate {
+    Pos: {16, 6.6}
+    Size: {27, 6}
+    Ink: {"ground"}
+    Alpha: {0.55}
+    Layer: {3}
+  }
+  mt_wall : Rail {
+    Pos: {16, 11.8}
+    Size: {0, 4.2}
+    Ink: {"accent"}
+    Stroke: {0.28}
+    Alpha: {0}
+    Layer: {4}
+  }
+  mt_left : Mark {
+    Words: {$left}
+    Pos: {8.5, 16.9}
+    Align: {"centre"}
+    Ink: {"ink2"}
+    Em: {0.5}
+    Alpha: {0}
+    Layer: {4}
+  }
+  mt_right : Mark {
+    Words: {$right}
+    Pos: {23.5, 16.9}
+    Align: {"centre"}
+    Ink: {"ink2"}
+    Em: {0.5}
+    Alpha: {0}
+    Layer: {4}
+  }
+  mt_card : Mark {
+    Words: {$wall}
+    Pos: {16, 1.9}
+    Align: {"centre"}
+    Ink: {"accent"}
+    Em: {1}
+    Alpha: {0}
+    Layer: {5}
+  }
+  mt_1 : CaptionLine {
+    Text: {$l1}
+  }
+  mt_2 : CaptionLine {
+    Text: {$l2}
+    Gap: {$g2}
+  }
+  mt_3 : CaptionLine {
+    Text: {$l3}
+    Gap: {$g3}
+  }
+  mt_b1 : Beat {
+    Fade: {1}
+    (On, mt_fig)
+    (Pin, mt_1)
+    Word: {0, -0.2}
+  }
+  mt_b2 : Beat {
+    Fade: {0.8}
+    (On, mt_wall)
+    (Pin, mt_2)
+    Word: {0, 0}
+  }
+  mt_b3 : Beat {
+    Ring: {1.6}
+    (On, mt_wall)
+    (Pin, mt_2)
+    Word: {4, 0}
+  }
+  mt_b4 : Beat {
+    Fade: {0.6}
+    (On, mt_left)
+    (Pin, mt_2)
+    Word: {6, 0}
+  }
+  mt_b5 : Beat {
+    Fade: {0.6}
+    (On, mt_right)
+    (Pin, mt_2)
+    Word: {13, 0}
+  }
+  // line 3: the wall flickers and a title card asks the question
+  mt_f1 : Beat {
+    Tween: {"Alpha.a", 0.15, 0.12, ""}
+    (On, mt_wall)
+    (Pin, mt_3)
+    Word: {0, 0}
+  }
+  mt_f2 : Beat {
+    Tween: {"Alpha.a", 1, 0.12, ""}
+    (On, mt_wall)
+    (After, mt_f1)
+    Delay: {0.1}
+  }
+  mt_f3 : Beat {
+    Tween: {"Alpha.a", 0.1, 0.12, ""}
+    (On, mt_wall)
+    (After, mt_f2)
+    Delay: {0.15}
+  }
+  mt_f4 : Beat {
+    Tween: {"Alpha.a", 0.6, 0.2, ""}
+    (On, mt_wall)
+    (After, mt_f3)
+    Delay: {0.1}
+  }
+  mt_b6 : Beat {
+    Fade: {0.6}
+    (On, mt_card)
+    (Pin, mt_3)
+    Word: {0, 0.2}
+  }
+}

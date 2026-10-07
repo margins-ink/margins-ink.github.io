@@ -64871,6 +64871,9 @@ void flecs_script_template_ctor(
         return;
     }
 
+    /* PATCH (site): the table slot is uninitialised; zero it so string/vector copies free NULL, not garbage. */
+    ecs_os_memset(ptr, 0, count * ti->size);
+
     const ecs_member_t *members = st->members.array;
     int32_t i, m, member_count = st->members.count;
     ecs_script_var_t *values = template->prop_defaults.array;
@@ -65136,9 +65139,13 @@ int flecs_script_template_eval_prop(
         }
 
         var->value.type = type;
-        var->value.ptr = flecs_stack_alloc(
+        /* PATCH (site): calloc + ctor; a typed prop with a string/vector type copied into uninitialised stack memory freed garbage. */
+        var->value.ptr = flecs_stack_calloc(
             &v->r->stack, ti->size, ti->alignment);
         var->type_info = ti;
+        if (ti->hooks.ctor) {
+            ti->hooks.ctor(var->value.ptr, 1, ti);
+        }
 
         if (flecs_script_eval_expr(v, &node->expr, &var->value)) {
             return -1;

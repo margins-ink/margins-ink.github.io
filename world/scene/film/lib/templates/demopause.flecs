@@ -1,0 +1,208 @@
+// DemoPause: an exhibit of the article appears and the viewer is invited to play. Up to two holds (Await): the film clock stops at the end of
+// line 2 (and line 4) until the viewer presses Space (or the hold runs out), and a thin ring counts the hold down. The exhibit is the museum's
+// own: the film sends it `Do` verbs (`load preset`), the viewer can grab it.
+template DemoPause {
+  prop chapter = string: ""
+  prop ex = string: ""
+  prop preset = u32: 0
+  prop preset2 = u32: 0
+  prop prompt = string: ""
+  prop prompt2 = string: ""
+  prop note = string: ""
+  prop hold = f32: 15
+  prop hold2 = f32: 12
+  prop dx = f32: 2
+  prop dy = f32: 3.2
+  prop dw = f32: 28
+  prop dh = f32: 12.8
+  prop l1 = string: ""
+  prop l2 = string: ""
+  prop l3 = string: ""
+  prop l4 = string: ""
+  prop l5 = string: ""
+  prop g1 = f32: 0.25
+  prop g2 = f32: 0.5
+  prop g3 = f32: 0.5
+  prop g4 = f32: 0.5
+  prop g5 = f32: 0.5
+
+  dp_fade : Transition {}
+  dp_ch : Mark {
+    Words: {$chapter}
+    Pos: {2, 1.6}
+    Ink: {"ink3"}
+    Em: {0.46}
+  }
+  dp_ex : ExhibitRef {
+    Mount: {$ex}
+    Dock: {$dx, $dy, $dw, $dh}
+    Grabbable
+  }
+  dp_prompt : Mark {
+    Words: {$prompt}
+    Pos: {16, 17.2}
+    Align: {"centre"}
+    Ink: {"accent"}
+    Em: {0.6}
+    Alpha: {0}
+    Layer: {4}
+  }
+  dp_note : Mark {
+    Words: {$note}
+    Pos: {16, 2.2}
+    Align: {"centre"}
+    Ink: {"ink2"}
+    Em: {0.55}
+    Alpha: {0}
+    Layer: {4}
+  }
+  dp_timer : Halo {
+    Pos: {29, 16.4}
+    Size: {2.4, 2.4}
+    Rad: {1.2}
+    Alpha: {0}
+    Layer: {5}
+  }
+  dp_timer2 : Halo {
+    Pos: {29, 16.4}
+    Size: {2.4, 2.4}
+    Rad: {1.2}
+    Alpha: {0}
+    Layer: {5}
+  }
+  dp_1 : CaptionLine {
+    Text: {$l1}
+    Gap: {$g1}
+  }
+  dp_2 : CaptionLine {
+    Text: {$l2}
+    Gap: {$g2}
+  }
+  dp_3 : CaptionLine {
+    Text: {$l3}
+    Gap: {$g3}
+  }
+  dp_4 : CaptionLine {
+    Text: {$l4}
+    Gap: {$g4}
+  }
+  dp_5 : CaptionLine {
+    Text: {$l5}
+    Gap: {$g5}
+  }
+  dp_b0 : Beat {
+    Do: {"load", $preset}
+    (On, dp_ex)
+    At: {0}
+  }
+  dp_b1 : Beat {
+    Fade: {0.9}
+    (On, dp_ex)
+    (Pin, dp_1)
+    Word: {0, -0.2}
+  }
+  dp_b2 : Beat {
+    Fade: {0.4}
+    (On, dp_note)
+    (Pin, dp_1)
+    Word: {-1, -1}
+  }
+  // line 2 invites the viewer; the first hold starts when it ends
+  dp_b3 : Beat {
+    Fade: {0.4}
+    (On, dp_prompt)
+    (Pin, dp_2)
+    Word: {0, 0}
+  }
+  dp_b4 : Beat {
+    Fade: {0.3}
+    (On, dp_timer)
+    (Pin, dp_2)
+    Word: {-1, 0}
+  }
+  dp_b5 : Beat {
+    Tween: {"Size.w", 0.3, $hold, ""}
+    (On, dp_timer)
+    (Pin, dp_2)
+    Word: {-1, 0}
+  }
+  dp_b6 : Beat {
+    Tween: {"Size.h", 0.3, $hold, ""}
+    (On, dp_timer)
+    (Pin, dp_2)
+    Word: {-1, 0}
+  }
+  dp_b7 : Beat {
+    Tween: {"Rad.r", 0.15, $hold, ""}
+    (On, dp_timer)
+    (Pin, dp_2)
+    Word: {-1, 0}
+  }
+  dp_g1 : Beat {
+    Await: {"resume", 0, $hold}
+    (On, dp_ex)
+    (Pin, dp_2)
+    Word: {-1, 0}
+  }
+  dp_b8 : Beat {
+    Tween: {"Alpha.a", 0, 0.3, ""}
+    (On, dp_timer)
+    (Pin, dp_3)
+    Word: {0, 0}
+  }
+  dp_b9 : Beat {
+    Tween: {"Alpha.a", 0, 0.4, ""}
+    (On, dp_prompt)
+    (Pin, dp_3)
+    Word: {0, 0}
+  }
+  // the second round: the exhibit loads its second preset, a second prompt and hold
+  dp_b10 : Beat {
+    Do: {"load", $preset2}
+    (On, dp_ex)
+    (Pin, dp_4)
+    Word: {0, -1.2}
+  }
+  dp_b11 : Beat {
+    Tween: {"Alpha.a", 1, 0.4, ""}
+    (On, dp_prompt)
+    (Pin, dp_4)
+    Word: {0, 0}
+  }
+  dp_b12 : Beat {
+    Fade: {0.3}
+    (On, dp_timer2)
+    (Pin, dp_4)
+    Word: {-1, 0}
+  }
+  dp_b13 : Beat {
+    Tween: {"Size.w", 0.3, $hold2, ""}
+    (On, dp_timer2)
+    (Pin, dp_4)
+    Word: {-1, 0}
+  }
+  dp_b14 : Beat {
+    Tween: {"Size.h", 0.3, $hold2, ""}
+    (On, dp_timer2)
+    (Pin, dp_4)
+    Word: {-1, 0}
+  }
+  dp_b15 : Beat {
+    Tween: {"Rad.r", 0.15, $hold2, ""}
+    (On, dp_timer2)
+    (Pin, dp_4)
+    Word: {-1, 0}
+  }
+  dp_g2 : Beat {
+    Await: {"resume", 0, $hold2}
+    (On, dp_ex)
+    (Pin, dp_4)
+    Word: {-1, 0}
+  }
+  dp_b16 : Beat {
+    Tween: {"Alpha.a", 0, 0.3, ""}
+    (On, dp_timer2)
+    (Pin, dp_5)
+    Word: {0, 0}
+  }
+}

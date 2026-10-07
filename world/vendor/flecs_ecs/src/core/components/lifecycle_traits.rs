@@ -73,6 +73,9 @@ pub(crate) unsafe fn register_panic_hooks_free_ctx(ctx: *mut c_void) {
 pub fn register_lifecycle_actions<T>(type_hooks: &mut sys::ecs_type_hooks_t) {
     //type_hooks.ctor = Some(ctor::<T>);
     type_hooks.dtor = Some(dtor::<T>);
+    // PATCH (site): flecs' `move` hook (`ecs_value_move`, used by the script expression evaluator) must leave src droppable.
+    // Without it flecs memcpy'd the value and later dropped src: a double free for any component holding a String.
+    type_hooks.move_ = Some(move_swap::<T>);
     type_hooks.move_dtor = Some(move_dtor::<T>); //same implementation as ctor_move_dtor
 
     //type_hooks.move_ctor = Some(move_ctor::<T>);
@@ -313,6 +316,22 @@ fn move_dtor_impls_default<T: Default>(
             //src value and dest value point to the same thing
             core::ptr::copy_nonoverlapping(src_value, dst_value, 1);
         }
+    }
+}
+
+/// Flecs `move` (assign) hook: dst and src are both initialised and both will be dropped, so swap them.
+#[extern_abi]
+fn move_swap<T>(
+    dst_ptr: *mut c_void,
+    src_ptr: *mut c_void,
+    count: i32,
+    _type_info: *const sys::ecs_type_info_t,
+) {
+    let dst_arr = dst_ptr as *mut T;
+    let src_arr = src_ptr as *mut T;
+    for i in 0..count as isize {
+        // SAFETY: flecs passes initialised, non-overlapping values; swapping keeps both droppable.
+        unsafe { core::ptr::swap(dst_arr.offset(i), src_arr.offset(i)) };
     }
 }
 

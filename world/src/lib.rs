@@ -8,6 +8,7 @@ mod book;
 mod components;
 mod elevator;
 mod export;
+mod film;
 mod hover;
 mod museum;
 mod reader;
@@ -426,4 +427,117 @@ pub extern "C" fn exhibit_reload(ex: u32, len: u32) -> u32 {
         Ok(src) => museum::reload(ex as usize, &src),
         Err(e) => museum::fail(&e),
     }
+}
+
+// ---- film (docs/NARRATED.md "Built contract"; FilmExports in src/lib/film/abi.ts) ----
+
+/// Staging buffer for the film's script and align texts.
+#[no_mangle]
+pub extern "C" fn film_buf(len: u32) -> *mut u8 {
+    film::buf(len)
+}
+
+/// Run the staged film script (replaces the previous film). 0 ok, else the error text is in the out buffer.
+#[no_mangle]
+pub extern "C" fn film_load(len: u32) -> u32 {
+    match film::staged(len) {
+        Ok(src) => film::load(&src),
+        Err(e) => film::fail(&e),
+    }
+}
+
+/// Dev hot reload: dry run in a scratch world, then rebuild. 0 ok, else the error text (the old film plays on).
+#[no_mangle]
+pub extern "C" fn film_reload(len: u32) -> u32 {
+    match film::staged(len) {
+        Ok(src) => film::reload(&src),
+        Err(e) => film::fail(&e),
+    }
+}
+
+/// Lint and describe the staged film script as JSON without loading it. 0 ok.
+#[no_mangle]
+pub extern "C" fn film_inspect(len: u32) -> u32 {
+    match film::staged(len) {
+        Ok(src) => film::inspect(&src),
+        Err(e) => film::fail(&e),
+    }
+}
+
+/// The staged `align.json` of the voice file. 0 ok.
+#[no_mangle]
+pub extern "C" fn film_align(len: u32) -> u32 {
+    match film::staged(len) {
+        Ok(t) => film::set_align(&t),
+        Err(e) => film::fail(&e),
+    }
+}
+
+/// Back to the reading-speed estimate (no voice file).
+#[no_mangle]
+pub extern "C" fn film_align_clear() {
+    film::clear_align();
+}
+
+/// The layout of the loaded film as JSON in the out buffer. 0 ok.
+#[no_mangle]
+pub extern "C" fn film_info() -> u32 {
+    film::info()
+}
+
+#[no_mangle]
+pub extern "C" fn film_out_ptr() -> *const u8 {
+    film::out_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn film_out_len() -> u32 {
+    film::out_len()
+}
+
+/// Fill the stage draw list at film time `t` (seconds): the item count. `film_meta_ptr` describes the scene and the exhibit mounts.
+#[no_mangle]
+pub extern "C" fn film_pack(t: f32) -> u32 {
+    film::pack_at(t)
+}
+
+#[no_mangle]
+pub extern "C" fn film_draw_ptr() -> *const f32 {
+    film::draw_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn film_meta_ptr() -> *const f32 {
+    film::meta_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn film_str_ptr(i: u32) -> *const u8 {
+    film::str_ptr(i)
+}
+
+#[no_mangle]
+pub extern "C" fn film_str_len(i: u32) -> u32 {
+    film::str_len(i)
+}
+
+/// Dev: use the staged text as library script `which` (index into the film library list, vocab first) for later installs.
+#[no_mangle]
+pub extern "C" fn film_library(which: u32, len: u32) -> u32 {
+    match film::staged(len) {
+        Ok(src) => film::override_library_at(which as usize, &src) as u32,
+        Err(_) => 1,
+    }
+}
+
+/// Name of library script `which` into the out buffer; its byte length, 0 past the end.
+#[no_mangle]
+pub extern "C" fn film_library_name(which: u32) -> u32 {
+    film::library_name(which as usize)
+}
+
+/// The film plays an exhibit's controls (verb 0 load preset n, 1 step n times, 2 run, 3 reset, 4 toggle). 0 ok, 1 no exhibit, 2 no such control.
+#[no_mangle]
+pub extern "C" fn exhibit_drive(ex: u32, verb: u32, n: u32) -> u32 {
+    museum::drive(ex as usize, verb, n)
 }
