@@ -102,7 +102,7 @@ function pushOvl(p: Pools, out: Overlay[], x: number, y: number, w: number, h: n
  * Convert `count` XD items of an exhibit into overlays and UI glyphs (appended to `out`). `m` maps local em to canvas px, `alpha` is the block's enter alpha.
  * Items with a non-finite coordinate or an unknown shape are skipped. Shapes: rrect (aux = radius em), circle and dot (the box's inscribed circle),
  * ring (rounded-rect outline inside the box, aux = corner radius em, stroke RING_STROKE_EM), line and arrow ((x, y) start, (w, h) delta, aux = stroke em), hatch (box, aux = stripe pitch em), label (x, y = baseline anchor,
- * h = size em, w = max width em or 0, aux = string index, alignment in flags bits 8..9).
+ * h = size em, w = max width em or 0, aux = string index, alignment in flags bits 8..9). Flags bits 16..23 are the item's own alpha (0 = opaque).
  */
 /** stroke of a ring item, em (its aux is the corner radius) */
 export const RING_STROKE_EM = 0.12;
@@ -114,7 +114,9 @@ export function convertItems(items: Float32Array, count: number, str: (i: number
 		const shape = items[o + XD.shape], flags = items[o + XD.flags] | 0, aux = items[o + XD.aux];
 		if (!(Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(w) && Number.isFinite(h) && Number.isFinite(aux))) continue;
 		const c = toneColour(items[o + XD.tone]);
-		const a = alpha * (flags & XFLAG.dim ? 0.4 : 1);
+		// flags bits 16..23: per-item alpha in 1/255 steps (0 = opaque); the narrated film uses it for fades
+		const ib = (flags >> 16) & 255;
+		const a = alpha * (flags & XFLAG.dim ? 0.4 : 1) * (ib ? ib / 255 : 1);
 		if (!(a * c[3] > 0)) continue;
 		const px = m.x + x * m.k, py = m.y + y * m.k, pw = w * m.k, ph = h * m.k;
 		switch (shape) {

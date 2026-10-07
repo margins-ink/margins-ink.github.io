@@ -1,6 +1,7 @@
 // Typed wrapper over the reading exports of world.wasm (world/src/reading.rs, contract in src/lib/reading/abi.ts).
 // JS owns no reading state: every gesture ends in `input(kind, a, b)`, the springs, culling, section spy and figure clocks run in Flecs.
 import type { ReadingModel } from '../magazine/format';
+import { createFilmApi, type FilmExports } from '../film/abi';
 import { createScrollApi, packLoad, READING_EVENTS, XS, type ExhibitApi, type ExhibitExports, type Reading, type ReadingExports, type ScrollExports } from '../reading/abi';
 import { instantiateWasi } from '../wasi';
 import wasmUrl from '../gpu/room/world.wasm?url';
@@ -46,6 +47,7 @@ export function createReading(x: ReadingExports & ScrollExports & ExhibitExports
 	return {
 		scroll: createScrollApi(x),
 		exhibit: createExhibitApi(x),
+		film: createFilmApi(x as unknown as FilmExports),
 		load(m: ReadingModel) {
 			const words = packLoad(m);
 			// reading_buf may grow the wasm memory: build the view after the call

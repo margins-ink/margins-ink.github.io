@@ -3,6 +3,7 @@
 //
 // Units: the wasm side works in em of the article (document space of RDR3) except where a name ends in Px.
 import type { ReadingModel } from '../magazine/format';
+import type { FilmApi } from '../film/abi';
 
 // ---- load: model -> wasm ------------------------------------------------------------------------------------
 
@@ -144,6 +145,8 @@ export interface Reading {
 	scroll: ScrollApi;
 	/** the museum: exhibit scripts, input, snapshots and draw lists (world/src/museum) */
 	exhibit: ExhibitApi;
+	/** the narrated film player (world/src/film, src/lib/film) */
+	film: FilmApi;
 }
 
 // ---- scroll (docs/READING_GPU.md "Scroll (lane R)"): the engine owns the position, JS forwards events and reads state[RD.scrollY] ----

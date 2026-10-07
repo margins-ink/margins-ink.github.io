@@ -640,7 +640,9 @@ pub fn drive(ex: usize, verb: u32, n: u32) -> u32 {
             _ => None,
         };
         let mut r = 0;
-        if verb == 0 {
+        if verb == 0 && e.def.presets.is_empty() {
+            r = 2;
+        } else if verb == 0 {
             match &mut e.fam {
                 Family::Tape(s) => s.load(&e.def, n as usize),
                 Family::Machine(d) => d.load(&e.def, n as usize),

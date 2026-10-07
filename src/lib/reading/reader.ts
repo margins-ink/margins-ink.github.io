@@ -14,7 +14,7 @@ import { loadArticle, type LoadedArticle } from './load';
 import { barPxFor, cubicBezier, emPxFor, originXFor, scaleSteps, snapScale, widthClassFor, DEFAULT_SCALE } from './metrics';
 import { createScrollState, layoutToDocY, readHistoryState, type SavedState, type ScrollController } from './scrollstate';
 import { attachScroll, pointerWord } from './input';
-import { createExhibitDrawer, createRouter, evalTimelineChannels, exhibitId, keyMods, loadExhibits, mappingOf, routeKey, toLocal, xkeyOf, type RouteResult } from './exhibit';
+import { createExhibitDrawer, createRouter, evalTimelineChannels, exhibitId, exhibitSource, keyMods, loadExhibits, mappingOf, routeKey, toLocal, xkeyOf, type RouteResult } from './exhibit';
 import { fromBlob, keepExhibitFragment, parseExhibitFragment, setExhibitFragment, toBlob } from './exhibit-fragment';
 import { THEME } from './theme';
 import { codeText, imageAlt } from './modeltext';
@@ -26,7 +26,9 @@ import { hitChrome } from './ui/hit';
 import type { ChromeState, ChromeInput, HitRect, KeyEvent, Rect, FindState, CodeBlockInfo, ToastInfo } from './ui/layout';
 import { newScrollbar, scrollbarFrame, scrollbarDragStart, scrollbarDragTo, scrollbarTrackClick } from './ui/scrollbar';
 import { loadUiTables, setUiTables, shapeUi } from './ui/text';
-import type { ScrollbarInput } from './ui/types';
+import type { ScrollbarInput, UiGlyph } from './ui/types';
+import { createFilm, type Film, type FilmOut } from '$lib/film/film';
+import { attachFilmHot, filmSource, hasFilm } from '$lib/film/source';
 
 
 /** The reader controller (docs/READING_GPU.md): plain TypeScript, no framework. A Svelte component only mounts it. */
@@ -147,6 +149,13 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let exIds: string[] = [];
 	let routed: { e: Event; r: RouteResult } | null = null;
 	let hotOff: (() => void) | null = null;
+	// the narrated film (src/lib/film): a mode of the article; the reader is one key away (R), the film comes back with F
+	let filmCtl: Film | null = null;
+	let filmMode = false;
+	let filmCursor: string | null = null;
+	let filmHotOff: (() => void) | null = null;
+	let filmGen = 0;
+	const filmOut: FilmOut = { overlays, uiText: [] as UiGlyph[], exhibits: [], cursor: null, animating: false };
 	const swallowed = (e: Event): boolean => routed !== null && routed.e === e && routed.r.swallow;
 
 	const ov = (x: number, y: number, w: number, h: number, radius: number, r: number, g: number, b: number, a: number, hdr?: number): void => {
@@ -214,6 +223,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		sel = null; gesture = null; popover = null; lightbox = null; findHits = []; findCur = -1;
 		find.open = false; tocOpen = false; aaOpen = false; focusLinkIdx = -1;
 		clearTimeout(exTimer); exDirty.clear(); exCursor = null; routed = null; router.clearFocus();
+		stopFilm();
 	}
 
 	function readFoldPref(a: LoadedArticle): boolean {
@@ -325,6 +335,62 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		firstDraw = true;
 		needDraw = true;
 		if (find.query) runFind(false);
+		void startFilm(my);
+	}
+
+	// ---- the narrated film ----
+
+	const wantsReader = (): boolean => new URLSearchParams(location.search).has('read');
+	function setReadParam(on: boolean) {
+		const u = new URL(location.href);
+		if (on) u.searchParams.set('read', '1'); else u.searchParams.delete('read');
+		try { replaceState(u.pathname + u.search + u.hash, page.state); } catch { /* router not ready */ }
+	}
+	function stopFilm() {
+		filmGen++;
+		filmHotOff?.(); filmHotOff = null;
+		filmCtl?.dispose(); filmCtl = null;
+		filmMode = false;
+		filmCursor = null;
+	}
+	async function startFilm(my: number) {
+		if (!hasFilm(slug) || !reading || !model) return;
+		const gen = ++filmGen;
+		const src = await filmSource(slug);
+		if (!src || gen !== filmGen || my !== genToken || disposed || !reading || !model) return;
+		const rd = reading, m = model;
+		const f = createFilm({
+			slug, film: rd.film, exhibit: rd.exhibit, model: m, exIds, text: exDrawer.text,
+			resetExhibit(ex) { const e = rd.exhibit.load(ex, exhibitSource(m, ex)); if (e) reportExhibitError(`${slug}/${exIds[ex]}: ${e}`); },
+			call(ex, kind, xe, ye, b, mods) { needDraw = true; return rd.exhibit.pointer(ex, kind, xe, ye, b, mods); },
+			focus(ex) { rd.exhibit.focus(ex); needDraw = true; },
+			capture(id) { try { canvasEl?.setPointerCapture(id); } catch { /* the pointer is gone */ } },
+			release(id) { try { canvasEl?.releasePointerCapture(id); } catch { /* not captured */ } },
+			wake() { needDraw = true; },
+			toast,
+			leave(to) { if (to === 'reader') showReader(); else closeOrBack(); }
+		});
+		const err = await f.load(src);
+		if (err !== null || gen !== filmGen || disposed) { if (err !== null) reportExhibitError(`${slug}/film.flecs: ${err}`); f.dispose(); return; }
+		filmCtl = f;
+		filmMode = !wantsReader();
+		if (dev) filmHotOff = attachFilmHot(() => slug, (t) => filmCtl?.reload(t) ?? 'no film', reportExhibitError);
+		needDraw = true; firstDraw = true;
+	}
+	function showReader() {
+		if (!filmMode) return;
+		filmCtl?.pause();
+		filmMode = false;
+		filmCursor = null;
+		setReadParam(true);
+		toast('Reader: F returns to the film');
+		needDraw = true; firstDraw = true;
+	}
+	function showFilm() {
+		if (!filmCtl || filmMode) return;
+		filmMode = true;
+		setReadParam(false);
+		needDraw = true; firstDraw = true;
 	}
 
 	// ---- chrome data ----
@@ -688,7 +754,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	}
 
 	function onPointerMove(e: PointerEvent) {
-		if (!model || !reading) return;
+		if (!model || !reading || filmMode) return;
 		const p = localPoint(e);
 		ptr = p; ptrType = e.pointerType;
 		if (downAt && Math.hypot(p.x - downAt.x, p.y - downAt.y) > 4) downAt.moved = true;
@@ -711,6 +777,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 
 	function onPointerDown(e: PointerEvent) {
 		if (!model || !reading) return;
+		if (filmMode) { canvasEl?.focus?.(); return; }
 		const p = localPoint(e);
 		ptr = p; ptrType = e.pointerType;
 		canvasEl?.focus?.();
@@ -748,7 +815,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	}
 
 	function onPointerUp(e: PointerEvent) {
-		if (!model || !reading) return;
+		if (!model || !reading || filmMode) return;
 		const p = localPoint(e);
 		primaryDown = false;
 		if (swallowed(e)) { downAt = null; dragKind = null; needDraw = true; return; }
@@ -787,6 +854,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	}
 
 	function onPointerLeave() {
+		if (filmMode && filmCtl) { filmCtl.pointer('leave', 0, 0, { pointerId: 0, pointerType: 'mouse', buttons: 0 }); filmCursor = null; needDraw = true; return; }
 		ptr = null;
 		hoverHit = null;
 		if (hoverBlockSent !== -1) { hoverBlockSent = -1; reading?.input(INPUT.hoverBlock, -1); }
@@ -824,6 +892,15 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		// exhibit routing sits in front of the scroll engine: it swallows what an exhibit part owns (docs/MUSEUM.md 3.4)
 		const filter = (kind: 'wheel' | 'down' | 'move' | 'up' | 'cancel', e: WheelEvent | PointerEvent): boolean => {
 			if (!model || !reading || !ready) return false;
+			if (filmMode && filmCtl) {
+				if (kind === 'wheel') { filmCtl.wheel((e as WheelEvent).deltaY * ((e as WheelEvent).deltaMode === 1 ? 16 : 1)); return true; }
+				const fe = e as PointerEvent;
+				if (fe.pointerType === 'mouse' && fe.button > 0 && kind !== 'move') return true;
+				const fp = localPoint(fe);
+				filmCursor = filmCtl.pointer(kind, fp.x, fp.y, fe).cursor;
+				needDraw = true;
+				return true;
+			}
 			if (kind === 'wheel') return router.wheel();
 			const pe = e as PointerEvent;
 			if (pe.pointerType === 'mouse' && pe.button > 0 && kind !== 'move') return false;
@@ -980,7 +1057,9 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		if (e.defaultPrevented || !ready || !model || !reading) return;
 		const t = e.target as HTMLElement | null;
 		if (t && t.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')) return;
+		if (filmMode && filmCtl) { if (filmCtl.key(e)) { e.preventDefault(); needDraw = true; } return; }
 		const mod = e.metaKey || e.ctrlKey;
+		if (!mod && !e.altKey && !find.open && filmCtl && e.key.toLowerCase() === 'f') { e.preventDefault(); showFilm(); return; }
 		// find bar owns the keyboard while open
 		if (find.open) {
 			if (e.key === 'Escape') { closeFind(); e.preventDefault(); return; }
@@ -1095,6 +1174,32 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		return t * t * (3 - 2 * t);
 	}
 
+	/** a film frame: the page pass draws no page (visCount 0), only the stage items, exhibits, captions and transport of the film */
+	function filmFrameLoop(now: number, dt: number, rd: Reading, pg: PagePass) {
+		const fc = filmCtl!;
+		if (!(fc.transport.playing || fc.transport.gate || fc.dragging || needDraw || firstDraw || filmOut.animating)) { counters.skipped++; return; }
+		const f = frame;
+		fc.frame(now, dt, viewW, viewH, filmOut);
+		f.overlays = filmOut.overlays;
+		f.scrollPx = 0; f.emPx = emPx; f.originX = 0; f.originY = 0;
+		f.viewW = viewW; f.viewH = viewH; f.dpr = dpr;
+		f.visFirst = 0; f.visCount = 0; f.noteFirst = 0; f.noteCount = 0; f.foldClipEm = 0; f.hdrGain = hdrGain;
+		f.groundA = 1;
+		f.ground.x0 = 0; f.ground.y0 = 0; f.ground.x1 = viewW; f.ground.y1 = viewH; f.ground.radius = 0;
+		f.clip = undefined; f.only = undefined; f.lightbox = undefined;
+		f.exhibits = filmOut.exhibits;
+		f.uiText = filmOut.uiText;
+		f.time = now / 1000; f.dirty = true;
+		blockAlpha.clear(); blockDy.clear(); blockDx.clear();
+		if (canvasEl) canvasEl.style.cursor = filmCursor ?? 'default';
+		if (dev && devHook.frame) devHook.frame(f);
+		pg.draw(f);
+		counters.draws++;
+		rd.ackDirty();
+		firstDraw = false;
+		needDraw = filmOut.animating;
+	}
+
 	function frameLoop(now: number) {
 		raf = requestAnimationFrame(frameLoop);
 		const rd = reading, pg = pass, m = model;
@@ -1104,6 +1209,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		lastT = now;
 
 		rd.tick(dt);
+		if (filmMode && filmCtl) { filmFrameLoop(now, dt, rd, pg); return; }
 		const st = rd.state();
 		const y = st[RD.scrollY];
 
@@ -1147,6 +1253,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		poolN = 0;
 		blockDx.clear();
 		const f = frame;
+		f.overlays = overlays;
 		f.scrollPx = y; f.emPx = emPx; f.originX = originX; f.originY = 0;
 		f.viewW = viewW; f.viewH = viewH; f.dpr = dpr;
 		f.visFirst = st[RD.visFirst]; f.visCount = st[RD.visCount]; f.noteFirst = st[RD.noteFirst]; f.noteCount = st[RD.noteCount];
@@ -1295,6 +1402,8 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 				copySelection,
 				get exhibits() { return { ids: exIds, focus: router.focus, captured: router.captured, hover: router.hover, cursor: exCursor, pending: router.pending }; },
 				flushFragment,
+				get film() { return filmCtl; },
+				get filmMode() { return filmMode; },
 				hook: devHook
 			};
 		}
@@ -1320,6 +1429,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			clearTimeout(popTimer);
 			clearTimeout(exTimer);
 			hotOff?.();
+			stopFilm();
 			pass?.dispose();
 			pass = null;
 			if (dev) delete (window as unknown as { __reader?: unknown }).__reader;
