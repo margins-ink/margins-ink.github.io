@@ -1,0 +1,357 @@
+{
+ "total": 563.22,
+ "scenes": [
+  {
+   "name": "cold_open",
+   "start": 0,
+   "end": 44.05,
+   "says": [
+    [
+     "cold_open/co_1",
+     0.7,
+     8.72
+    ],
+    [
+     "cold_open/co_2",
+     9.92,
+     7.03
+    ],
+    [
+     "cold_open/co_3",
+     17.45,
+     9.95
+    ],
+    [
+     "cold_open/co_4",
+     28.4,
+     4.85
+    ]
+   ],
+   "gates": [
+    [
+     33.25,
+     10
+    ]
+   ],
+   "mounts": [],
+   "placeholders": []
+  },
+  {
+   "name": "question",
+   "start": 44.05,
+   "end": 70.73,
+   "says": [
+    [
+     "question/mt_1",
+     44.75,
+     5.45
+    ],
+    [
+     "question/mt_2",
+     50.7,
+     15.51
+    ],
+    [
+     "question/mt_3",
+     66.81,
+     3.11
+    ]
+   ],
+   "gates": [],
+   "mounts": [
+    "models/two-machines"
+   ],
+   "placeholders": []
+  },
+  {
+   "name": "tape",
+   "start": 70.73,
+   "end": 119.42,
+   "says": [
+    [
+     "tape/dp_1",
+     71.43,
+     10.33
+    ],
+    [
+     "tape/dp_2",
+     82.26,
+     5.83
+    ],
+    [
+     "tape/dp_3",
+     108.49,
+     10.13
+    ]
+   ],
+   "gates": [
+    [
+     88.09,
+     20
+    ]
+   ],
+   "mounts": [
+    "models/turing"
+   ],
+   "placeholders": []
+  },
+  {
+   "name": "lambda",
+   "start": 119.42,
+   "end": 213.23,
+   "says": [
+    [
+     "lambda/dp_1",
+     120.12,
+     17.13
+    ],
+    [
+     "lambda/dp_2",
+     137.75,
+     13.03
+    ],
+    [
+     "lambda/dp_3",
+     171.18,
+     12.68
+    ],
+    [
+     "lambda/dp_4",
+     184.46,
+     12.97
+    ]
+   ],
+   "gates": [
+    [
+     150.78,
+     20
+    ],
+    [
+     197.43,
+     15
+    ]
+   ],
+   "mounts": [
+    "models/lambda"
+   ],
+   "placeholders": []
+  },
+  {
+   "name": "two_machines",
+   "start": 213.23,
+   "end": 233.74,
+   "says": [
+    [
+     "two_machines/rv_1",
+     213.93,
+     13.55
+    ],
+    [
+     "two_machines/rv_2",
+     227.88,
+     5.06
+    ]
+   ],
+   "gates": [],
+   "mounts": [
+    "models/two-machines"
+   ],
+   "placeholders": []
+  },
+  {
+   "name": "do_notation",
+   "start": 233.74,
+   "end": 297.54,
+   "says": [
+    [
+     "do_notation/eq_1",
+     234.44,
+     9.69
+    ],
+    [
+     "do_notation/eq_2",
+     244.63,
+     19.85
+    ],
+    [
+     "do_notation/eq_3",
+     264.98,
+     13.05
+    ],
+    [
+     "do_notation/ca_1",
+     278.63,
+     18.11
+    ]
+   ],
+   "gates": [],
+   "mounts": [],
+   "placeholders": [
+    "::scratch::models::do_notation::ca_moggi",
+    "::scratch::models::do_notation::ca_wadler",
+    "::scratch::models::do_notation::ca_ph2"
+   ]
+  },
+  {
+   "name": "compiler",
+   "start": 297.54,
+   "end": 343.65,
+   "says": [
+    [
+     "compiler/cm_1",
+     298.24,
+     16.46
+    ],
+    [
+     "compiler/cm_2",
+     315.2,
+     15.26
+    ],
+    [
+     "compiler/cm_3",
+     330.96,
+     11.89
+    ]
+   ],
+   "gates": [],
+   "mounts": [],
+   "placeholders": [
+    "::scratch::models::compiler::cm_ph"
+   ]
+  },
+  {
+   "name": "callback",
+   "start": 343.65,
+   "end": 401.81,
+   "says": [
+    [
+     "callback/cb_1",
+     344.35,
+     12.48
+    ],
+    [
+     "callback/cb_2",
+     357.23,
+     10
+    ],
+    [
+     "callback/cb_3",
+     367.64,
+     15.92
+    ],
+    [
+     "callback/cb_4",
+     384.06,
+     16.96
+    ]
+   ],
+   "gates": [],
+   "mounts": [],
+   "placeholders": [
+    "::scratch::models::callback::cb_card"
+   ]
+  },
+  {
+   "name": "codebase",
+   "start": 401.81,
+   "end": 501.9,
+   "says": [
+    [
+     "codebase/pa_1",
+     402.51,
+     18.96
+    ],
+    [
+     "codebase/pa_2",
+     422.07,
+     15.31
+    ],
+    [
+     "codebase/dp_1",
+     437.98,
+     4.68
+    ],
+    [
+     "codebase/dp_2",
+     443.16,
+     9.87
+    ],
+    [
+     "codebase/dp_3",
+     473.43,
+     2.65
+    ],
+    [
+     "codebase/dp_4",
+     476.68,
+     23.22
+    ]
+   ],
+   "gates": [
+    [
+     453.03,
+     20
+    ],
+    [
+     499.9,
+     12
+    ]
+   ],
+   "mounts": [
+    "models/merkle"
+   ],
+   "placeholders": [
+    "::scratch::models::codebase::ph5"
+   ]
+  },
+  {
+   "name": "effects",
+   "start": 501.9,
+   "end": 533.84,
+   "says": [
+    [
+     "effects/ec_1",
+     501.4,
+     13.32
+    ],
+    [
+     "effects/ec_2",
+     515.22,
+     17.82
+    ]
+   ],
+   "gates": [],
+   "mounts": [],
+   "placeholders": []
+  },
+  {
+   "name": "reveal",
+   "start": 533.84,
+   "end": 563.22,
+   "says": [
+    [
+     "reveal/rv_1",
+     534.54,
+     15.01
+    ],
+    [
+     "reveal/ou_1",
+     550.35,
+     7.51
+    ],
+    [
+     "reveal/ou_2",
+     558.47,
+     3.95
+    ]
+   ],
+   "gates": [],
+   "mounts": [
+    "models/two-machines"
+   ],
+   "placeholders": [
+    "::scratch::models::reveal::ph4"
+   ]
+  }
+ ]
+}
