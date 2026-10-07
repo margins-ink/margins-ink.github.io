@@ -1,0 +1,15 @@
+Here is a question that sounds simple. When does a computer actually do the work?
+
+Not what it computes. When.
+
+Think about the two oldest ideas in computing. In nineteen thirty-six, Alan Turing described a machine: a head moving over a tape. Each step, it reads a cell, writes a cell, and moves. And the tape remembers everything. So a program never has to say what it carries forward.
+
+That same year, Alonzo Church had a rival picture. The lambda calculus. And here, there is no tape at all. A program is just an expression. Running it means plugging arguments into function bodies. Nothing is overwritten. If a later step needs something, you have to hand it over.
+
+So which one is right? Well, here is the surprise. Both of them! Turing proved they define exactly the same functions. Neither can compute anything the other cannot.
+
+So what actually differs? Bookkeeping.
+
+An imperative program lets the machine remember the state for you. A functional program writes that state down, as an argument.
+
+Functional against imperative. Program against type. Inferred against written. Each of these looks like a border between two kinds of thing. But each one is really a decision. When does a computation run? And who remembers its result?
