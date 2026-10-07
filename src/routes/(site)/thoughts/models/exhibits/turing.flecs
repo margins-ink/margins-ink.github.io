@@ -1,0 +1,226 @@
+// A Turing machine (docs/MUSEUM.md section 4). Flecs script, one term per line; the vocabulary and prefabs are world/scene/60-museum.flecs.
+// Presets are plain entities next to the exhibit (the runtime reads them as data); the machine runs the one named by (Runs, ...).
+
+// ---- preset 1: binary increment. The head starts on the leftmost digit: 1011 + 1 = 1100 in 8 steps, and 111 + 1 = 1000 in 8.
+inc : Preset {
+  Title: {"binary increment"}
+  Tape: {"1011"}
+  HeadAt: {0}
+
+  blank : Symbol {
+    Glyph: {"·"}
+    Blank
+    Order: {0}
+  }
+  zero : Symbol {
+    Glyph: {"0"}
+    Order: {1}
+  }
+  one : Symbol {
+    Glyph: {"1"}
+    Order: {2}
+  }
+  scan : State {
+    Order: {0}
+  }
+  carry : State {
+    Order: {1}
+  }
+  done : State {
+    Order: {2}
+    Halting
+  }
+
+  r_scan_0 : Rule {
+    Order: {0}
+    (From, scan)
+    (Reads, zero)
+    (Writes, zero)
+    (Moves, Right)
+    (To, scan)
+  }
+  r_scan_1 : Rule {
+    Order: {1}
+    (From, scan)
+    (Reads, one)
+    (Writes, one)
+    (Moves, Right)
+    (To, scan)
+  }
+  r_scan_b : Rule {
+    Order: {2}
+    (From, scan)
+    (Reads, blank)
+    (Writes, blank)
+    (Moves, Left)
+    (To, carry)
+  }
+  r_carry_1 : Rule {
+    Order: {3}
+    (From, carry)
+    (Reads, one)
+    (Writes, zero)
+    (Moves, Left)
+    (To, carry)
+  }
+  r_carry_0 : Rule {
+    Order: {4}
+    (From, carry)
+    (Reads, zero)
+    (Writes, one)
+    (Moves, Stay)
+    (To, done)
+  }
+  r_carry_b : Rule {
+    Order: {5}
+    (From, carry)
+    (Reads, blank)
+    (Writes, one)
+    (Moves, Stay)
+    (To, done)
+  }
+}
+
+// ---- preset 2: the 3-state busy beaver (Rado): from a blank tape it writes six 1s and halts.
+// Table: A0 1RB, A1 1RH, B0 0RC, B1 1RB, C0 1LC, C1 1LA.
+bb3 : Preset {
+  Title: {"3-state busy beaver"}
+  Tape: {""}
+  HeadAt: {0}
+
+  zero : Symbol {
+    Glyph: {"0"}
+    Blank
+    Order: {0}
+  }
+  one : Symbol {
+    Glyph: {"1"}
+    Order: {1}
+  }
+  a : State {
+    Order: {0}
+  }
+  b : State {
+    Order: {1}
+  }
+  c : State {
+    Order: {2}
+  }
+  halt : State {
+    Order: {3}
+    Halting
+  }
+
+  r_a0 : Rule {
+    Order: {0}
+    (From, a)
+    (Reads, zero)
+    (Writes, one)
+    (Moves, Right)
+    (To, b)
+  }
+  r_a1 : Rule {
+    Order: {1}
+    (From, a)
+    (Reads, one)
+    (Writes, one)
+    (Moves, Right)
+    (To, halt)
+  }
+  r_b0 : Rule {
+    Order: {2}
+    (From, b)
+    (Reads, zero)
+    (Writes, zero)
+    (Moves, Right)
+    (To, c)
+  }
+  r_b1 : Rule {
+    Order: {3}
+    (From, b)
+    (Reads, one)
+    (Writes, one)
+    (Moves, Right)
+    (To, b)
+  }
+  r_c0 : Rule {
+    Order: {4}
+    (From, c)
+    (Reads, zero)
+    (Writes, one)
+    (Moves, Left)
+    (To, c)
+  }
+  r_c1 : Rule {
+    Order: {5}
+    (From, c)
+    (Reads, one)
+    (Writes, one)
+    (Moves, Left)
+    (To, a)
+  }
+}
+
+// ---- the exhibit
+turing : TapeMachine {
+  Title: {"A Turing machine"}
+  Claim: {"Each step reads a cell, writes a cell, moves and changes state."}
+  Describe: {"A tape of cells, a head under one cell in one state, and a table of rules. Each step finds the rule for the state and the symbol under the head, writes a symbol, moves the head and changes state."}
+  Alt: {"A row of tape cells with a head marker below one of them, a row of buttons above and a table of rules below with the next rule highlighted."}
+  Caption: {"Click a cell or a rule field to change it. Drag the head. Step runs one rule."}
+  (Runs, inc)
+
+  b_step : Button {
+    Place: {1, 1.2, 4, 1.8}
+    Label: {"Step"}
+    Does: {"step"}
+    Key: {"s"}
+  }
+  b_run : Button {
+    Place: {5.4, 1.2, 4, 1.8}
+    Label: {"Run"}
+    LabelAlt: {"Pause"}
+    Does: {"run"}
+    Key: {" "}
+  }
+  b_reset : Button {
+    Place: {9.8, 1.2, 4, 1.8}
+    Label: {"Reset"}
+    Does: {"reset"}
+    Key: {"r"}
+  }
+  b_inc : Button {
+    Place: {15, 1.2, 6.4, 1.8}
+    Label: {"increment"}
+    Does: {"load"}
+    Loads: {"inc"}
+  }
+  b_bb3 : Button {
+    Place: {21.8, 1.2, 6.4, 1.8}
+    Label: {"busy beaver"}
+    Does: {"load"}
+    Loads: {"bb3"}
+  }
+  speed : Slider {
+    Place: {29, 1.2, 6, 1.8}
+    Label: {"speed"}
+    Does: {"scrub"}
+    Binds: {"Rate.hz"}
+    Range: {1, 30}
+  }
+
+  tape : TapeView {
+    Place: {1, 4, 34, 2.4}
+    Cells: {2, 0.2, 15}
+  }
+  head : HeadMark {
+    Place: {0, 6.6, 2, 1.2}
+  }
+  status : StatusLine {
+    Place: {1, 8, 34, 1.2}
+  }
+  table : RuleTable {
+    Place: {1, 10, 34, 10.2}
+    Rows: {1.1, 8}
+  }
+}

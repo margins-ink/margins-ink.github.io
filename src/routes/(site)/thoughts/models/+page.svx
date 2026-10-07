@@ -34,13 +34,19 @@ username: andrewgazelka
 
 Functional against imperative, program against type, inferred against written signatures: each looks like a border between two kinds of thing. Each is a decision about when a computation runs and who remembers its result.
 
-::fig{id="two-machines" place="wide"}
+::exhibit{id="two-machines" place="wide"}
 
 ## The two models compute the same functions
 
 A Turing machine is a head over a tape. Each step reads a cell, writes a cell, moves and changes state. The tape remembers everything, so a program never says what it carries forward.
 
+::exhibit{id="turing" place="wide"}
+
 The lambda calculus has no tape. A program is an expression, and running it means substituting arguments into function bodies. Nothing is overwritten. Anything a later step needs has to be handed to it.
+
+The term below is a program in that picture. A number is a function that applies its first argument that many times, so `succ 2` is a function applied to a function. A step contracts a redex, an application of a [lambda](https://en.wikipedia.org/wiki/Lambda_calculus#Reduction) to an argument, and the order is a choice the machine usually hides. Normal order reaches a normal form whenever one exists, and applicative order can loop forever on a term that has one. Run `ignore omega` in both orders.
+
+::exhibit{id="lambda" place="wide"}
 
 Turing proved in 1936 that the two define the same functions, and Church and Kleene had tied lambda terms to the recursive functions the same year<Cite id="sep-ct" />. Imperative languages grew from the first picture and functional ones from the second, and neither computes anything the other cannot. What differs is bookkeeping: an imperative program lets the machine remember state; a functional program writes the state down as an argument.
 
@@ -138,6 +144,10 @@ It also stores intent. Inference reports what the body happens to do. Edit the b
 ## Text files are not the unit of code
 
 Both reasons assume code is text that gets re-read. Unison stores something else. A definition "is identified by a hash of its syntax tree", and names "are just separately stored metadata that don't affect the function's hash"<Cite id="unison-idea" />. The codebase is a database ([a SQLite file](https://github.com/unisonweb/unison/blob/a1652e3ada28924cb9e75ff1d62408ee8df6b78f/parser-typechecker/src/Unison/Codebase/SqliteCodebase/Paths.hs) at `.unison/v2/unison.sqlite3`) of definitions already typechecked: "Once anyone has parsed and typechecked a definition and added it to the codebase, no one has to do that ever again."<Cite id="unison-idea" />
+
+Here is a toy of that codebase. A hash is four digits of FNV-1a over a definition's body and the hashes of what it uses, so they are mine and not Unison's. Editing a definition gives every definition that uses it a new hash and leaves the rest untouched. Edit `config` and `parse` stays reused. Edit `util` and all four definitions built on it change. Switch to rename and click a name: no hash moves.
+
+::exhibit{id="merkle" place="wide"}
 
 Once the hash is the identity, whole classes of recomputation stop:
 

@@ -1,0 +1,99 @@
+// A content-addressed codebase (docs/MUSEUM.md, GraphMachine): every definition is named by the hash of its body and of the hashes of
+// the definitions it uses. Click a leaf to edit it; a step looks the next definition's hash up in the codebase: already there is
+// reused, absent is a new hash. The rename control swaps names, which changes no hash.
+codebase : Preset {
+  Title: {"a small codebase"}
+  util : Source {
+    Label: {"util"}
+    LabelAlt: {"helpers"}
+    Content: {"fn trim(s) = s.strip()"}
+    Place: {1, 7.6, 7.3, 2.4}
+  }
+  config : Source {
+    Label: {"config"}
+    LabelAlt: {"settings"}
+    Content: {"retries = 3"}
+    Place: {1, 15.2, 7.3, 2.4}
+  }
+  parse : Tree {
+    Label: {"parse"}
+    LabelAlt: {"read_input"}
+    Content: {"fn parse(s) = tokens(trim(s))"}
+    Place: {9.9, 7.6, 7.3, 2.4}
+    (Reads, util)
+  }
+  render : Tree {
+    Label: {"render"}
+    LabelAlt: {"draw"}
+    Content: {"fn render(t) = show(trim(t), retries)"}
+    Place: {9.9, 12.2, 7.3, 2.4}
+    (Reads, util)
+    (Reads, config)
+  }
+  app : Tree {
+    Label: {"app"}
+    LabelAlt: {"main"}
+    Content: {"fn app = render(parse(input))"}
+    Place: {18.8, 9.9, 7.3, 2.4}
+    (Reads, parse)
+    (Reads, render)
+  }
+  check : Tree {
+    Label: {"test"}
+    LabelAlt: {"check"}
+    Content: {"test app == expected"}
+    Place: {27.7, 9.9, 7.3, 2.4}
+    (Reads, app)
+  }
+}
+
+merkle : GraphMachine {
+  Title: {"A codebase of hashes"}
+  Claim: {"Editing a definition gives every definition that uses it a new hash and leaves the rest untouched."}
+  Describe: {"A small codebase as a graph: two leaf definitions and four definitions built on them, each showing the four digit hash of its body and of the hashes it uses. Clicking a leaf edits it, which gives the leaf and everything that uses it a new hash. Each step checks the next definition's hash against the codebase and reports it reused or new. The rename control changes a name and no hash."}
+  Alt: {"Six definitions joined by arrows, two leaves on the left feeding parse and render, which feed app, which feeds test, each with a four digit hash. After an edit the changed definitions show an old and a new hash."}
+  Caption: {"Click a leaf to edit it and step. Switch to rename and click a name: no hash moves."}
+  OnHit: {"reused"}
+  OnBuilt: {"new hash"}
+  (Runs, codebase)
+
+  b_step : Button {
+    Place: {1, 1.2, 4, 1.8}
+    Label: {"Step"}
+    Does: {"step"}
+    Key: {"s"}
+  }
+  b_run : Button {
+    Place: {5.4, 1.2, 4, 1.8}
+    Label: {"Run"}
+    LabelAlt: {"Pause"}
+    Does: {"run"}
+    Key: {" "}
+  }
+  b_reset : Button {
+    Place: {9.8, 1.2, 4, 1.8}
+    Label: {"Reset"}
+    Does: {"reset"}
+    Key: {"r"}
+  }
+  b_rename : Button {
+    Place: {15, 1.2, 6.4, 1.8}
+    Label: {"rename"}
+    LabelAlt: {"editing"}
+    Does: {"toggle"}
+    Key: {"n"}
+  }
+  speed : Slider {
+    Place: {22.4, 1.2, 6, 1.8}
+    Label: {"speed"}
+    Does: {"scrub"}
+    Binds: {"Rate.hz"}
+    Range: {0.5, 8}
+  }
+  status : StatusLine {
+    Place: {1, 4.2, 34, 1.2}
+  }
+  view : View {
+    Place: {1, 7.2, 34, 12.3}
+  }
+}

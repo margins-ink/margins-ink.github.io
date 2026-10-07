@@ -1,0 +1,121 @@
+// An action graph with a cache (docs/MUSEUM.md, GraphMachine): the six-unit workspace of the post. Each node's key is a hash of its
+// command (Content) and of the keys of the nodes it Reads. Click a source to edit it; a step settles the next action: a key already in
+// the cache is a hit, a new key is a rebuild. Names are absolute em positions inside the Extent.
+workspace : Preset {
+  Title: {"six-unit workspace"}
+  build_rs : Source {
+    Label: {"build.rs"}
+    Content: {"fn main emit schema"}
+    Place: {1, 7.2, 7.3, 1.85}
+  }
+  schema : Source {
+    Label: {"schema.toml"}
+    Content: {"version = 1"}
+    Place: {1, 9.25, 7.3, 1.85}
+  }
+  derive_rs : Source {
+    Label: {"derive.rs"}
+    Content: {"proc_macro derive"}
+    Place: {1, 11.3, 7.3, 1.85}
+  }
+  serde_rs : Source {
+    Label: {"serde.rs"}
+    Content: {"pub trait Serialize"}
+    Place: {1, 13.35, 7.3, 1.85}
+  }
+  itoa_rs : Source {
+    Label: {"itoa.rs"}
+    Content: {"pub fn write"}
+    Place: {1, 15.4, 7.3, 1.85}
+  }
+  main_rs : Source {
+    Label: {"main.rs"}
+    Content: {"fn main run"}
+    Place: {1, 17.45, 7.3, 1.85}
+  }
+  build_script : Action {
+    Label: {"build-script"}
+    Content: {"rustc build_script_build"}
+    Place: {9.9, 7.2, 7.3, 1.85}
+    (Reads, build_rs)
+  }
+  derive_proc : Action {
+    Label: {"derive-proc"}
+    Content: {"rustc serde_derive proc-macro"}
+    Place: {9.9, 11.3, 7.3, 1.85}
+    (Reads, derive_rs)
+  }
+  itoa_lib : Action {
+    Label: {"itoa-lib"}
+    Content: {"rustc itoa lib"}
+    Place: {9.9, 15.4, 7.3, 1.85}
+    (Reads, itoa_rs)
+  }
+  build_run : Action {
+    Label: {"build-run"}
+    Content: {"run build_script_build"}
+    Place: {18.8, 9.25, 7.3, 1.85}
+    (Reads, build_script)
+    (Reads, schema)
+  }
+  serde_lib : Action {
+    Label: {"serde-lib"}
+    Content: {"rustc serde lib"}
+    Place: {18.8, 13.35, 7.3, 1.85}
+    (Reads, derive_proc)
+    (Reads, serde_rs)
+  }
+  app_bin : Action {
+    Label: {"app-bin"}
+    Content: {"rustc app bin"}
+    Place: {27.7, 13.35, 7.3, 1.85}
+    (Reads, serde_lib)
+    (Reads, itoa_lib)
+    (Reads, build_run)
+    (Reads, main_rs)
+  }
+}
+
+graph : GraphMachine {
+  Title: {"An action graph with a cache"}
+  Claim: {"A changed input changes the key of every action downstream and nothing else."}
+  Describe: {"The six-unit workspace as a graph: six source files on the left and six actions that read them and each other. Clicking a source file edits it, which changes the key of every action that reads it, directly or through another action. Each step looks the next action's key up in the cache and reports a hit or a rebuild."}
+  Alt: {"A graph of six source files and six build actions joined by arrows, each showing a four digit key. After an edit, the changed actions show their old and new keys and a rebuilt mark, and the others show cache hit."}
+  Caption: {"Click a source file to edit it, then step through the actions. Click it again to put it back."}
+  OnHit: {"cache hit"}
+  OnBuilt: {"rebuilt"}
+  (Runs, workspace)
+
+  b_step : Button {
+    Place: {1, 1.2, 4, 1.8}
+    Label: {"Step"}
+    Does: {"step"}
+    Key: {"s"}
+  }
+  b_run : Button {
+    Place: {5.4, 1.2, 4, 1.8}
+    Label: {"Run"}
+    LabelAlt: {"Pause"}
+    Does: {"run"}
+    Key: {" "}
+  }
+  b_reset : Button {
+    Place: {9.8, 1.2, 4, 1.8}
+    Label: {"Reset"}
+    Does: {"reset"}
+    Key: {"r"}
+  }
+  speed : Slider {
+    Place: {15, 1.2, 6, 1.8}
+    Label: {"speed"}
+    Does: {"scrub"}
+    Binds: {"Rate.hz"}
+    Range: {0.5, 8}
+  }
+  status : StatusLine {
+    Place: {1, 4.2, 34, 1.2}
+  }
+  view : View {
+    Place: {1, 7.2, 34, 12.3}
+  }
+}

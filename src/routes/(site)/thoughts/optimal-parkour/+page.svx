@@ -14,6 +14,10 @@ One of the main components of *SwarmBot* is its ability to parkour as seen in [t
 
 It might seem like the bot posseses a superpower being able to do relatively complex jumps with ease, but it is really just a block-level A* and then a really well find-tuned algorithm that takes a list of blocks and figures out which actions (run, look, jump, etc) it should perform based on the direction and distance of the next block the bot needs to reach.
 
+The search underneath is below, with blocks as cells. A* expands fewer blocks than Dijkstra because its guess points at the goal. On the open field Dijkstra expands 120 blocks and A* expands 14, a straight line to the goal. Put a wall with a gap in the way and it is 131 against 51. The cup is the edge case: the guess leans into the wall, so the search fills the pocket in front of it before it goes around, and A* still expands 118 blocks to Dijkstra's 141.
+
+::exhibit{id="path" place="wide"}
+
 This works well 99% of the time, but it isn't a guarentee the bot will work, and there are some cases the bot will not really be able to succeed without A LOT of spaghetti code—say for complex jumps like neos.
 
 ![neo jump](/posts/neo.png)

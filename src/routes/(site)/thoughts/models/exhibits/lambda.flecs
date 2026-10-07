@@ -1,0 +1,101 @@
+// A lambda-calculus reducer (docs/MUSEUM.md, RewriteMachine). Terms are Lambda text: `λ` binds names up to the next `.`, juxtaposition
+// applies, digits are Church numerals and a Def is a closed term usable by name. Presets are start terms; the machine runs (Runs, ...).
+succ : Def {
+  Lambda: {"λn f x. f (n f x)"}
+}
+add : Def {
+  Lambda: {"λm n f x. m f (n f x)"}
+}
+omega : Def {
+  Lambda: {"(λx. x x) (λx. x x)"}
+}
+
+succ2 : Preset {
+  Title: {"succ 2"}
+  Lambda: {"succ 2"}
+}
+add23 : Preset {
+  Title: {"add 2 3"}
+  Lambda: {"add 2 3"}
+}
+lazy : Preset {
+  Title: {"ignore omega"}
+  Lambda: {"(λx y. y) omega 2"}
+}
+loop : Preset {
+  Title: {"omega"}
+  Lambda: {"omega"}
+}
+
+lambda : RewriteMachine {
+  Title: {"A lambda term reducing"}
+  Claim: {"Normal order reaches a normal form whenever one exists, and applicative order can loop forever on a term that has one."}
+  Describe: {"A lambda term printed as text. Every step contracts one redex, a function applied to an argument, by substituting the argument into the body. Normal order contracts the outermost redex first and applicative order the innermost. Clicking the lambda of any redex contracts that one instead."}
+  Alt: {"A lambda term in monospace text with a chip behind the lambda of each reducible application, a row of buttons above, a status line, and the earlier terms of the run listed below."}
+  Caption: {"Click the λ of a redex to contract it. Switch the order and run ignore omega."}
+  (Runs, succ2)
+
+  b_step : Button {
+    Place: {1, 1.2, 4, 1.8}
+    Label: {"Step"}
+    Does: {"step"}
+    Key: {"s"}
+  }
+  b_run : Button {
+    Place: {5.4, 1.2, 4, 1.8}
+    Label: {"Run"}
+    LabelAlt: {"Pause"}
+    Does: {"run"}
+    Key: {" "}
+  }
+  b_reset : Button {
+    Place: {9.8, 1.2, 4, 1.8}
+    Label: {"Reset"}
+    Does: {"reset"}
+    Key: {"r"}
+  }
+  speed : Slider {
+    Place: {15, 1.2, 6, 1.8}
+    Label: {"speed"}
+    Does: {"scrub"}
+    Binds: {"Rate.hz"}
+    Range: {1, 12}
+  }
+  b_order : Button {
+    Place: {22.4, 1.2, 12.6, 1.8}
+    Label: {"normal order"}
+    LabelAlt: {"applicative order"}
+    Does: {"toggle"}
+    Key: {"o"}
+  }
+  b_succ2 : Button {
+    Place: {1, 3.4, 6.4, 1.8}
+    Label: {"succ 2"}
+    Does: {"load"}
+    Loads: {"succ2"}
+  }
+  b_add23 : Button {
+    Place: {7.8, 3.4, 6.4, 1.8}
+    Label: {"add 2 3"}
+    Does: {"load"}
+    Loads: {"add23"}
+  }
+  b_lazy : Button {
+    Place: {14.6, 3.4, 8, 1.8}
+    Label: {"ignore omega"}
+    Does: {"load"}
+    Loads: {"lazy"}
+  }
+  b_loop : Button {
+    Place: {23, 3.4, 6.4, 1.8}
+    Label: {"omega"}
+    Does: {"load"}
+    Loads: {"loop"}
+  }
+  status : StatusLine {
+    Place: {1, 5.7, 34, 1.2}
+  }
+  view : View {
+    Place: {1, 7, 34, 12.4}
+  }
+}

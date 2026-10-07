@@ -1,6 +1,6 @@
 # MUSEUM: articles as a live museum (exhibits declared in Flecs script)
 
-Status: design, 2026-10-06. Nothing here is built, run or verified in the tree; no code was changed. Facts are marked **read** (from this tree or a primary page this session), **reported** (from memory of the Flecs manuals) or **unverified** (a spike in stage S0 settles it). Builds on `docs/READING_GPU.md` (the reader is our WebGPU renderer), `docs/READING_CONTRACT.md` (frame protocol), `docs/WAVE3.md` (Flecs-declared magazine), `docs/FLECS_AUDIT.md`, `docs/TEXTFX.md` (cross-highlight), `docs/MAGAZINE.md` (figures) and `.claude/skills/flecs-scene/SKILL.md`.
+Status: built 2026-10-06 (see "Spike results" and "Built contract" at the end, which override the design text where they differ). Facts are marked **read** (from this tree or a primary page this session), **reported** (from memory of the Flecs manuals) or **unverified** (a spike in stage S0 settles it). Builds on `docs/READING_GPU.md` (the reader is our WebGPU renderer), `docs/READING_CONTRACT.md` (frame protocol), `docs/WAVE3.md` (Flecs-declared magazine), `docs/FLECS_AUDIT.md`, `docs/TEXTFX.md` (cross-highlight), `docs/MAGAZINE.md` (figures) and `.claude/skills/flecs-scene/SKILL.md`.
 
 Paths in the request that do not exist in this tree, so the doc uses the real ones: `world/src/magazine.rs` is gone (its state moved into `world/src/reading.rs` and `world/src/book.rs`); `scripts/magazine/figures.ts` is `src/routes/(site)/thoughts/<slug>/figures.ts` (today `ifd` and `models`) compiled by `scripts/magazine/fig/*`; the reader is `src/lib/reading/reader.ts` (read: 1283 lines, `figure` handling at lines 400-440, 576-620, 659-732).
 
@@ -17,7 +17,7 @@ An exhibit is an exhibit only if all of these hold; the build lint (`scripts/mag
 | # | Rule | Lint check |
 |---|---|---|
 | 1 | Interactive: at least one `Control` or `Hit` part changes persisted state. Autoplay alone is a figure (class Timeline) | count of parts with `Does` or `Draggable` >= 1, or a `Timeline` |
-| 2 | Small: one frame, at most 36 x 22 em (`Frame`), at most 400 draw items at any step, script at most 250 lines, pack under 0.5 ms | items counted by packing every preset at step 0 and after 200 steps |
+| 2 | Small: one frame, at most 36 x 22 em (`Extent`), at most 400 draw items at any step, script at most 250 lines, pack under 0.5 ms | items counted by packing every preset at step 0 and after 200 steps |
 | 3 | One idea: `Claim` is one sentence of the post, shown as the caption; the exhibit draws nothing the claim does not need | `Claim` must occur verbatim in the `.svx` (same fail-closed rule as `distill` copy) |
 | 4 | Legible: every fixed label is a word of the post (the figure rule of `ifd/figures.ts`), text at least 0.85 em, contrast through the existing `scripts/magazine/fig/contrast.ts`, ONE accent (amber, `THEME.accent`) marking only "what happens next" or "what is active" | colour fields are `Tone` names, never RGB (a literal fails) |
 | 5 | Reset: a `Reset` control and the key `r` return to the first preset exactly | a `Does: {Reset}` part exists; test restores the snapshot hash |
@@ -263,7 +263,7 @@ prefab inc : Preset {
 }
 
 // ---- preset 2: 3-state busy beaver (Rado's sigma champion): writes six 1s and halts after exactly 14 steps on a blank tape.
-// Table checked by hand simulation 2026-10-06: A0 1RB, A1 1RH, B0 0RC, B1 1RB, C0 1LC, C1 1LA.
+// Table checked by hand simulation and by the wasm (exhibit.test.ts) 2026-10-06: A0 1RB, A1 1RH, B0 0RC, B1 1RB, C0 1LC, C1 1LA.
 prefab bb3 : Preset {
   Title: {"3-state busy beaver"}
   Tape: {""}  HeadAt: {0}
@@ -441,3 +441,66 @@ Each lane's brief carries the house rule on learning: anything the lane finds th
 1. Behaviour stays in Rust, data in script: exhibits are declared in Flecs script but each family needs a small Rust interpreter, because Flecs script cannot declare systems or observers.
 2. One shared world (a `museum` scope), and the figure block is replaced by the exhibit block in one wave (RDR4, old figure ABI deleted, figures become Timeline exhibits).
 3. In the 3D world only physical artifacts become props on the Archive floor that open an exhibit in the reader; exhibits never run in 3D, and every exhibit is authored beside an article (no article-less exhibits).
+
+
+## Spike results (wave 0, 2026-10-06, run on the wasm build with `world/src/museum/spike.rs`; verified)
+
+| Spike | Result |
+|---|---|
+| Strings in script | A reflected struct with a Rust `String` field takes `Title: {"binary · increment"}` including non-ASCII; no `\u` escape needed. verified |
+| Pair terms | **Two pairs or a pair after a component on one line fail** (`unexpected '('`). Every pair, tag and component goes on its own line. The 4.2 script was rewritten to one term per line. verified |
+| Tags, relations, verbs | Plain script entities (`Left {}`, `From {}`, `Blank {}`) work as tags and relation names; `entity.target(From, 0)` returns the sibling (`::inc::scan`), `has(Blank)` works. So the vocabulary (relations, verbs, tags) is script-declared in `60-museum.flecs`; Rust registers only components with fields (a Rust component with a script entity of the same name would break hot reload, FLECS_AUDIT / skill trap). verified |
+| Child order | `each_child` returns children in declaration order. verified |
+| `for i in 0..N` | `"c_$i" : Preset { Order: {$i} }` interpolates names and values. verified |
+| `$parent` | Does not exist (`unresolved variable '$parent'`). Fallback as designed: a control with no `Drives` drives its nearest exhibit ancestor. verified |
+| Errors | Parse errors carry `line: msg` plus the source line and caret; a value type error (`expected number, got 'x'`) has no line. `update` with a parse error changes nothing (the old entities survive); an evaluation error is not transactional (as in the scene). verified |
+| Nested prefab | `wrap { prefab p1 : Preset { s1 ... r { (From, s1) } } }` resolves the sibling to `::wrap::p1::s1`. verified |
+| Scope | `set_scope(ex)` before `script_named(..).build_from_code` puts the script entity and everything it declares under `ex` (`::ex0::turing`). `ScriptEntityView::update` evaluates at the **root** scope (a `turing` appeared at root and the scoped one lost its title): wrap every update in `set_scope`. `destruct()` of the script entity deletes what it created; destructing the scope deletes all of it. verified |
+| Custom-event observers, reflected enums, `Exclusive` trait (S0.1), `IsA` re-instantiation (S0.3) | Not used: events are replaced by systems over tags, enums by script verb entities matched by name, and a preset is read as data (never instantiated), so the runtime state is plain Rust (`world/src/museum`). |
+
+Consequences adopted: (1) the script declares data; runtime state (tape, rule edits, graph hashes) lives in Rust structs held by the museum registry, mirrored to the exhibit entity as tags (`Running`, `Halted`) and `Steps` for tests and tooling; (2) `Cell` and `Head` entities of 4.1 are not materialised (a `Vec` is the tape): snapshots are trivial and a step costs no entity writes; (3) strings and metadata for the build come from `exhibit_inspect` (the script run in a scratch world), not from a regex.
+
+## Built contract (what lanes implement; ABI in `src/lib/reading/abi.ts`)
+
+- Format RDR4 (magic `RDR4`): `BlockKind.figure` is deleted, `BlockKind.exhibit = 21`; the block field `fig` is `ex`; the `figures` table is the `exhibits` table (section id 37, same record plus `kind`: 0 timeline, 1 script). Timeline exhibits keep the compiled art (`exhibits/art.ts` replaces `figures.ts`; items, cells and channels unchanged); a Timeline's controls come from the `Timeline` prefab in `60-museum.flecs` and are drawn by the exhibit draw list, not by reader chrome. Script exhibits have no static items (no poster in this change: follow-up, rule 9 dropped from the lint).
+- Directive `::exhibit{id="turing" place="wide"}`: id resolves to `exhibits/<id>.flecs` (script) or to an entry of `exhibits/art.ts` (timeline). `::fig` is removed.
+- Exhibit-local space: em, origin top-left of the block, y down, scaled by the exhibit record's `scale` (frame width to column width, at most 1.5). `Extent {w, h}` (called Frame in the design text above) is the whole block size in local em. A negative `x` or `y` of a part `Place` is measured from the far edge (`y: -2` is two em above the bottom): the Timeline prefab uses it so one prefab fits every figure.
+- Pointer/keyboard/state/pack exports are listed in `ExhibitExports` (abi.ts). Pointer kinds 0 move, 1 down, 2 up, 3 leave. Draw items are 8 f32: `x, y, w, h, shape, tone, flags, aux` (`XD` in abi.ts).
+- Snapshot text is `<fnv1a32 of the script, 8 hex>:<family payload>`; the reader base64url-encodes it into `#x:<id>=<blob>`.
+
+## Built: the Rust module (lane A, 2026-10-06; overrides the design text above where they differ)
+
+Files: `world/src/museum/{mod,model,input,draw,snapshot,kind_tape,kind_timeline}.rs`, vocabulary `world/scene/60-museum.flecs` (embedded, script entity `museum::prefabs`, run by `museum::setup` from `reading::setup`), exhibit `src/routes/(site)/thoughts/models/exhibits/turing.flecs`, tests `src/lib/reading/exhibit.test.ts` (24 tests, run on the wasm, bare world and full room).
+
+Golden numbers, simulated through the wasm and by hand: increment `1011` + 1 = `1100` and `111` + 1 = `1000`, 8 steps each; 3-state busy beaver 14 steps (halting transition counted), six 1s. The design text is right.
+
+Differences from the design text:
+
+| Design text | Built |
+|---|---|
+| component `Frame {w, h}` | `Extent {w, h}` (`Frame` is the picture-frame prefab of 12-decor.flecs: a clash in the room world) |
+| component `Rect` | `Place {x, y, w, h}` (`Rect` is a reading.rs component). A negative x or y is measured from the far edge; a w or h of 0 or less leaves that margin (the Timeline scrub slider is `Place: {3.8, -1.8, -0.6, 1.2}`) |
+| `Does: {Step}` enum | `Does: {"step"}` string: `step run reset load scrub home`; `Binds: {"Rate.hz" | "Clock.t"}`; `Key: {"s"}` one char; `Loads: {"inc"}`; `Label`, `LabelAlt` (shown while Running) |
+| `prefab inc : Preset` | `inc : Preset` plain entities beside the exhibit; symbols, states and rules are its children (rules in `Order`, then entity id) |
+| `Control`, `Hit`, `Draggable`, `Drives` tags | not declared: a part's kind is the direct `IsA` of the part (`Button`, `Slider`, `TapeView`, `HeadMark`, `StatusLine`, `RuleTable`); buttons and sliders are the controls; sliders and the head are draggable; a control drives its exhibit |
+| `Timeline {duration, mode, poster}` component | prefab `Timeline` (controls `play`, `scrub`); an optional `Clip {duration, mode: "loop|once|scrub|static", poster}` on the exhibit overrides the load record |
+| `Cell`/`Head` entities, `Pending`/`Conflict` tags | native Rust (`Vec` tape); the entity mirrors `Running`, `Halted`, `(Why, Accept | NoRule | OutOfFuel)` and `Steps {n}` |
+| Reset reloads the preset | Reset restarts tape, head, state, steps and keeps rule edits; the preset buttons (`Loads`) replace everything |
+| rule fields | From, Reads, Writes, To cycle through the preset's states or symbols in `Order` (unset shows `?`); Moves cycles left, right, stay; a rule with From or Reads unset never fires; a later rule with an earlier one's (From, Reads) is drawn `never fires` |
+
+Export behaviours (`ExhibitExports` in abi.ts): `exhibit_load` needs the article loaded with that exhibit block (`reading_load` with a LOAD_EXHIBIT record) and replaces a previous load; errors are `exhibit N: <flecs line: msg | entity path: reason>` and leave the exhibit unloaded and no entities behind. `exhibit_pointer` kinds 0 move, 1 down, 2 up, 3 leave return bit 0 consumed (a hit region is under the pointer), bit 1 capture (sliders, the head; keep routing to the exhibit until up), `>> 2` the `XCURSOR` id (pointer 1, grab 2, grabbing 3, ew-resize 4). A click completes on pointer up over the part pressed. `exhibit_key` goes to the exhibit named by `exhibit_focus`: Tab and shift-Tab walk the controls and are not consumed past either end, arrows move or (on a slider) adjust, a `Key` letter or space fires its part, Enter or space presses the selected button, Esc releases focus. `exhibit_pack` fills the draw list (at most 400 items, all inside the Extent) and the strings table (read with `exhibit_str_*` before the next pack). `exhibit_snapshot` returns the byte length and the text is at `exhibit_out_ptr`. State rows (`XS`) update at the end of every tick and input; `clock` is the Timeline time, or the elapsed seconds of a tape machine. Events: `exhibitState` (the persisted state changed, arg exhibit index) and `exhibitHalted` (once per halt); `exhibitVisible/Hidden` come from the reading module's 1.5 viewport lookahead; `RD[13]` bit 5 (32) is set on every frame an exhibit changed or animates and never while it rests.
+
+`exhibit_inspect` JSON (the `Inspect` interface of scripts/magazine/exhibit.ts; extra keys are harmless): `kind`, `name`, `title`, `claim`, `describe`, `alt`, `caption`, `frame {w, h}` (the Extent), `items` (most draw items over every preset packed at step 0 and after 200 steps, refused items counted), `controls [{label, does}]` (`does` is the Rust verb name: Step, Run, Reset, Load, Scrub, Home), `parts [{w, h, label?}]` (every part's resolved Place size), `tones` (always empty: the museum has no Tone component, colours are the draw.rs palette), `components` (names of every component, tag and relation on the exhibit's entities, so the Random/Clock rule reads the model), `presets`, `clip`. A failed `exhibit_load` leaves `XS.loaded` 0 for that index. `exhibit_pointer` kind 3 (leave, also sent for a cancelled pointer) ends hover, press and capture without activating.
+
+## Gallery layout (2026-10-07)
+
+The reader is a gallery: hero wall, room thresholds, exhibits on a spotlit plinth with wall labels, a next-room footer. Details and traps are in `.claude/skills/flecs-scene/SKILL.md` ("Museum reader look"). Shots: `/Volumes/Projects/tmp/museum/shots/{before,after-r1,after-r2,after}`.
+
+## Built: the stepper families (rewrite, graph, grid; 2026-10-07)
+
+- Code: `world/src/museum/kind_common.rs` (shared `Driver`: budget, Run/Step, fuel, speed, Reset/Load, snapshot envelope `tag|preset|steps|halt|fuel|rate|payload`; a family implements `Core`), `kind_rewrite.rs`, `kind_graph.rs`, `kind_grid.rs`. `Family::Machine(Driver)` in mod.rs, `Target::Item(i, kind)` in input.rs, `Verb::Toggle` and `PartKind::View` in model.rs. Vocabulary: prefabs `RewriteMachine`, `GraphMachine`, `GridMachine`, `View`, `Source`, `Action`, `Tree`, `Def` in `60-museum.flecs`; text components `Lambda`, `Content`, `Board`, `OnHit`, `OnBuilt`.
+- Scripts and posts: `models/exhibits/lambda.flecs` (succ 2 = 3 steps, add 2 3 = 6 steps, `ignore omega` 2 steps in normal order and fuel out under applicative) and `merkle.flecs` (edit config: 3 new hashes, 1 reused; edit util: 4 new), `ifd/exhibits/graph.flecs` (edit schema.toml: 2 rebuilt of 6; serde_derive source: 3; main.rs: 1; build.rs: 3), `optimal-parkour/exhibits/path.flecs` (expanded blocks, Dijkstra / A*: open 120 / 14, gap 131 / 51, cup 141 / 118; path 13, 19, 23).
+- Hashes: FNV-1a 32 over tag, `Content`, 0xff, a version byte for sources, then the input hashes (little endian) in node order; shown as 4 hex of `h ^ (h >> 16)`. Names (`Label`, `LabelAlt`) are not hashed, so a rename moves no hash. A step settles the next derived node: key in the store is a hit, else built.
+- Tests: `src/lib/reading/exhibit-machines.test.ts` (37 tests): a TypeScript reference per family (de Bruijn reducer on 300 random terms in both orders, hash and cache reference read from the .flecs text, A* with the same tie breaks), goldens, snapshot round trips, a planted-bug control per family (add with `m f (m f x)`, an app that does not read render, an extra wall).
+- Deferred: ifd dynamic-dependency toggle (an edge that appears after a node runs), a grid "from the goal" heat view, e2e pointer/visual checks beyond one headless look, posters for the new exhibits.
+
