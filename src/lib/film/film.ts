@@ -281,10 +281,10 @@ export function createFilm(host: FilmHost) {
 		const dt = Math.min(0.1, dtMs / 1000);
 		// clock
 		const wasT = tr.t;
-		stepTransport(tr, gates, info.total, dt, tr.playing && !tr.gate && audioOn() && !voice!.ended ? voice!.time() : null, ev);
-		if (tr.playing && !tr.gate && audioOn() && voice!.ended) { tr.t = Math.min(info.total, Math.max(tr.t, voice!.time())); }
+		stepTransport(tr, gates, info.total, dt, tr.playing && !tr.gate && audioOn() && !voice!.paused && !voice!.ended ? voice!.time() : null, ev);
+		if (tr.playing && !tr.gate && audioOn() && !voice!.paused && voice!.ended) { tr.t = Math.min(info.total, Math.max(tr.t, voice!.time())); }
 		afterEvents();
-		if (drag === null && tr.playing && !tr.gate && audioOn() && Math.abs(voice!.time() - tr.t) > 0.35 && !voice!.ended) voice!.seek(tr.t);
+		if (drag === null && tr.playing && !tr.gate && audioOn() && !voice!.paused && Math.abs(voice!.time() - tr.t) > 0.35 && !voice!.ended) voice!.seek(tr.t);
 		const scene = sceneIndexAt(info, tr.t);
 		if (needSync || scene !== lastScene) { syncExhibits(scene, tr.t); needSync = false; lastScene = scene; }
 		else if (tr.t > wasT) { runCommands(scene, lastCmdT, tr.t); lastCmdT = tr.t; }
@@ -362,7 +362,7 @@ export function createFilm(host: FilmHost) {
 		const a = Math.max(0, fade);
 		const top = bottom - shown.length * lh;
 		const wMax = Math.max(...shown.map((l) => l.reduce((acc, w, k) => acc + capWidths[w] + (k ? space : 0), 0)), 0);
-		ov(viewW / 2 - wMax / 2 - mt.pad, top - mt.pad * 0.5, wMax + 2 * mt.pad, shown.length * lh + mt.pad * 0.9, mt.pad * 0.6, GROUND, 0.62 * a);
+		ov(viewW / 2 - wMax / 2 - mt.pad, top - mt.pad * 0.5, wMax + 2 * mt.pad, shown.length * lh + mt.pad * 0.9, mt.pad * 0.6, GROUND, 0.88 * a);
 		shown.forEach((line, li) => {
 			const lw = line.reduce((acc, w, k) => acc + capWidths[w] + (k ? space : 0), 0);
 			let x = viewW / 2 - lw / 2;

@@ -193,3 +193,12 @@ Traps from the RDR4 / exhibit build side (scripts/magazine/exhibit.ts, docs/MUSE
 - Graph node words: settled words (cache hit, rebuilt, edited) sit on the hash row; only a stale prediction shares the name row, else `build-script` and `cache hit` overlap.
 - Driver: /Volumes/Projects/tmp/museum/{lib,ex,final,perf}.ts (`__reader.model.exhibits`, `reading.exhibit.pack(ex)` labels give click targets).
 - 390 px still shows 36 em exhibits at about 9 px per em (labels about 8 css px): needs a narrow Extent per exhibit, not done.
+
+## Narrated film (2026-10-07; docs/NARRATED.md section 16)
+
+- A template is instantiated as a component: `Demo: {a: "x"}`. Props need defaults (`prop txt = string: ""`) and cannot be called `name`. A template named like a Rust component (`Reveal`) breaks with "number of props does not match members": rename it (`RevealScene`).
+- `\{` escapes a brace in script strings. An instance name resolves as a sibling, so a beat may only reference lines declared above it ("unresolved identifier").
+- Rust `String` in a component needs a `move` hook: flecs falls back to memcpy and the source is dropped later (double free, garbage text, traps in `film_inspect`). The vendored flecs_ecs sets `move_swap`; the vendored flecs.c zero-initialises template prop storage. Symptom of regression: "Out of bounds memory access" in `reading_init` or random caption text.
+- Debug recipe: build with `CARGO_TARGET_DIR=/Volumes/Projects/tmp/film/target-dbg`, run a node harness against the debug wasm for a real trace. Native `cargo test` does not compile; tests run the wasm under `bun test`.
+- `film_pack` returns a 64 float meta row and a draw buffer longer than `count`: hash only the live part (`count*8`, `8+8*mounts`), stale tails differ between engines.
+- Headless e2e: `play()` on the voice element is refused without a gesture; the film must fall back to the wall clock (`voice.paused`), else the clock sits at the resume position forever.

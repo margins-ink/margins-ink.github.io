@@ -20,6 +20,8 @@ export interface Voice {
 	seek(t: number): void;
 	rate(r: number): void;
 	readonly ended: boolean;
+	/** true when the element is not playing (never started, or the browser refused play() without a gesture): the film then runs on the wall clock */
+	readonly paused: boolean;
 	dispose(): void;
 }
 
@@ -67,6 +69,7 @@ export function createVoice(slug: string, a: AlignFile, onChange: () => void): V
 		seek: (t) => { try { el.currentTime = t; } catch { /* not seekable yet */ } },
 		rate: (r) => { el.playbackRate = r; },
 		get ended() { return el.ended; },
+		get paused() { return el.paused; },
 		dispose() { el.pause(); el.removeAttribute('src'); el.load(); }
 	};
 }

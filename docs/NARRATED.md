@@ -166,24 +166,12 @@ Cross-check (2026-10-07): another lane already fetched and ran several of these 
 
 ### 4.3 Pick
 
-**Qwen3-TTS 1.7B (VoiceDesign once, Base for every line), run at build time on a dev-compute Spot GPU host.** Reasons: Apache-2.0 for code and the card's weights (read), a described voice ("a curious, warm science presenter in his thirties, quick when excited, slows on the reveal, short pauses before the answer, close microphone") that Andrew can iterate in words, and a clone path to his own voice with the same code. The voice-consistency design (unverified, spike P1):
+**Qwen3-TTS-12Hz-1.7B (CustomVoice, preset speaker Aiden), run locally on this Mac through mlx-audio.** Free: no hosted API, no rented GPU, no per-article cost. Apache-2.0 code and model card, MIT mlx-audio 0.5.8, MIT stable-ts 2.19.1 and Whisper (all read; `docs/upstream/tts/`). Measured: real-time factor 0.61 at machine load about 16 (a 524 s film in about 5.5 minutes). No voice cloning and no VoiceDesign step: the speaker is one preset name, held in one Flecs value (`Narrator`), so changing the voice is one edit and a rebuild. Per-line style goes through punctuation, the `Spoken` text and `[pause]` markers. Names the model mispronounces are mapped in the `pronounce` table of `scripts/film/say.ts` (Kleene to "Klay-nee").
 
-1. VoiceDesign generates a 15 s reference clip from the description. Andrew approves it by ear. The clip, its text and the description are committed as `voices/<id>/`.
-2. Every `Say` is synthesised by the Base model conditioned on that reference clip, so the speaker is fixed across lines and articles, and a retake of one sentence matches its neighbours.
-3. Per-line style hints (excited, hushed) go through the instruction channel where the model supports it (unverified) and otherwise through punctuation and the `Spoken` text.
+Hosted engines (ElevenLabs v3, Gemini TTS, OpenAI) and the paid blind A/B are dropped. The engine stays one function (`synth(spoken, voice) -> wav` in `scripts/film/narrate.py`), so a different local model is a swap, not a redesign.
 
-Gate before the commitment: a 3 minute blind A/B of the same two scenes (section 10) through Qwen3-TTS, Chatterbox Multilingual V3, ElevenLabs v3 and Gemini TTS. If Andrew prefers a hosted voice, the pipeline's engine is one function (`synth(spoken, voice) -> wav`) and ElevenLabs drops in; the cost goes up to about $1 per article and the output licence has to be read for the plan then. Default is Qwen3.
+Cost per article: zero dollars; about 6 minutes of Mac time for a 9 minute film. A retake of one sentence is seconds. The wall-clock cost is the review loop.
 
-Cost per article (a 9 minute film, about 1,400 spoken words, about 8,000 characters; **estimates**):
-
-| Route | Per article | Notes |
-|---|---|---|
-| Qwen3-TTS on a Spot GPU | about $0.30 to $0.60 | roughly 1 GPU-hour with retakes at a Spot price of about $0.3 to $0.6 per hour; placed by the AWS Spot rules (price history, TTL, `terminate` on shutdown); real-time factor unverified |
-| ElevenLabs v3 | about $0.80 | 8,000 characters at $0.10 per 1,000 |
-| OpenAI mini-tts | about $0.14 | 9 minutes at 1.5 cents |
-| Gemini 2.5 Flash TTS | about $0.14 | 13.5 k audio tokens at $10 per million |
-
-One retake of one sentence costs well under a cent on Qwen3. The wall-clock cost is the review loop, not money.
 
 ### 4.4 Word timings: forced alignment on the known text
 
@@ -612,7 +600,7 @@ One pass, all lanes at once, delete nothing old (this is new surface), merge, bu
 | A. Film module (Rust) | Opus (the player and seek semantics are the hard part) | `world/src/film/*`, `world/scene/70-film.flecs`, `world/src/lib.rs` exports, `world/src/scene.rs` SCRIPTS, `world/src/book.rs` (`WantFilm`), tests in `world/` | 1 to 2 days |
 | B. Stage pass (GPU) | Sonnet | `src/lib/film/stage.ts`, `stage.wgsl`, `fx.wgsl` (closed-form particles, post chain), `src/lib/film/compose.ts` (stage under page pass), planted-frame screenshot fixtures | 1.5 days |
 | C. Player, captions, UI | Sonnet | `src/lib/film/{player,captions,transport,transcript,keys,resume,queue,mediasession}.ts`, `src/lib/reading/ui/widgets.ts` (`filmChrome`), `src/lib/reading/reader.ts` (view switch), `src/lib/reading/ui/` tests | 1.5 days |
-| D. Narration pipeline | Sonnet | `scripts/film/{build,synth,align,layout,estimate,lint}.ts`, `scripts/film/voice/` Python (uv project for Qwen3-TTS and MFA), `scripts/magazine/film.ts` (reads `film_inspect`), `docs/upstream/film-tts/{SOURCE.md,LICENSE-*}` | 1.5 days; about $1 of Spot GPU for the first run (with TTL and `terminate` per the AWS rules) |
+| D. Narration pipeline | Sonnet | `scripts/film/{build,synth,align,layout,estimate,lint}.ts`, `scripts/film/voice/` Python (uv project for Qwen3-TTS and MFA), `scripts/magazine/film.ts` (reads `film_inspect`), `docs/upstream/film-tts/{SOURCE.md,LICENSE-*}` | 1.5 days; free, local on the Mac (section 4.3, 16) |
 | E. Writing | Sonnet | `thoughts/models/film.flecs` (the `Say` lines and the storyboard beats for all 8 scenes; the first two exactly as in section 10), then `thoughts/ifd/film.flecs` storyboards | 1 day, no compute |
 | F. Tests and fixtures | Sonnet | `scripts/film/tests/*`, `world` golden test, `tests/golden/models.film.json`, e2e `tests/e2e/film/*` (headless Chrome on its own CDP port) | 1 day |
 | Root | Fable or Opus review | merges, build, integrates `Reader.svelte`/`World.svelte` hooks (the film entry from the book), runs the tests once, reads the render batch, approves the narration with Andrew | half a day |
@@ -627,7 +615,7 @@ Order inside the wave: every lane starts at once against the contracts in this f
 
 Top decisions, with my pick first:
 
-- **D1. The voice and the spend.** Pick: Qwen3-TTS 1.7B on a Spot GPU, about $0.30 to $0.60 per article, no recurring cost, voice made from a written description and approved by ear. Alternative: ElevenLabs v3 (about $0.80 per article, a subscription to take, output licence to read). I will run the 3 minute blind A/B (section 4.3) before any article is voiced; you pick by ear. Spend authorised: about $1 of Spot GPU plus the A/B hosted samples (about $1 total).
+- **D1. The voice.** Done and free: Qwen3-TTS 1.7B preset Aiden, local. Listen to `static/film/models/voice.15322f48.m4a` and say whether the voice, pacing and name pronunciations are acceptable; a different preset is one `Narrator` edit plus `scripts/film/say.ts` and `narrate.py`.
 - **D2. Default click on a book.** Pick: film first for any article that has a film, the reader one key (`R`) or button away. The other choice is the reader first with a play glyph on the cover; this one costs nothing to change later.
 - **D3. Your own voice.** Whether to clone your voice (Qwen3-TTS Base clones from a 3 second clip; Chatterbox does too). Default: no, the designed voice. If yes: a 30 second clean recording, your explicit consent in writing in the repo, a note that cloned speech is labelled (Chatterbox watermarks; Qwen3 does not, as far as read), and the voice never leaves the repo.
 - **D4. Audio in git.** About 9 MB per article (voice and listen files), committed in-repo or in git LFS. Pick: in-repo until about 100 MB, then LFS.
@@ -844,7 +832,7 @@ The timeline is data before it is pixels. `film_inspect` (section 13) returns th
 | New exhibit | +1 `.flecs` file of about 100 to 250 lines (see `turing.flecs`) when the picture does not exist; a catalogue of reusable families keeps this to data (MUSEUM 2.5) |
 | New template | +1 file of 60 to 120 lines, written once, for a pattern not yet in the library (15.7) |
 | New effect or kit | a variant prefab in `lib/` (5 to 20 lines) if it composes existing families; a new family is one Rust file of 150 to 300 lines |
-| Voice and audio | `bun scripts/film/build.ts <slug>`: about $0.30 to $0.60 and a Spot GPU hour (4.3), or on this Mac with the MLX port (the other lane's finding); no authored lines |
+| Voice and audio | `scripts/film/say.ts` then `scripts/film/narrate.py`: free, local on this Mac (4.3, 16); no authored lines |
 
 These are estimates. The measure that decides success: the second film (ifd) needs no change to `world/` and fewer than 150 authored lines for its first six scenes; if it needs a Rust change, the library is missing a family and that is written back here.
 
@@ -871,3 +859,17 @@ Result: 9 of the 11 scenes (1, 2, 3, 4, 5, 7, 8, 9, 11) are instances of the six
 ### 15.8 Lane additions for the wave
 
 Lane A (Opus) adds `world/scene/film/{vocab.flecs,lib/*.flecs,lib/templates/*.flecs}`, the `exhibits.index.flecs` generator in `scripts/magazine/film.ts`, and the lint rule "no relation or prefab outside the library vocabulary inside a film". Lane E writes `thoughts/models/film.flecs` as instances only (scenes 1, 2, 3), asserts in review that it contains no hand-written scene, and writes `thoughts/ifd/film.flecs` scene 1 as the second-film proof (`DemoPause` with `ex_ifd_graph`). Lane F adds the all-films golden run and a planted control: a template edited so one film's timing changes must fail that film's golden test. Spikes: F0 now also checks that a template prop can be an entity (`$ex` into `(Uses, $ex)`) and that a template body can name its own children in `(After, b_show)`; if props cannot be entities, the fallback is a string `ex` id resolved to `(Uses, e)` by the loader with the same fail-closed error, and the film file reads the same.
+
+
+## 16. Built contract (2026-10-07)
+
+What exists, as built; where it differs from the sections above, this section wins.
+
+- **Engine.** `world/src/film/{model,timeline,pack,mod}.rs` and the `film_*` exports in `world/src/lib.rs`. State is a pure function of (definition, alignment, t): `film_pack(t)` returns the draw list (stride 8 floats, strings, a 64 float meta row) and is order independent (seek equals play, tested). `film_info` returns the scenes, says, gates, cmds and mounts JSON. Alpha rides in XD item flags bits 16..23 (0 = opaque).
+- **Vendored patches** (marked "PATCH (site)" / `move_swap`): flecs.c zeroes and constructs typed template prop storage; flecs_ecs gets a `move` hook (`move_swap`) for Rust types, because the memcpy fallback double-freed `String` components.
+- **Script traps.** A template is instantiated as a component (`Demo: {a: "..."}`); props need defaults; no prop named `name`; a template must not share a name with a Rust component; `\{` escapes a brace; an instance can only reference lines declared above it.
+- **Host.** `src/lib/film/{abi,core,audio,film,source}.ts`. A film is a mode of the reader (`filmMode`): R leaves to the reader (`?read=1`), F returns, Esc closes (or closes the transcript), resume position in `localStorage` `film:<slug>`. The clock is the voice element's `currentTime` while it is playing; if the browser refuses `play()` (no gesture) the film runs on the wall clock. Gates stop the clock; Continue (or the hold running out) jumps to gate time plus hold, because the audio holds that silence.
+- **Audio.** `static/film/<slug>/voice.<hash>.{opus,m4a}` plus `align.json` and `report.json`, committed, content hashed. Opus first, AAC fallback, both -16.2 LUFS. Pipeline: `scripts/film/say.ts` writes `say.json`, `scripts/film/narrate.py` synthesises and aligns (stable-ts); `--check` reports staleness.
+- **Dev.** `scripts/film/vite-plugin.ts` hot-reloads `film.flecs` (`film:reload`). `scripts/film/engine.ts` runs the wasm under bun for tests (`FILM_WASM` overrides the path).
+- **Tests.** `src/lib/film/film.test.ts`: transport and gates, seek equals play, golden timeline (`tests/golden/models.film.json`, `UPDATE_GOLDEN=1` regenerates), lint fixtures, caption sync against `align.json` with planted-bug controls.
+- **Known gaps.** Stage items draw above mounted exhibits (no backing plate under a mount); some scenes overlap authored text with an exhibit's own text (cold open Lean panel); exhibit `models/two-machines` may log "cannot set value of Timeline"; glyph coverage in the UI font for a few symbols is unchecked; ears-only verification of the voice is still owed by Andrew.
