@@ -9,6 +9,7 @@ mod components;
 mod elevator;
 mod export;
 mod hover;
+mod museum;
 mod reader;
 mod reading;
 mod scene;
@@ -321,8 +322,108 @@ pub extern "C" fn book_begin(index: u32) {
     reader::book_begin(index);
 }
 
-thread_local! { static SPIKE: RefCell<String> = const { RefCell::new(String::new()) }; }
+
+// ---- exhibits (docs/MUSEUM.md "Built contract"; ExhibitExports in src/lib/reading/abi.ts) ----
+
+/// Staging buffer of `len` bytes for script and snapshot text; the pointer may change after every call.
 #[no_mangle]
-pub extern "C" fn museum_spike() -> u32 { let s = museum::spike::run(); SPIKE.with(|x| *x.borrow_mut() = s); SPIKE.with(|x| x.borrow().len() as u32) }
+pub extern "C" fn exhibit_buf(len: u32) -> *mut u8 {
+    museum::buf(len)
+}
+
+/// Run the script text staged in the buffer as exhibit `ex`'s scope (replaces a previous load). 0 ok, else the error text is in the out buffer.
 #[no_mangle]
-pub extern "C" fn museum_spike_ptr() -> *const u8 { SPIKE.with(|x| x.borrow().as_ptr()) }
+pub extern "C" fn exhibit_load(ex: u32, len: u32) -> u32 {
+    match museum::staged(len) {
+        Ok(src) => museum::load(ex as usize, &src),
+        Err(e) => museum::fail(&e),
+    }
+}
+
+/// Describe the staged script as JSON in the out buffer (scratch world). 0 ok, else the error text.
+#[no_mangle]
+pub extern "C" fn exhibit_inspect(len: u32) -> u32 {
+    match museum::staged(len) {
+        Ok(src) => museum::inspect(&src),
+        Err(e) => museum::fail(&e),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn exhibit_out_ptr() -> *const u8 {
+    museum::out_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn exhibit_out_len() -> u32 {
+    museum::out_len()
+}
+
+/// kind 0 move, 1 down, 2 up, 3 leave; x, y exhibit-local em. Bit 0 consumed, bit 1 wants capture, bits 2..5 the cursor (`XCURSOR`).
+#[no_mangle]
+pub extern "C" fn exhibit_pointer(ex: u32, kind: u32, x: f32, y: f32, _buttons: u32, _mods: u32) -> u32 {
+    museum::pointer(ex as usize, kind, x, y)
+}
+
+/// A key for the exhibit holding focus (`XKEY`, or a char code). 1 when consumed.
+#[no_mangle]
+pub extern "C" fn exhibit_key(code: u32, mods: u32) -> u32 {
+    museum::key(code, mods) as u32
+}
+
+/// The exhibit holding keyboard focus; negative none.
+#[no_mangle]
+pub extern "C" fn exhibit_focus(ex: i32) {
+    museum::focus(ex);
+}
+
+/// Snapshot text into the out buffer; its byte length, 0 when the exhibit is not loaded.
+#[no_mangle]
+pub extern "C" fn exhibit_snapshot(ex: u32) -> u32 {
+    museum::snapshot(ex as usize)
+}
+
+/// Restore from the staged text: 0 ok, 1 stale or malformed (the exhibit keeps its state).
+#[no_mangle]
+pub extern "C" fn exhibit_restore(ex: u32, len: u32) -> u32 {
+    match museum::staged(len) {
+        Ok(t) => museum::restore(ex as usize, &t),
+        Err(_) => 1,
+    }
+}
+
+/// Fill the draw list of exhibit `ex`: the item count (at most 400).
+#[no_mangle]
+pub extern "C" fn exhibit_pack(ex: u32) -> u32 {
+    museum::pack(ex as usize)
+}
+
+#[no_mangle]
+pub extern "C" fn exhibit_draw_ptr() -> *const f32 {
+    museum::draw_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn exhibit_str_ptr(i: u32) -> *const u8 {
+    museum::str_ptr(i)
+}
+
+#[no_mangle]
+pub extern "C" fn exhibit_str_len(i: u32) -> u32 {
+    museum::str_len(i)
+}
+
+/// `XS.max` rows of `XS.stride` f32.
+#[no_mangle]
+pub extern "C" fn exhibit_state_ptr() -> *const f32 {
+    museum::state_ptr()
+}
+
+/// Dev hot reload: dry run in a scratch world, then rebuild in place keeping the state. 0 ok, else the error text (the old exhibit runs on).
+#[no_mangle]
+pub extern "C" fn exhibit_reload(ex: u32, len: u32) -> u32 {
+    match museum::staged(len) {
+        Ok(src) => museum::reload(ex as usize, &src),
+        Err(e) => museum::fail(&e),
+    }
+}

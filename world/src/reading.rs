@@ -4,16 +4,16 @@
 //! implements it and nothing else: JS owns the DOM, the GPU resources and the strings; Flecs owns the reading state.
 //!
 //! Entities. `article` (anonymous, replaced by every load) holds everything as `(ChildOf, article)`:
-//!   Block   prefab `BlockPrefab {Rect, BlockInfo}`; one prefab per `BlockKind` (`HeadingBlock`, `FigureBlock`, `FoldBlock`, ...) IsA it.
+//!   Block   prefab `BlockPrefab {Rect, BlockInfo}`; one prefab per `BlockKind` (`HeadingBlock`, `ExhibitBlock`, `FoldBlock`, ...) IsA it.
 //!           Created in reading order, chained by the exclusive `(Next, block)`. `Anchor {string_off}` on blocks that have one,
-//!           `(InFold, fold)` on every block with `BlockFlag.folded`. A figure block also carries `Figure` and `FigureTime`.
+//!           `(InFold, fold)` on every block with `BlockFlag.folded`. An exhibit block also carries `ExhibitInfo` (the museum module, `museum/`, owns the exhibit itself).
 //!   Note    prefab `NotePrefab {Rect, NoteInfo}`, `(NoteOf, block)`.
 //!   Link    `Link {block, kind, line}` with `(Targets, block)` for an internal link and `(Cites, ref)` for a reference (`RefEntry`).
 //! Singletons: `Scroll {y, vel, max}`, `Viewport {w, h, dpr, class}`, `Typography {scale, em_px}`, `Fold {t, target, vel, y, h, peek}`,
 //! `Doc` (the exported y arrays the culling binary-searches, the figure rows and the packed caches), `Events` (ring polled by JS).
 //! Singleton tags: `Settled` (the fold spring is at rest), `Expanded` (fold target 1), `Reduced` (reduced motion).
 //! Exclusive relations on the world (each change is an event through an observer): `(Reading, heading)`, `(Hover, block)`,
-//! `(Focus, block)`, `(Scrubbing, figure block)`, `(Open, block)`. Tag `Visible` marks figures inside the data lookahead.
+//! `(Focus, block)`, `(Open, block)`. Tag `Visible` marks exhibits inside the data lookahead.
 //!
 //! Pipeline (custom phases chained by DependsOn after OnUpdate): Input -> Spring -> Layout -> Cull -> Pack. (Spring runs before Layout so the
 //! document height of a frame already carries that frame's fold position.)
@@ -22,37 +22,30 @@
 //!   Layout  DocMetrics       fold clip, document height, `Scroll.max`
 //!   Cull    CullBlocks       binary searches over the exported y arrays (blocks, notes), recomputed only when scroll, viewport or clip moved
 //!           ReadingSpy       the current heading
-//!           FigureClock      per figure: on screen, live (60 percent in the viewport), data lookahead (`Visible`)
-//!   Pack    FigureAdvance    clocks: autoplay, scrub momentum
-//!           PackState        the 64 float `RD` buffer
+//!           ExhibitVisibility per exhibit: on screen, live (60 percent in the viewport), data lookahead (`Visible`)
+//!   (Sim    ExhibitSim       museum module: fixed 1/60 s clock, steppers, timelines; between Input and Spring)
+//!   Pack//!           PackState        the 64 float `RD` buffer
 //! Event ring: kind in the top byte (1-based index into READING_EVENTS), argument in the low 24 bits (`NONE` for cleared).
 //! A cleared event directly followed by a set of the same kind collapses into the set (an exclusive relation replace fires both).
 //!
 //! Deviations from abi.ts: none. Interpretations the page lane may rely on:
 //!   * `RD.visFirst/visCount` is one contiguous range in document space; while the fold is collapsed and the viewport straddles the clip
 //!     line the hidden folded blocks between are inside it (the page pass clips at `RD.foldClipEm`).
-//!   * The per figure flag at `RD.figBase + 2i + 1` is "intersects the viewport" (draw it); `figVisFirst/figVisCount` is the 1.5 viewport data range.
-//!   * A figure autoplays only while 60 percent of it (or 60 percent of the viewport height) is inside the viewport, the page has been
-//!     idle for 0.2 s, nothing holds it, and the user has not touched it for 1.5 s (`USER_HOLD_S`).
+//!   * `RD[18..20]` is the 1.5 viewport data range of exhibits (first, count); per exhibit flags live in the museum state buffer (`exhibit_state_ptr`).
+//!   * A timeline autoplays only while 60 percent of it (or 60 percent of the viewport height) is inside the viewport, the page has been
+//!     idle for 0.2 s, nothing holds it, and the user has not touched it for 1.5 s (museum/timeline.rs).
 use crate::scroll::{self, ScrollSim};
 use flecs_ecs::prelude::*;
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 
 pub const STATE_LEN: usize = 64;
-pub const MAX_FIG_STATE: usize = 16;
-
 const FOLD_OMEGA: f32 = 14.0;
-/// Scrub momentum decay per second (velocity in timeline seconds per second).
-const MOMENTUM_K: f32 = 4.5;
 const LIVE_FRAC: f32 = 0.6;
-const IDLE_GATE_S: f32 = 0.2;
-/// Autoplay waits this long (s) after the last touch of a figure.
-const USER_HOLD_S: f32 = 1.5;
 /// A heading is current once it is within this many em of the viewport top.
 const SPY_EM: f32 = 3.0;
 const TEXT_AHEAD: f32 = 0.25;
-const FIG_AHEAD: f32 = 1.5;
+const EX_AHEAD: f32 = 1.5;
 const NONE: u32 = 0xff_ffff;
 /// Body line height in em (`LINE_EM` in src/lib/reading/metrics.ts): a wheel line is this many em.
 const LINE_EM: f32 = 1.62;
@@ -62,12 +55,14 @@ const MAX_EVENTS: usize = 256;
 const EV_SECTION: u32 = 1;
 const EV_FOLD_SETTLED: u32 = 2;
 const EV_FOLD_EXPAND: u32 = 3;
-const EV_FIG_VISIBLE: u32 = 4;
-const EV_FIG_HIDDEN: u32 = 5;
+const EV_EX_VISIBLE: u32 = 4;
+const EV_EX_HIDDEN: u32 = 5;
 const EV_OPEN: u32 = 6;
 const EV_FOCUS: u32 = 7;
 const EV_HOVER: u32 = 8;
 const EV_LAYOUT: u32 = 9;
+pub const EV_EX_STATE: u32 = 10;
+pub const EV_EX_HALTED: u32 = 11;
 
 // RD indices (abi.ts)
 const RD_SCROLL: usize = 0;
@@ -86,10 +81,10 @@ const RD_PROGRESS: usize = 12;
 const RD_DIRTY: usize = 13;
 const RD_HOVER: usize = 14;
 const RD_FOCUS: usize = 15;
-const RD_SCRUB: usize = 16;
+/// 16 is reserved (it was the scrubbed figure).
 const RD_OPEN: usize = 17;
-const RD_FIG_VIS_FIRST: usize = 18;
-const RD_FIG_VIS_COUNT: usize = 19;
+const RD_EX_VIS_FIRST: usize = 18;
+const RD_EX_VIS_COUNT: usize = 19;
 const RD_FOLD_SETTLED: usize = 20;
 const RD_WIDTH_CLASS: usize = 21;
 const RD_IDLE: usize = 22;
@@ -102,25 +97,19 @@ const RD_SCROLL_MAX_PX: usize = 26;
 const RD_SCROLL_MODE: usize = 27;
 /// px/s
 const RD_VELOCITY: usize = 28;
-const RD_FIG_BASE: usize = 32;
 
-// dirty bits
+// dirty bits (abi.ts RD.dirty)
 const D_SCROLL: u32 = 1;
 const D_SPRING: u32 = 2;
-const D_FIG: u32 = 4;
 const D_HOVER: u32 = 8;
 const D_LAYOUT: u32 = 16;
+/// An exhibit changed or animates (RD[13] bit 5).
+pub const D_EX: u32 = 32;
 
 // INPUT kinds (abi.ts)
 const IN_HOVER: u32 = 1;
 const IN_FOCUS: u32 = 2;
 const IN_OPEN: u32 = 3;
-const IN_SCRUB_BEGIN: u32 = 4;
-const IN_SCRUB_TO: u32 = 5;
-const IN_SCRUB_END: u32 = 6;
-const IN_FIG_STEP: u32 = 7;
-const IN_FIG_PLAY: u32 = 8;
-const IN_FIG_HOME: u32 = 9;
 const IN_FOLD_SET: u32 = 10;
 const IN_REDUCED: u32 = 11;
 
@@ -128,19 +117,17 @@ const IN_REDUCED: u32 = 11;
 const LOAD_HEADER: usize = 16;
 const LOAD_BLOCK: usize = 8;
 const LOAD_NOTE: usize = 6;
-const LOAD_FIGURE: usize = 6;
+/// [id, mode, duration f32, poster f32, block, kind (0 timeline, 1 script)]
+const LOAD_EXHIBIT: usize = 6;
 const LOAD_ANCHOR: usize = 3;
 const LOAD_LINK: usize = 5;
 
-// BlockKind / BlockFlag / FigureMode (format.ts)
+// BlockKind / BlockFlag (format.ts); kind 7 (the old figure) is retired, the exhibit block is 21
 const KIND_HEADING: u32 = 1;
-const KIND_FIGURE: u32 = 7;
+const KIND_EXHIBIT: u32 = 21;
 const KIND_FOLD: u32 = 11;
 const FLAG_FOLDED: u32 = 2;
-const MODE_LOOP: u32 = 0;
-const MODE_ONCE: u32 = 1;
-const MODE_STATIC: u32 = 3;
-const KIND_NAMES: [&str; 21] = [
+const KIND_NAMES: [&str; 22] = [
     "HeroBlock",
     "HeadingBlock",
     "ParagraphBlock",
@@ -148,7 +135,7 @@ const KIND_NAMES: [&str; 21] = [
     "QuoteBlock",
     "ListBlock",
     "ImageBlock",
-    "FigureBlock",
+    "RetiredBlock",
     "RuleBlock",
     "MathBlock",
     "TableBlock",
@@ -162,6 +149,7 @@ const KIND_NAMES: [&str; 21] = [
     "LabelBlock",
     "NextPrevBlock",
     "TakeawayBlock",
+    "ExhibitBlock",
 ];
 /// Index of the base block prefab and of the note prefab in `Doc.protos` (after the 21 kinds).
 const PROTO_BLOCK: usize = KIND_NAMES.len();
@@ -206,23 +194,16 @@ pub struct Link {
 pub struct RefEntry {
     pub index: u32,
 }
-/// A figure's static description (on its block entity): index in figure order, id, FigureMode, duration and poster time in seconds.
+/// An exhibit's static description (on its block entity): index in exhibit order, id, FigureMode, duration and poster time in seconds,
+/// kind (0 timeline, 1 script).
 #[derive(Component, Clone, Copy, Default)]
-pub struct Figure {
+pub struct ExhibitInfo {
     pub index: u32,
     pub id: u32,
     pub mode: u32,
     pub duration: f32,
     pub poster: f32,
-    pub alt: u32,
-}
-/// A figure's clock: t seconds, vel scrub momentum (s per s), hold seconds left after a touch, play (autoplay wanted).
-#[derive(Component, Clone, Copy, Default)]
-pub struct FigureTime {
-    pub t: f32,
-    pub vel: f32,
-    pub hold: f32,
-    pub play: bool,
+    pub kind: u32,
 }
 
 #[derive(Component, Clone, Copy, Default)]
@@ -259,13 +240,12 @@ pub struct Fold {
     pub peek: f32,
 }
 
-/// One figure row of `Doc`.
+/// One exhibit row of `Doc` (the museum module owns the exhibit's state).
 #[derive(Clone, Default)]
-struct Fig {
+struct Ex {
     ent: u64,
     y0: f32,
     y1: f32,
-    t: f32,
     onscreen: bool,
     live: bool,
     data_vis: bool,
@@ -286,7 +266,7 @@ pub struct Doc {
     headings: Vec<u32>,
     n_pmax: Vec<f32>,
     n_smin: Vec<f32>,
-    figs: Vec<Fig>,
+    exs: Vec<Ex>,
     fold_y: f32,
     fold_h: f32,
     peek_h: f32,
@@ -301,19 +281,18 @@ pub struct Doc {
     vis_count: u32,
     note_first: u32,
     note_count: u32,
-    fig_first: u32,
-    fig_count: u32,
+    ex_first: u32,
+    ex_count: u32,
     cull_key: [f32; 4],
     cull_valid: bool,
     cull_changed: bool,
     spy_valid: bool,
     last_y: f32,
     idle: f32,
-    // caches of the relations (block index or figure index, -1 none)
+    // caches of the relations (block index, -1 none)
     hover: i32,
     focus: i32,
     open: i32,
-    scrub: i32,
     reading_block: i32,
     section: i32,
     reduced: bool,
@@ -333,7 +312,7 @@ impl Default for Doc {
             headings: Vec::new(),
             n_pmax: Vec::new(),
             n_smin: Vec::new(),
-            figs: Vec::new(),
+            exs: Vec::new(),
             fold_y: 0.0,
             fold_h: 0.0,
             peek_h: 0.0,
@@ -347,8 +326,8 @@ impl Default for Doc {
             vis_count: 0,
             note_first: 0,
             note_count: 0,
-            fig_first: 0,
-            fig_count: 0,
+            ex_first: 0,
+            ex_count: 0,
             cull_key: [0.0; 4],
             cull_valid: false,
             cull_changed: false,
@@ -358,7 +337,6 @@ impl Default for Doc {
             hover: -1,
             focus: -1,
             open: -1,
-            scrub: -1,
             reading_block: -1,
             section: -1,
             reduced: false,
@@ -403,7 +381,7 @@ macro_rules! tags {
     ($($(#[$m:meta])* $n:ident),*) => { $( $(#[$m])* #[derive(Component, Clone, Copy, Default)] pub struct $n; )* };
 }
 tags!(
-    /// Figure inside the data lookahead (1.5 viewports).
+    /// Exhibit inside the data lookahead (1.5 viewports).
     Visible,
     /// Fold target is 1.
     Expanded,
@@ -424,7 +402,6 @@ tags!(
     Reading,
     Hover,
     Focus,
-    Scrubbing,
     /// Relation `(Open, block)`: popover or lightbox target.
     Open
 );
@@ -439,11 +416,11 @@ thread_local! {
     static RD: RefCell<[f32; STATE_LEN]> = const { RefCell::new([0.0; STATE_LEN]) };
 }
 
-fn with_world<T>(f: impl FnOnce(&World) -> T) -> Option<T> {
+pub(crate) fn with_world<T>(f: impl FnOnce(&World) -> T) -> Option<T> {
     WORLD.with(|w| w.borrow().as_ref().map(f))
 }
 
-fn emit(w: &World, kind: u32, arg: u32) {
+pub(crate) fn emit(w: &World, kind: u32, arg: u32) {
     w.get::<&mut Events>(|e| {
         let arg = arg & NONE;
         if arg != NONE && e.q.back() == Some(&(kind << 24 | NONE)) {
@@ -456,7 +433,7 @@ fn emit(w: &World, kind: u32, arg: u32) {
     });
 }
 
-fn mark(w: &World, bits: u32) {
+pub(crate) fn mark(w: &World, bits: u32) {
     w.get::<&mut Doc>(|d| d.dirty |= bits);
 }
 
@@ -469,19 +446,11 @@ fn spring(x: &mut f32, v: &mut f32, target: f32, omega: f32, dt: f32) {
     *v = (*v - omega * k * dt) * e;
 }
 
-fn wrap(t: f32, duration: f32) -> f32 {
-    if duration > 0.0 {
-        t.rem_euclid(duration)
-    } else {
-        0.0
-    }
-}
-
 fn rd_reset() {
     RD.with(|s| {
         let mut s = s.borrow_mut();
         *s = [0.0; STATE_LEN];
-        for i in [RD_SECTION, RD_READING_BLOCK, RD_HOVER, RD_FOCUS, RD_SCRUB, RD_OPEN] {
+        for i in [RD_SECTION, RD_READING_BLOCK, RD_HOVER, RD_FOCUS, 16, RD_OPEN] {
             s[i] = -1.0;
         }
         s[RD_FOLD_SETTLED] = 1.0;
@@ -496,8 +465,7 @@ impl Module for ReadingModule {
         world.component::<NoteInfo>();
         world.component::<Link>();
         world.component::<RefEntry>();
-        world.component::<Figure>();
-        world.component::<FigureTime>();
+        world.component::<ExhibitInfo>();
         world.component::<Scroll>();
         world.component::<ScrollSim>();
         world.component::<Viewport>();
@@ -517,7 +485,6 @@ impl Module for ReadingModule {
         world.component::<Reading>();
         world.component::<Hover>();
         world.component::<Focus>();
-        world.component::<Scrubbing>();
         world.component::<Open>();
         // one target at a time: adding a new one replaces the old (and fires OnRemove then OnAdd)
         for rel in [
@@ -529,7 +496,6 @@ impl Module for ReadingModule {
             world.component_id::<Reading>(),
             world.component_id::<Hover>(),
             world.component_id::<Focus>(),
-            world.component_id::<Scrubbing>(),
             world.component_id::<Open>(),
         ] {
             world.entity_from_id(rel).add_trait::<flecs::Exclusive>();
@@ -540,8 +506,8 @@ impl Module for ReadingModule {
         let mut protos = Vec::with_capacity(KIND_NAMES.len() + 2);
         for (kind, name) in KIND_NAMES.iter().enumerate() {
             let p = world.prefab_named(name).is_a(block);
-            if kind as u32 == KIND_FIGURE {
-                p.set(Figure::default()).set(FigureTime::default());
+            if kind as u32 == KIND_EXHIBIT {
+                p.set(ExhibitInfo::default());
             }
             protos.push(*p.id());
         }
@@ -558,19 +524,20 @@ impl Module for ReadingModule {
         world.add(Settled::id());
 
         let input_ph = world.entity_named("ReadInputPhase").add(flecs::pipeline::Phase).depends_on(flecs::pipeline::OnUpdate);
-        let spring_ph = world.entity_named("ReadSpringPhase").add(flecs::pipeline::Phase).depends_on(input_ph);
+        let sim_ph = world.entity_named("ReadSimPhase").add(flecs::pipeline::Phase).depends_on(input_ph);
+        let spring_ph = world.entity_named("ReadSpringPhase").add(flecs::pipeline::Phase).depends_on(sim_ph);
         let layout_ph = world.entity_named("ReadLayoutPhase").add(flecs::pipeline::Phase).depends_on(spring_ph);
         let cull_ph = world.entity_named("ReadCullPhase").add(flecs::pipeline::Phase).depends_on(layout_ph);
         let pack_ph = world.entity_named("ReadPackPhase").add(flecs::pipeline::Phase).depends_on(cull_ph);
 
-        systems(world, input_ph, spring_ph, layout_ph, cull_ph, pack_ph);
+        systems(world, input_ph, sim_ph, spring_ph, layout_ph, cull_ph, pack_ph);
         observers(world);
     }
 }
 
 // ---- systems ----
 
-fn systems(world: &World, input_ph: EntityView, spring_ph: EntityView, layout_ph: EntityView, cull_ph: EntityView, pack_ph: EntityView) {
+fn systems(world: &World, input_ph: EntityView, sim_ph: EntityView, spring_ph: EntityView, layout_ph: EntityView, cull_ph: EntityView, pack_ph: EntityView) {
     // ---- Input ---- (the scroll integrator first: ScrollTrack then sees the new `Scroll.y`)
     world.system_named::<()>("ScrollSim").kind(input_ph).run(|mut it| {
         while it.next() {
@@ -580,6 +547,13 @@ fn systems(world: &World, input_ph: EntityView, spring_ph: EntityView, layout_ph
     world.system_named::<()>("ScrollTrack").kind(input_ph).run(|mut it| {
         while it.next() {
             scroll_track(&it.world(), it.delta_time());
+        }
+    });
+
+    // ---- Sim ---- (the museum: fixed-step exhibits and timelines)
+    world.system_named::<()>("ExhibitSim").kind(sim_ph).run(|mut it| {
+        while it.next() {
+            crate::museum::tick(&it.world(), it.delta_time());
         }
     });
 
@@ -626,17 +600,13 @@ fn systems(world: &World, input_ph: EntityView, spring_ph: EntityView, layout_ph
             spy(&it.world());
         }
     });
-    world.system_named::<()>("FigureClock").kind(cull_ph).run(|mut it| {
+    world.system_named::<()>("ExhibitVisibility").kind(cull_ph).run(|mut it| {
         while it.next() {
-            figure_clock(&it.world());
+            exhibit_visibility(&it.world());
         }
     });
 
     // ---- Pack ----
-    // Figures in the data range only (off screen costs nothing).
-    world.system_named::<(&Figure, &mut FigureTime)>("FigureAdvance").kind(pack_ph).with(Visible::id()).each_iter(|it, _, (f, c)| {
-        advance(&it.world(), it.delta_time(), f, c);
-    });
     world.system_named::<()>("PackState").kind(pack_ph).run(|mut it| {
         while it.next() {
             pack(&it.world());
@@ -776,8 +746,8 @@ fn spy(w: &World) {
     }
 }
 
-/// Per figure: on screen, live (60 percent inside the viewport) and the `Visible` data range. Runs when the cull window moved.
-fn figure_clock(w: &World) {
+/// Per exhibit: on screen, live (60 percent inside the viewport) and the `Visible` data range. Runs when the cull window moved.
+fn exhibit_visibility(w: &World) {
     let y = w.try_cloned::<&Scroll>().map_or(0.0, |s| s.y);
     w.get::<&mut Doc>(|d| {
         if !d.cull_changed {
@@ -786,12 +756,12 @@ fn figure_clock(w: &World) {
         d.cull_changed = false;
         let v = d.view_em;
         let (top, bot) = (y, y + v);
-        let flo = d.to_doc(top - FIG_AHEAD * v);
-        let fhi = d.to_doc(bot + FIG_AHEAD * v);
+        let flo = d.to_doc(top - EX_AHEAD * v);
+        let fhi = d.to_doc(bot + EX_AHEAD * v);
         let (mut first, mut last) = (usize::MAX, 0usize);
-        for i in 0..d.figs.len() {
-            let (y0, y1) = (d.figs[i].y0, d.figs[i].y1);
-            let in_data = d.figs[i].ent != 0 && y1 >= flo && y0 <= fhi;
+        for i in 0..d.exs.len() {
+            let (y0, y1) = (d.exs[i].y0, d.exs[i].y1);
+            let in_data = d.exs[i].ent != 0 && y1 >= flo && y0 <= fhi;
             let (on, live) = match d.page_span(y0, y1) {
                 Some((a, b)) => {
                     let overlap = (b.min(bot) - a.max(top)).max(0.0);
@@ -800,7 +770,10 @@ fn figure_clock(w: &World) {
                 }
                 None => (false, false),
             };
-            let g = &mut d.figs[i];
+            let g = &mut d.exs[i];
+            if g.onscreen != on {
+                d.dirty |= D_EX;
+            }
             g.onscreen = on;
             g.live = live;
             if in_data {
@@ -818,49 +791,23 @@ fn figure_clock(w: &World) {
             }
         }
         if first == usize::MAX {
-            d.fig_first = 0;
-            d.fig_count = 0;
+            d.ex_first = 0;
+            d.ex_count = 0;
         } else {
-            d.fig_first = first as u32;
-            d.fig_count = (last - first + 1) as u32;
+            d.ex_first = first as u32;
+            d.ex_count = (last - first + 1) as u32;
         }
     });
 }
 
-/// Autoplay and momentum of one figure clock. Only the modes loop and once play by themselves; scrub and static figures move on input.
-fn advance(w: &World, dt: f32, f: &Figure, c: &mut FigureTime) {
-    let (live, idle, held, reduced) = w.get::<&Doc>(|d| (d.figs.get(f.index as usize).is_some_and(|g| g.live), d.idle, d.scrub == f.index as i32, d.reduced));
-    let before = c.t;
-    c.hold = (c.hold - dt).max(0.0);
-    let hi = f.duration.max(0.0);
-    if held || reduced || f.mode == MODE_STATIC {
-        c.vel = 0.0;
-    } else if c.vel != 0.0 {
-        c.t += c.vel * dt;
-        c.vel *= (-MOMENTUM_K * dt).exp();
-        if c.vel.abs() < 0.02 {
-            c.vel = 0.0;
-        }
-        if f.mode == MODE_LOOP {
-            c.t = wrap(c.t, f.duration);
-        } else {
-            if c.t <= 0.0 || c.t >= hi {
-                c.vel = 0.0; // a wall stops momentum
-            }
-            c.t = c.t.clamp(0.0, hi);
-        }
-    } else if c.play && live && idle >= IDLE_GATE_S && c.hold <= 0.0 {
-        c.t = if f.mode == MODE_LOOP { wrap(c.t + dt, f.duration) } else { (c.t + dt).min(hi) };
-    }
-    if c.t != before {
-        let (i, t) = (f.index as usize, c.t);
-        w.get::<&mut Doc>(|d| {
-            if let Some(g) = d.figs.get_mut(i) {
-                g.t = t;
-            }
-            d.dirty |= D_FIG;
-        });
-    }
+/// For the museum: seconds since the page last moved, and reduced motion.
+pub(crate) fn page_idle(w: &World) -> (f32, bool) {
+    w.get::<&Doc>(|d| (d.idle, d.reduced))
+}
+
+/// For the museum: the exhibit rows' state `(onscreen, live)`; `None` for an unknown index.
+pub(crate) fn exhibit_view(w: &World, i: usize) -> Option<(bool, bool)> {
+    w.get::<&Doc>(|d| d.exs.get(i).map(|g| (g.onscreen, g.live)))
 }
 
 /// Write the 64 float `RD` buffer.
@@ -891,19 +838,14 @@ fn pack(w: &World) {
         out[RD_DIRTY] = d.dirty as f32;
         out[RD_HOVER] = d.hover as f32;
         out[RD_FOCUS] = d.focus as f32;
-        out[RD_SCRUB] = d.scrub as f32;
         out[RD_OPEN] = d.open as f32;
-        out[RD_FIG_VIS_FIRST] = d.fig_first as f32;
-        out[RD_FIG_VIS_COUNT] = d.fig_count as f32;
+        out[RD_EX_VIS_FIRST] = d.ex_first as f32;
+        out[RD_EX_VIS_COUNT] = d.ex_count as f32;
         out[RD_FOLD_SETTLED] = if fold.t == fold.target && fold.vel == 0.0 { 1.0 } else { 0.0 };
         out[RD_WIDTH_CLASS] = d.width_class as f32;
         out[RD_IDLE] = d.idle;
         out[RD_EM_PX] = ty.em_px;
         out[RD_VIEWPORT_EM] = d.view_em;
-        for (i, g) in d.figs.iter().take(MAX_FIG_STATE).enumerate() {
-            out[RD_FIG_BASE + 2 * i] = g.t;
-            out[RD_FIG_BASE + 2 * i + 1] = if g.onscreen { 1.0 } else { 0.0 };
-        }
     });
     RD.with(|st| *st.borrow_mut() = out);
 }
@@ -913,7 +855,7 @@ fn refresh(w: &World) {
     metrics(w);
     cull(w);
     spy(w);
-    figure_clock(w);
+    exhibit_visibility(w);
     pack(w);
 }
 
@@ -937,14 +879,14 @@ fn observers(world: &World) {
     world.observer::<flecs::OnAdd, ()>().with(Settled::id()).each_iter(|it, _, _| emit(&it.world(), EV_FOLD_SETTLED, 0));
     world.observer::<flecs::OnAdd, ()>().with(Expanded::id()).each_iter(|it, _, _| emit(&it.world(), EV_FOLD_EXPAND, 1));
     world.observer::<flecs::OnRemove, ()>().with(Expanded::id()).each_iter(|it, _, _| emit(&it.world(), EV_FOLD_EXPAND, 0));
-    // a figure entering or leaving the data lookahead: the host fetches or evicts its data, the clock starts or pauses
-    world.observer::<flecs::OnAdd, ()>().with(Visible::id()).with(Figure::id()).each_iter(|it, row, _| {
-        let idx = it.entity(row).try_cloned::<&Figure>().map_or(NONE, |f| f.index);
-        emit(&it.world(), EV_FIG_VISIBLE, idx);
+    // an exhibit entering or leaving the data lookahead: the host fetches or evicts its data, the timeline starts or pauses
+    world.observer::<flecs::OnAdd, ()>().with(Visible::id()).with(ExhibitInfo::id()).each_iter(|it, row, _| {
+        let idx = it.entity(row).try_cloned::<&ExhibitInfo>().map_or(NONE, |f| f.index);
+        emit(&it.world(), EV_EX_VISIBLE, idx);
     });
-    world.observer::<flecs::OnRemove, ()>().with(Visible::id()).with(Figure::id()).each_iter(|it, row, _| {
-        let idx = it.entity(row).try_cloned::<&Figure>().map_or(NONE, |f| f.index);
-        emit(&it.world(), EV_FIG_HIDDEN, idx);
+    world.observer::<flecs::OnRemove, ()>().with(Visible::id()).with(ExhibitInfo::id()).each_iter(|it, row, _| {
+        let idx = it.entity(row).try_cloned::<&ExhibitInfo>().map_or(NONE, |f| f.index);
+        emit(&it.world(), EV_EX_HIDDEN, idx);
     });
 }
 
@@ -953,6 +895,7 @@ fn observers(world: &World) {
 /// Install the module on `world` and remember the handle. Called by `reading_init` (bare world) and by `world_build` (the room).
 pub fn setup(world: &World) {
     world.import::<ReadingModule>();
+    crate::museum::setup(world);
     WORLD.with(|w| *w.borrow_mut() = Some(world.clone()));
     rd_reset();
 }
@@ -1107,13 +1050,15 @@ fn load_into(w: &World, b: &[u32]) -> u32 {
     }
     let f = |i: usize| f32::from_bits(b[i]);
     let (nb, nn, nf, na, nl) = (b[0] as usize, b[1] as usize, b[2] as usize, b[3] as usize, b[4] as usize);
-    let need = LOAD_HEADER + nb * LOAD_BLOCK + nn * LOAD_NOTE + nf * LOAD_FIGURE + na * LOAD_ANCHOR + nl * LOAD_LINK;
+    let need = LOAD_HEADER + nb * LOAD_BLOCK + nn * LOAD_NOTE + nf * LOAD_EXHIBIT + na * LOAD_ANCHOR + nl * LOAD_LINK;
     if b.len() < need {
         return 1;
     }
     let (doc_h, fold_y, fold_h, peek_h, class) = (f(5), f(6), f(7).max(0.0), f(8), b[9]);
 
-    // the previous article goes (its children with it); the relations pointing into it are removed by Flecs
+    // the previous article goes (its children and its exhibit scopes with it)
+    crate::museum::reset();
+    // (the relations pointing into it are removed by Flecs)
     let old = w.cloned::<&Doc>();
     if old.article != 0 {
         let e = w.entity_from_id(old.article);
@@ -1189,20 +1134,20 @@ fn load_into(w: &World, b: &[u32]) -> u32 {
     d.n_pmax = prefix_max(&n_y1);
     d.n_smin = suffix_min(&n_y0);
 
-    // figures: the clock lives on the figure's block entity
+    // exhibits: the description lives on the exhibit's block entity; the museum registers the runtime row
     for i in 0..nf {
-        let (id, mode, duration, poster, block, alt) = (b[o], b[o + 1], f(o + 2), f(o + 3), b[o + 4] as usize, b[o + 5]);
-        o += LOAD_FIGURE;
-        let mut row = Fig { t: poster, ..Fig::default() };
+        let (id, mode, duration, poster, block, kind) = (b[o], b[o + 1], f(o + 2), f(o + 3), b[o + 4] as usize, b[o + 5]);
+        o += LOAD_EXHIBIT;
+        let mut row = Ex::default();
         if let Some(&blk) = d.block_ent.get(block) {
             let e = w.entity_from_id(blk);
-            e.set(Figure { index: i as u32, id, mode, duration, poster, alt });
-            e.set(FigureTime { t: poster, vel: 0.0, hold: 0.0, play: mode == MODE_LOOP || mode == MODE_ONCE });
+            e.set(ExhibitInfo { index: i as u32, id, mode, duration, poster, kind });
             row.ent = blk;
             row.y0 = d.y0[block];
             row.y1 = y1s[block];
         }
-        d.figs.push(row);
+        crate::museum::register(i, id, mode, duration, poster, kind, row.ent, d.article);
+        d.exs.push(row);
     }
 
     // anchors: the block record already names its anchor; the table fills the blocks that have none
@@ -1240,7 +1185,7 @@ fn load_into(w: &World, b: &[u32]) -> u32 {
     d.last_y = w.try_cloned::<&Scroll>().map_or(0.0, |s| s.y);
     w.set(d);
     rd_reset();
-    // events of the teardown go; the ones of the first cull (the current heading, figures in range) stay for the host
+    // events of the teardown go; the ones of the first cull (the current heading, exhibits in range) stay for the host
     w.get::<&mut Events>(|e| e.q.clear());
     refresh(w);
     emit(w, EV_LAYOUT, class);
@@ -1273,7 +1218,7 @@ fn suffix_min(v: &[f32]) -> Vec<f32> {
 
 // ---- input ----
 
-/// Point an exclusive singleton relation at the block (or figure block) `ent`, or clear it.
+/// Point an exclusive singleton relation at the block `ent`, or clear it.
 fn point(w: &World, rel: Entity, ent: Option<u64>) {
     match ent {
         None => {
@@ -1291,31 +1236,6 @@ fn point(w: &World, rel: Entity, ent: Option<u64>) {
 fn block_ent(w: &World, idx: i32) -> Option<u64> {
     let i = usize::try_from(idx).ok()?;
     w.get::<&Doc>(|d| d.block_ent.get(i).copied())
-}
-
-fn fig_ent(w: &World, idx: i32) -> Option<u64> {
-    let i = usize::try_from(idx).ok()?;
-    w.get::<&Doc>(|d| d.figs.get(i).map(|g| g.ent)).filter(|&e| e != 0)
-}
-
-/// Edit a figure clock (immediate, outside the pipeline) and mirror it for the packer. False when the figure is unknown or static.
-fn edit_clock(w: &World, idx: i32, f: impl FnOnce(&Figure, FigureTime) -> FigureTime) -> bool {
-    let Some(id) = fig_ent(w, idx) else { return false };
-    let e = w.entity_from_id(id);
-    let (Some(fig), Some(c)) = (e.try_cloned::<&Figure>(), e.try_cloned::<&FigureTime>()) else { return false };
-    let n = f(&fig, c);
-    e.set(n);
-    w.get::<&mut Doc>(|d| {
-        if let Some(g) = d.figs.get_mut(idx as usize) {
-            g.t = n.t;
-        }
-        d.dirty |= D_FIG;
-    });
-    true
-}
-
-fn is_static(w: &World, idx: i32) -> bool {
-    fig_ent(w, idx).and_then(|id| w.entity_from_id(id).try_cloned::<&Figure>()).map_or(true, |f| f.mode == MODE_STATIC)
 }
 
 pub fn input(kind: u32, a: f32, b: f32) {
@@ -1342,53 +1262,6 @@ pub fn input(kind: u32, a: f32, b: f32) {
                     d.open = if ai >= 0 && d.block_ent.len() > ai as usize { ai } else { -1 };
                     d.dirty |= D_HOVER;
                 });
-            }
-            IN_SCRUB_BEGIN => {
-                if !is_static(w, ai) && edit_clock(w, ai, |_, c| FigureTime { vel: 0.0, hold: USER_HOLD_S, ..c }) {
-                    point(w, w.component_id::<Scrubbing>(), fig_ent(w, ai));
-                    w.get::<&mut Doc>(|d| {
-                        d.scrub = ai;
-                        d.dirty |= D_HOVER;
-                    });
-                }
-            }
-            IN_SCRUB_TO => {
-                if !is_static(w, ai) {
-                    edit_clock(w, ai, |f, c| FigureTime { t: b.clamp(0.0, f.duration.max(0.0)), vel: 0.0, hold: USER_HOLD_S, ..c });
-                }
-            }
-            IN_SCRUB_END => {
-                let reduced = w.has(Reduced::id());
-                if !is_static(w, ai) {
-                    edit_clock(w, ai, |_, c| FigureTime { vel: if reduced { 0.0 } else { b }, hold: USER_HOLD_S, ..c });
-                }
-                point(w, w.component_id::<Scrubbing>(), None);
-                w.get::<&mut Doc>(|d| {
-                    d.scrub = -1;
-                    d.dirty |= D_HOVER;
-                });
-            }
-            IN_FIG_STEP => {
-                if !is_static(w, ai) {
-                    edit_clock(w, ai, |f, c| FigureTime { t: (c.t + b).clamp(0.0, f.duration.max(0.0)), vel: 0.0, hold: USER_HOLD_S, ..c });
-                }
-            }
-            IN_FIG_PLAY => {
-                if !is_static(w, ai) {
-                    edit_clock(w, ai, |f, c| {
-                        let play = match b as i32 {
-                            0 => false,
-                            2 => !c.play,
-                            _ => true,
-                        };
-                        // playing a finished figure starts it over
-                        let t = if play && f.mode != MODE_LOOP && c.t >= f.duration { 0.0 } else { c.t };
-                        FigureTime { t, play, hold: 0.0, ..c }
-                    });
-                }
-            }
-            IN_FIG_HOME => {
-                edit_clock(w, ai, |f, c| FigureTime { t: f.poster, vel: 0.0, hold: USER_HOLD_S, ..c });
             }
             IN_FOLD_SET => set_fold(w, a > 0.5, b > 0.5),
             IN_REDUCED => set_reduced(w, a > 0.5),
@@ -1430,11 +1303,8 @@ fn set_reduced(w: &World, on: bool) {
     }
     w.get::<&mut Doc>(|d| d.reduced = on);
     if on {
-        // figures pin their poster; the fold lands where it is going
-        let n = w.get::<&Doc>(|d| d.figs.len());
-        for i in 0..n {
-            edit_clock(w, i as i32, |f, c| FigureTime { t: f.poster, vel: 0.0, hold: 0.0, ..c });
-        }
+        // timelines pin their poster; the fold lands where it is going
+        crate::museum::reduced(w);
         let f = w.try_cloned::<&Fold>().unwrap_or_default();
         if f.t != f.target || f.vel != 0.0 {
             set_fold(w, f.target > 0.5, true);

@@ -1,0 +1,110 @@
+// Scene script "museum" (docs/MUSEUM.md): the vocabulary and the prefab family of exhibits. One term per line (a pair or tag after
+// another term on the same line is a parse error). The components (Extent, Place, Label, Does, Tape, ...) are registered by
+// museum::setup; this file only declares data. Entities here share the root namespace with the Rust components: never reuse a
+// component name (Place, Order, Label, ...) for a script entity.
+Left {}
+Right {}
+Stay {}
+From {}
+Reads {}
+Writes {}
+Moves {}
+To {}
+Runs {}
+Why {}
+Accept {}
+NoRule {}
+OutOfFuel {}
+Blank {}
+Halting {}
+Running {}
+Halted {}
+
+prefab Button {
+  Place: {0, 0, 4, 1.8}
+  Layer: {2}
+}
+prefab Slider {
+  Place: {0, 0, 6, 1.8}
+  Layer: {2}
+  Range: {0, 1}
+}
+prefab TapeView {
+  Place: {1, 4, 34, 2.4}
+  Layer: {1}
+  Cells: {2, 0.2, 15}
+}
+prefab HeadMark {
+  Place: {0, 6.6, 2, 1.2}
+  Layer: {3}
+}
+prefab StatusLine {
+  Place: {1, 8, 34, 1.2}
+}
+prefab RuleTable {
+  Place: {1, 10, 34, 10.2}
+  Layer: {1}
+  Rows: {1.1, 8}
+}
+// The region a stepper family (rewrite, graph, grid) draws in.
+prefab View {
+  Place: {1, 7, 34, 12}
+  Layer: {1}
+}
+// Graph nodes: a Source is edited by a click, an Action or a Tree is derived from the nodes it Reads.
+prefab Source {}
+prefab Action {}
+prefab Tree {}
+// A named closed term of a rewrite exhibit (Lambda text), usable by name in later terms.
+prefab Def {}
+prefab Symbol {
+  Glyph: {"?"}
+}
+prefab State {}
+prefab Rule {}
+prefab Preset {}
+
+// A tape machine: Turing machines and anything else that is a head, a tape and a rule table.
+prefab TapeMachine {
+  Extent: {36, 21}
+  Rate: {4}
+  Fuel: {5000}
+}
+
+// A lambda-calculus reducer: terms are Lambda text, Def entities name closed terms, presets are start terms.
+prefab RewriteMachine {
+  Extent: {36, 21}
+  Rate: {3}
+  Fuel: {200}
+}
+
+// A hashed graph: nodes keyed by a hash of their inputs (an action graph with a cache, a Merkle DAG).
+prefab GraphMachine {
+  Extent: {36, 21}
+  Rate: {2}
+  Fuel: {200}
+}
+
+// A grid search: Dijkstra and A* on a Board.
+prefab GridMachine {
+  Extent: {36, 22}
+  Rate: {8}
+  Fuel: {5000}
+}
+
+// A clock over compiled art (every figure). A negative Place x or y is measured from the far edge; a w of 0 or less leaves that margin on the right.
+prefab Timeline {
+  Extent: {36, 14}
+  play : Button {
+    Place: {0.6, -1.8, 2.6, 1.2}
+    Does: {"run"}
+    Key: {" "}
+    Label: {"play"}
+    LabelAlt: {"pause"}
+  }
+  scrub : Slider {
+    Place: {3.8, -1.8, -0.6, 1.2}
+    Does: {"scrub"}
+    Binds: {"Clock.t"}
+  }
+}

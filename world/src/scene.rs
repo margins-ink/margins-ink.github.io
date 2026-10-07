@@ -6,6 +6,10 @@ use flecs_ecs::prelude::*;
 use serde::Deserialize;
 use std::cell::RefCell;
 
+/// `world/scene/60-museum.flecs` is not one of `SCRIPTS`: `museum::setup` runs it (as `museum::prefabs`) when the reading module installs,
+/// so listing it here would define the vocabulary twice. The dev page still sends it by name; `override_source` and `reload` route it there.
+const MUSEUM: &str = "museum";
+
 const SCRIPTS: &[(&str, &str)] = &[
     ("building", include_str!("../scene/00-building.flecs")),
     ("prefabs", include_str!("../scene/10-prefabs.flecs")),
@@ -213,6 +217,10 @@ fn parse(json: &[u8]) -> Result<Input, String> {
 
 /// Dev: use `src` for script `name` in the next `build` (so the page starts from the files on disk, not the baked copy).
 pub fn override_source(name: &str, src: &str) -> Result<(), String> {
+    if name == MUSEUM {
+        crate::museum::override_vocabulary(src);
+        return Ok(());
+    }
     SRC.with(|s| match s.borrow_mut().iter_mut().find(|(n, _)| n == name) {
         Some(slot) => {
             slot.1 = src.to_string();
@@ -258,6 +266,10 @@ fn detach(world: &World, live: &Live) {
 /// 2. Live: detach the instances, `ecs_script_update` the script and every script after it (they may use its prefabs),
 ///    re-instance the floors and cab on their old ids, re-pack. Singletons and the state on the cab and the books survive.
 pub fn reload(world: &World, json: &[u8], name: &str, src: &str) -> Result<Output, String> {
+    if name == MUSEUM {
+        crate::museum::override_vocabulary(src);
+        return Err("the museum vocabulary (60-museum.flecs) is read once when the page loads: reload the page to apply it".into());
+    }
     let input = parse(json)?;
     let mut cand = SRC.with(|s| s.borrow().clone());
     let idx = cand.iter().position(|(n, _)| n == name).ok_or_else(|| format!("no scene script named {name}"))?;
