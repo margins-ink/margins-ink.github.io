@@ -4,6 +4,7 @@
 //!
 //! The host (src/lib/film) owns the clock (it slaves it to the audio element when there is one), gates (holds for the viewer), the exhibit
 //! mounts and the captions; this module owns layout (where every line and word falls in film time) and the stage draw list.
+pub mod layout;
 pub mod model;
 pub mod pack;
 pub mod timeline;

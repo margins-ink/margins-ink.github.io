@@ -145,6 +145,20 @@ pub struct Dock {
     pub w: f32,
     pub h: f32,
 }
+/// The layout slot a prop belongs to (`title`, `hero`, `code`, `output`, `note`): a stage region (layout.rs `SLOTS`); the lint fails a text or plate
+/// that leaves its slot. A prop without a slot is only checked against the stage and the other items.
+#[derive(Component, Clone, Default, Debug)]
+#[flecs(meta)]
+pub struct Slot {
+    pub name: String,
+}
+/// A character range `[from, to)` of the label a prop `Marks`: the prop (a halo, ring or line) is placed on the laid-out glyph rect of that range.
+#[derive(Component, Clone, Copy, Default, Debug)]
+#[flecs(meta)]
+pub struct Chars {
+    pub from: u32,
+    pub to: u32,
+}
 /// What resume does with the viewer's changes: `snap` (default), `continue`, `rewind`.
 #[derive(Component, Clone, Default, Debug)]
 #[flecs(meta)]
@@ -260,6 +274,8 @@ pub fn register(w: &World) {
     w.component_named::<Mount>("Mount");
     w.component_named::<Dock>("Dock");
     w.component_named::<Resume>("Resume");
+    w.component_named::<Slot>("Slot");
+    w.component_named::<Chars>("Chars");
     w.component_named::<At>("At");
     w.component_named::<Word>("Word");
     w.component_named::<Delay>("Delay");
@@ -286,6 +302,8 @@ pub struct Voc {
     pub pin: Entity,
     pub on: Entity,
     pub after: Entity,
+    pub marks: Entity,
+    pub overlay: Entity,
     pub transition: Entity,
 }
 
@@ -303,6 +321,8 @@ impl Voc {
             pin: get("Pin")?,
             on: get("On")?,
             after: get("After")?,
+            marks: get("Marks")?,
+            overlay: get("Overlay")?,
             transition: get("Transition")?,
         })
     }
@@ -342,6 +362,12 @@ pub struct PropDef {
     pub emit: Option<Emit>,
     pub mount: Option<MountDef>,
     pub placeholder: bool,
+    /// layout slot (layout.rs `SLOTS` index)
+    pub slot: Option<usize>,
+    /// declared to draw over a mount, on its own plate (`Overlay` tag)
+    pub overlay: bool,
+    /// (label prop index, first char, last char + 1): this prop sits on that glyph range (relation `(Marks, label)` with `Chars`)
+    pub marks: Option<(usize, u32, u32)>,
 }
 
 #[derive(Clone, Debug)]
@@ -534,6 +560,12 @@ fn read_prop(c: EntityView, voc: &Voc) -> Result<Option<PropDef>, String> {
         emit,
         mount,
         placeholder: c.has(voc.placeholder),
+        slot: match c.try_cloned::<&Slot>().map(|s| s.name) {
+            None => None,
+            Some(n) => Some(super::layout::slot_index(&n).ok_or_else(|| at(&format!("Slot {{\"{n}\"}} is not one of {}", super::layout::slot_names()), c))?),
+        },
+        overlay: c.has(voc.overlay),
+        marks: None,
     }))
 }
 
@@ -578,6 +610,22 @@ fn read_scene(w: &World, c: EntityView, voc: &Voc) -> Result<SceneDef, String> {
         } else if let Some(p) = read_prop(k, voc)? {
             prop_ids.push(k.id());
             props.push(p);
+        }
+    }
+    // `(Marks, label)` + `Chars`: resolved once every prop of the scene is known
+    for (i, &id) in prop_ids.iter().enumerate() {
+        let k = w.entity_from_id(id);
+        if let Some(t) = k.target(voc.marks, 0) {
+            let li = prop_ids.iter().position(|&q| q == t.id()).ok_or_else(|| at(&format!("(Marks, {}) is not a prop of this scene", path(t)), k))?;
+            if props[li].form != FormKind::Label {
+                return Err(at(&format!("(Marks, {}): the target is not a label (a prop with Words)", path(t)), k));
+            }
+            let ch = k.try_cloned::<&Chars>().ok_or_else(|| at("(Marks, label) needs Chars {from, to}", k))?;
+            let n = props[li].text.chars().count() as u32;
+            if ch.from >= ch.to || ch.to > n {
+                return Err(at(&format!("Chars {{{}, {}}} is not a range inside the {n} characters of {}", ch.from, ch.to, path(t)), k));
+            }
+            props[i].marks = Some((li, ch.from, ch.to));
         }
     }
     // beats: every child with a time source (At, a Pin or an After) and an action
@@ -711,7 +759,6 @@ fn read_scene(w: &World, c: EntityView, voc: &Voc) -> Result<SceneDef, String> {
         }
     }
     beats.extend(extra);
-    let _ = w;
     let tail = c.try_cloned::<&Tail>().map_or(0.8, |t| t.s);
     let lead = c.try_cloned::<&Lead>().map_or(0.7, |t| t.s);
     let dur = c.try_cloned::<&Dur>().map(|d| d.s).filter(|d| *d > 0.0);
