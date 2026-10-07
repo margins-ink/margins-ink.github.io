@@ -34,8 +34,7 @@ function state(w: number, h: number, over: Partial<ChromeState> = {}): ChromeSta
 		find: { open: false, query: '', caret: 0, count: 0, index: 0 },
 		copyFlash: {}, toasts: [],
 		codeBlocks: [{ block: 3, rect: { x: w * 0.1, y: 200, w: w * 0.8, h: 160 }, lang: 'rust' }],
-		figures: [{ fig: 7, rect: { x: w * 0.1, y: 420, w: w * 0.8, h: 200 }, playing: false, t: 0.3, steppable: true }],
-		hoverCode: 3, focusCode: -1, hoverFig: 7, focusFig: -1, scrubFig: -1, hoverLink: null, focusLink: null,
+		hoverCode: 3, focusCode: -1, hoverLink: null, focusLink: null,
 		scrollbar: { opacity: 1, width: 6, widthVel: 0, idleMs: 0, lastScrollY: 0, hover: false },
 		anim: createChromeAnim(), ...over
 	};
@@ -183,25 +182,23 @@ describe('hit testing and layering', () => {
 		expect(frame(s, { ...idle, pointer: { x: 400, y: 500 } }).cursor).toBe('');
 	});
 
-	test('figure scrub and scrollbar thumb are capture ids', () => {
+	test('the scrollbar thumb is a capture id', () => {
 		const o = settle(state(900, 800));
-		const sc = hitById(o.hits, 'fig:scrub:7')!;
+		const sc = hitById(o.hits, 'sb:thumb')!;
 		expect(sc.capture).toBe(true);
-		expect(sc.cursor).toBe('ew-resize');
-		expect(hitById(o.hits, 'sb:thumb')!.capture).toBe(true);
 		expect(fractionIn(sc, sc.x + sc.w / 2)).toBeCloseTo(0.5, 6);
 		expect(fractionIn(sc, sc.x - 50)).toBe(0);
 		// thumb drag maps the track proportionally
 		expect(thumbScrollY(40 + 0, 0, 40, 760, 100, 6000, 800)).toBe(0);
 		expect(thumbScrollY(10000, 0, 40, 760, 100, 6000, 800)).toBe(5200);
-		const o2 = frame(state(900, 800), { ...idle, captured: 'fig:scrub:7' });
-		expect(o2.cursor).toBe('ew-resize');
+		const o2 = frame(state(900, 800), { ...idle, captured: 'sb:thumb' });
+		expect(o2.cursor).toBe('grab');
 	});
 
 	test('actions named for the root', () => {
 		const o = settle(everything(900, 800));
 		const clicks = new Set(o.hits.map((h) => h.onClick).filter(Boolean));
-		for (const a of ['close', 'toggleAa', 'toc:toggle', 'toc:close', 'toc:0', 'aa:step:0', 'aa:full', 'cite:open:0', 'copy:3', 'fig:play:7', 'fig:back:7', 'fig:fwd:7', 'fig:scrub:7', 'find:next', 'find:prev', 'find:close', 'find:field', 'sb:thumb']) {
+		for (const a of ['close', 'toggleAa', 'toc:toggle', 'toc:close', 'toc:0', 'aa:step:0', 'aa:full', 'cite:open:0', 'copy:3', 'find:next', 'find:prev', 'find:close', 'find:field', 'sb:thumb']) {
 			expect(clicks.has(a)).toBe(true);
 		}
 	});

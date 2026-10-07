@@ -1,16 +1,17 @@
-// Flow layout (docs/READING.md section 4): one article at one width class -> the RDR3 tables of a page in document em.
+// Flow layout (docs/READING.md section 4): one article at one width class -> the RDR4 tables of a page in document em.
 // No pages, no spreads: a single column (34em, 21em on narrow) of blocks stacked on a 0.81em unit, ragged-right Knuth-Plass
 // setting, citation sidenotes in the right margin on the wide class (inline note blocks otherwise), wide figures at 52em,
 // an accent-rule section entry before every h2, an optional "In brief" section and fold built from the distill block.
 // Coordinates: x 0 = left edge of the column, y 0 = top of the page, y down; glyph y is the baseline.
 import {
-	BlockFlag, BlockKind, GlyphFlag, ItemType, LinkKind, NONE16, NOTE_BIT, PAL2, RectKind, UNIT, LINE_H as LH,
+	BlockFlag, BlockKind, ExhibitKind, GlyphFlag, ItemType, LinkKind, NONE16, NOTE_BIT, PAL2, RectKind, UNIT, LINE_H as LH,
 	type BlockRec, type NoteRec
 } from '../../src/lib/magazine/format';
 import { LineFont } from '../../src/lib/magazine/format';
 import { F } from '../reader/fonts';
 import type { Block, Parsed, RefEntry, Run } from '../reader/parse';
 import type { FigureArt } from './fig/emit';
+import type { ScriptExhibit } from './exhibit';
 import { appendFragment, newStore, placeFigure, type Box, type EmitContext, type FItem, type PageParts, type Store } from './emit';
 import {
 	TextSink, emptyBlk, layoutBlocks, layoutCode, layoutPara, makeSegs, shift, stack, withMarker, type Blk, type Env
@@ -25,9 +26,9 @@ export interface Cfg {
 	title: number; h2: number; pull: number; hyph: boolean; topPad: number;
 }
 export const CFG: Cfg[] = [
-	{ cls: 0, colW: 34, docX0: -3, docX1: 54, figX: -3, figW: 52, noteX: 37, noteW: 17, margin: true, title: 5.4, h2: 2.0, pull: 2.4, hyph: false, topPad: SP.s8 },
-	{ cls: 1, colW: 34, docX0: 0, docX1: 34, figX: 0, figW: 34, noteX: 0, noteW: 34, margin: false, title: 4.0, h2: 2.0, pull: 1.75, hyph: false, topPad: SP.s7 },
-	{ cls: 2, colW: 21, docX0: 0, docX1: 21, figX: 0, figW: 21, noteX: 0, noteW: 21, margin: false, title: 2.7, h2: 1.5, pull: 1.5, hyph: true, topPad: SP.s7 }
+	{ cls: 0, colW: 34, docX0: -3, docX1: 54, figX: -3, figW: 52, noteX: 37, noteW: 17, margin: true, title: 5.8, h2: 2.3, pull: 2.4, hyph: false, topPad: SP.s8 },
+	{ cls: 1, colW: 34, docX0: 0, docX1: 34, figX: 0, figW: 34, noteX: 0, noteW: 34, margin: false, title: 4.8, h2: 2.2, pull: 1.75, hyph: false, topPad: SP.s7 },
+	{ cls: 2, colW: 21, docX0: 0, docX1: 21, figX: 0, figW: 21, noteX: 0, noteW: 21, margin: false, title: 3.0, h2: 1.6, pull: 1.5, hyph: true, topPad: SP.s7 }
 ];
 
 export interface Neighbour { slug: string; title: string }
@@ -35,7 +36,10 @@ export interface FlowInput {
 	p: Parsed;
 	env: Env;
 	cfg: Cfg;
+	/** compiled timeline art of exhibits/art.ts, by id */
 	figures: Map<string, FigureArt>;
+	/** script exhibits (exhibits/<id>.flecs), by id; ids are disjoint from `figures` (build.ts checks) */
+	scripts: Map<string, ScriptExhibit>;
 	display: number; // font index of the article's display voice
 	neighbours: { prev?: Neighbour; next?: Neighbour };
 	ctx: Omit<EmitContext, 'text'>;
@@ -118,7 +122,7 @@ interface PlaceOpts {
 	size: number; // line size (em), the DOM text layer font size
 	font: number; // LineFont
 	anchor?: string;
-	fig?: number;
+	ex?: number;
 	exactH?: number;
 	section?: number;
 	start?: number; // text sink length before the block was laid out
@@ -130,7 +134,7 @@ class Page {
 	s = newStore();
 	blocks: BlockRec[] = [];
 	notes: NoteRec[] = [];
-	figs: { items: FItem[]; box: Box }[] = [];
+	exhibitItems: ({ items: FItem[]; box: Box } | undefined)[] = [];
 	y = 0;
 	prevAfter = 0;
 	started = false;
@@ -209,7 +213,7 @@ class Page {
 		const h = o.exactH ?? up(blk.h);
 		this.blocks.push({
 			x0: x, y0, x1: x + w, y1: y0 + h, firstItem: r.firstItem, itemCount: r.itemCount, firstLine: r.firstLine, lineCount: r.lineCount,
-			anchor: o.anchor ? this.env.strings.add(o.anchor) : 0, fig: o.fig ?? -1, kind: o.kind, level: o.level ?? 0,
+			anchor: o.anchor ? this.env.strings.add(o.anchor) : 0, ex: o.ex ?? -1, kind: o.kind, level: o.level ?? 0,
 			flags: (o.flags ?? 0) | (this.folded ? BlockFlag.folded : 0) | (this.brief ? BlockFlag.brief : 0),
 			section: this.section, textOff: r.textOff, textLen: Math.max(0, end - r.textOff)
 		});
@@ -222,7 +226,7 @@ class Page {
 const sentinelText = (env: Env, t = '\n\n') => { env.text.append(t); };
 
 export function flowArticle(inp: FlowInput): FlowOut {
-	const { p, env, cfg, figures, display: D } = inp;
+	const { p, env, cfg, figures, scripts, display: D } = inp;
 	const W = cfg.colW;
 	const where = `${p.file} [${['wide', 'mid', 'narrow'][cfg.cls]}]`;
 	env.kp = { justify: false, hyphenator: cfg.hyph ? env.kp?.hyphenator ?? null : null };
@@ -277,84 +281,145 @@ export function flowArticle(inp: FlowInput): FlowOut {
 		return b;
 	};
 
-	// ---- hero ----
+	// ---- hero: the title wall (kicker, large display title, dek) and the exhibition plaque ----
+	const rooms = p.blocks.filter((b) => b.t === 'heading' && b.depth === 2).map((b) => plain((b as Extract<Block, { t: 'heading' }>).runs).trim());
+	const mins = Math.max(1, Math.round(wordsOf(p.blocks) / 230));
+	const when = fmtDate(p.meta.date);
+	const year = when.match(/\d{4}/)?.[0] ?? '';
+	/** A card: parts stacked inside padding on a panel with a hairline (RectKind.panel). Wall plaques and wall labels are cards. */
+	const card = (parts: Blk[], padX: number, padY: number, width: number): Blk => {
+		for (const c of parts) shift(c, padX, 0);
+		const b = stack(parts, padY);
+		b.rects.unshift({ x0: 0, x1: width, y0: 0, y1: b.h, colour: PAL2.panel, kind: RectKind.panel, radius: 0.6 });
+		return b;
+	};
+	const mono = (text: string, colour: number, bs = 0.72): Run => ({ text, font: F.code, size: bs, color: colour, flags: GlyphFlag.code });
 	pg.y = cfg.topPad;
 	{
+		// kicker: the accent rule and the series line, above the title
+		const lab = emptyBlk();
+		lab.h = LH;
+		lab.rects.push({ x0: 0, x1: 2.4, y0: LH / 2 - 0.085, y1: LH / 2 + 0.085, colour: PAL2.accent, kind: RectKind.rule });
+		const st0 = env.text.len;
+		const t = layoutPara(env, [{ text: ['THOUGHTS', year].filter(Boolean).join('  /  '), font: F.code, size: 1, color: PAL2.muted, flags: GlyphFlag.code }], { x0: 3.1, width: W - 3.1, bs: 0.8, lh: LH, font: F.code, align: 'left' }, where);
+		sentinelText(env);
+		lab.lines.push(...t.lines);
+		pg.place(lab, { kind: BlockKind.label, before: 0, after: SP.s5, size: 0.8, font: LineFont.code, start: st0 });
 		const runs: Run[] = [{ text: p.meta.title, font: D, size: 1, color: PAL2.heading, flags: GlyphFlag.display }];
 		let size = cfg.title;
 		while (size > 1.4 && longestWord(runs, size) > W - 0.05) size -= 0.1;
 		const lh = up(size * 1.04);
 		const start = env.text.len;
 		const b = para(runs, W, size, lh, D);
-		pg.place(b, { kind: BlockKind.hero, level: 1, before: 0, after: SP.s4, size, font: LineFont.display, start, anchor: 'top' });
+		pg.place(b, { kind: BlockKind.hero, level: 1, before: 0, after: SP.s5, size, font: LineFont.display, start, anchor: 'top' });
 		if (p.meta.dek) {
 			const st = env.text.len;
 			const d = para(spanRuns(String(p.meta.dek), F.italic, PAL2.ink), W, 1.375, 1.925, F.italic);
-			pg.place(d, { kind: BlockKind.hero, level: 2, before: 0, after: SP.s4, size: 1.375, font: LineFont.italic, start: st });
+			pg.place(d, { kind: BlockKind.hero, level: 2, before: 0, after: SP.s6, size: 1.375, font: LineFont.italic, start: st });
 		}
-		const mins = Math.max(1, Math.round(wordsOf(p.blocks) / 230));
-		const when = fmtDate(p.meta.date);
-		const meta = [when, `${mins} min read`].filter(Boolean).join('  ·  ');
+		// the plaque: the exhibition label of the piece (date, reading time, the rooms of the article)
 		const st = env.text.len;
-		const m = para([{ text: meta, font: F.sans, size: 1, color: PAL2.muted, flags: 0 }], W, 0.8, LH, F.sans);
-		pg.place(m, { kind: BlockKind.hero, level: 3, before: 0, after: SP.s7, size: 0.8, font: LineFont.sans, start: st });
+		const padX = cfg.cls === 2 ? 1.1 : 1.6, padY = cfg.cls === 2 ? 1.0 : 1.4, iw = W - 2 * padX;
+		const parts: Blk[] = [];
+		const add = (runs: Run[], bs: number, lh: number, font: number, before = 0) => { const q = para(runs, iw, bs, lh, font); q.before = before; parts.push(q); return q; };
+		add([mono('EXHIBITION', PAL2.muted)], 0.72, LH, F.code);
+		add([{ text: [when, `${mins} min read`, rooms.length ? `${rooms.length} room${rooms.length === 1 ? '' : 's'}` : ''].filter(Boolean).join('  ·  '), font: F.sans, size: 1, color: PAL2.ink, flags: 0 }], 0.88, LH, F.sans, SP.s1);
+		rooms.slice(0, 8).forEach((r, i) => {
+			const room = [mono(String(i + 1).padStart(2, '0') + '  ', PAL2.accent, 0.8), { text: r, font: F.sans, size: 1, color: PAL2.muted, flags: 0 } as Run];
+			add(room, 0.86, LH, F.sans, i === 0 ? SP.s3 : SP.s1);
+		});
+		if (rooms.length > 8) add([mono(`+ ${rooms.length - 8} more`, PAL2.muted)], 0.72, LH, F.code, SP.s1);
+		const pk = card(parts, padX, padY, W);
+		pg.place(pk, { kind: BlockKind.hero, level: 3, before: 0, after: SP.s7, size: 0.88, font: LineFont.sans, start: st, flags: BlockFlag.plaque });
 	}
 
-	// ---- figures ----
-	const placeFigure_ = (art: FigureArt, place: 'inline' | 'column' | 'wide' | 'bleed', flags: number, caption?: { num: number; text: string }) => {
+	// ---- exhibits ----
+	const directiveIds = new Set<string>();
+	/**
+	 * Place one exhibit block. A script exhibit is the Extent scaled to the column (no items); a timeline exhibit is its compiled art with the
+	 * control strip below (Extent h = art h + strip), the cell grid covering the art only. scale = min(width / frameW, 1.5).
+	 */
+	const placeExhibit_ = (id: string, place: 'inline' | 'column' | 'wide' | 'bleed', flags: number, caption?: { num: number; text: string }) => {
+		const art = figures.get(id);
+		const scr = scripts.get(id);
+		if (!art && !scr) throw new Error(`${where}: exhibit "${id}" is neither exhibits/${id}.flecs nor an entry of exhibits/art.ts`);
 		const wide = cfg.margin && (place === 'wide' || place === 'bleed');
 		const width = wide ? cfg.figW : W;
-		const [fw, fh] = art.size;
+		const [fw, fh] = art ? [art.size[0], art.size[1] + art.strip] : scr!.frame;
 		const sc = Math.min(width / fw, 1.5);
 		const num = ++pg.figNo;
 		pg.advance(SP.s4);
 		const y0 = pg.y;
 		const bw = fw * sc, bh = fh * sc;
 		const bx = (wide ? cfg.figX : 0) + (width - bw) / 2;
-		const placed = placeFigure(art.fragment, bx, y0, sc);
-		const first = s.figures.length;
-		const { items } = appendFragment(s, placed);
-		const box: Box = { x0: bx, y0, x1: bx + bw, y1: y0 + bh };
 		const bi = pg.blocks.length;
-		for (let i = first; i < s.figures.length; i++) {
-			s.figures[i] = { ...s.figures[i], id: i, block: bi, x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1, scale: sc };
-			pg.figs[i] = { items, box };
+		const first = s.exhibits.length;
+		const box: Box = { x0: bx, y0, x1: bx + bw, y1: y0 + bh };
+		if (art) {
+			const { items } = appendFragment(s, placeFigure(art.fragment, bx, y0, sc));
+			if (s.exhibits.length === first + 1) {
+				const artBox: Box = { x0: bx, y0, x1: bx + bw, y1: y0 + art.size[1] * sc };
+				s.exhibits[first] = { ...s.exhibits[first], id: first, block: bi, x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1, scale: sc };
+				pg.exhibitItems[first] = { items, box: artBox };
+			} else throw new Error(`${where}: figure ${art.id} has no exhibit record`);
+		} else {
+			const x = scr!;
+			s.exhibits.push({
+				id: first, kind: ExhibitKind.script, firstChan: 0, chanCount: 0, mode: 0, duration: 0, poster: 0,
+				alt: env.strings.add(x.alt), describe: env.strings.add(x.describe), name: env.strings.add(x.id), src: env.strings.add(x.src),
+				title: x.title ? env.strings.add(x.title) : 0, claim: env.strings.add(x.claim), caption: x.caption ? env.strings.add(x.caption) : 0,
+				frameW: fw, frameH: fh, x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1, block: bi, firstCell: 0, gridCols: 0, gridRows: 0, scale: sc
+			});
 		}
-		if (s.figures.length === first) throw new Error(`${where}: figure ${art.id} has no figure record`);
 		const h = up(bh);
 		pg.blocks.push({
 			x0: bx, y0, x1: bx + bw, y1: y0 + h, firstItem: 0, itemCount: 0, firstLine: s.lines.length, lineCount: 0, anchor: env.strings.add(`fig-${num}`),
-			fig: first, kind: BlockKind.figure, level: 0, flags: flags | (wide ? BlockFlag.wide : 0) | (pg.folded ? BlockFlag.folded : 0) | (pg.brief ? BlockFlag.brief : 0),
+			ex: first, kind: BlockKind.exhibit, level: 0, flags: flags | (wide ? BlockFlag.wide : 0) | (pg.folded ? BlockFlag.folded : 0) | (pg.brief ? BlockFlag.brief : 0),
 			section: pg.section, textOff: 0, textLen: 0
 		});
 		s.anchors.push({ idOffset: env.strings.add(`fig-${num}`), block: bi, y: y0 });
 		if (wide) pg.wideRanges.push({ y0, y1: y0 + h });
 		pg.y = y0 + h;
 		pg.prevAfter = SP.s4;
-		if (caption) {
-			const runs: Run[] = [{ text: `Fig. ${caption.num}`, font: F.sans, size: 0.8, color: PAL2.accent, flags: 0 }, { text: '  ', font: F.sans, size: 0.8, color: PAL2.ink, flags: 0 }, ...spanRuns(caption.text, F.sans, PAL2.muted)];
+		// the wall label under every exhibit: FIG. n, the year and the kind, the title, and what to try
+		{
+			const humanId = id.replace(/[-_]+/g, ' ').replace(/^./, (c) => c.toUpperCase());
+			const isStatic = !!art && art.strip === 0; // a static figure has no control strip
+			const kindName = scr ? 'Interactive' : isStatic ? 'Diagram' : 'Animated figure';
+			const title = (scr?.title || humanId).trim();
+			const firstSentence = (t: string) => (t.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? t).trim();
+			const tryText = caption?.text ?? (scr ? (scr.caption || scr.claim) : isStatic ? firstSentence(art!.compiled.describe) : 'Press play, or drag the scrub bar to move through it.');
+			const tryLabel = scr || !isStatic ? 'Try' : 'Look';
+			const padX = cfg.cls === 2 ? 1.1 : 1.5, padY = cfg.cls === 2 ? 0.9 : 1.2, iw = W - 2 * padX;
 			const st = env.text.len;
-			const cb = para(runs, W, 0.85, 1.215, F.sans);
-			pg.place(cb, { kind: BlockKind.caption, before: SP.s2, after: SP.s4, size: 0.85, font: LineFont.sans, start: st, flags });
+			const parts: Blk[] = [];
+			const add = (runs: Run[], bs: number, lh: number, font: number, before = 0) => { const q = para(runs, iw, bs, lh, font); q.before = before; parts.push(q); };
+			add([{ text: `FIG. ${num}`, font: F.code, size: 0.72, color: PAL2.accent, flags: GlyphFlag.code }, { text: ['', year, kindName.toUpperCase()].filter((x, i) => i === 0 || x).join('  ·  '), font: F.code, size: 0.72, color: PAL2.muted, flags: GlyphFlag.code }], 0.72, LH, F.code);
+			add([{ text: title, font: F.head, size: 1, color: PAL2.heading, flags: 0 }], 1.25, up(1.25 * 1.15), F.head, SP.s1);
+			if (tryText) add([{ text: `${tryLabel}  `, font: F.sans, size: 1, color: PAL2.accent, flags: 0 }, ...spanRuns(tryText, F.sans, PAL2.muted)], 0.9, LH, F.sans, SP.s2);
+			pg.place(card(parts, padX, padY, W), { kind: BlockKind.caption, before: SP.s3, after: SP.s6, size: 0.9, font: LineFont.sans, start: st, flags: BlockFlag.plaque | flags });
 		}
 		return num;
 	};
 
-	// ---- section entry ----
+	// ---- section entry: a room threshold (hairline across the column, accent rule, ROOM n / N, the heading) ----
 	const sectionEntry = (label: string, heading: Run[] | null, id: string | undefined, flags: number, headingSize = cfg.h2) => {
 		const lab = emptyBlk();
-		lab.h = LH;
-		lab.rects.push({ x0: 0, x1: 2.4, y0: LH / 2 - 0.085, y1: LH / 2 + 0.085, colour: PAL2.accent, kind: RectKind.rule });
+		const top = SP.s3;
+		lab.h = top + LH;
+		lab.rects.push({ x0: 0, x1: W, y0: 0, y1: 0.05, colour: PAL2.neutral3, kind: RectKind.rule });
+		lab.rects.push({ x0: 0, x1: 2.4, y0: top + LH / 2 - 0.085, y1: top + LH / 2 + 0.085, colour: PAL2.accent, kind: RectKind.rule });
 		const st = env.text.len;
 		const t = layoutPara(env, [{ text: label, font: F.code, size: 1, color: PAL2.muted, flags: GlyphFlag.code }], { x0: 3.1, width: W - 3.1, bs: 0.8, lh: LH, font: F.code, align: 'left' }, where);
 		sentinelText(env);
+		shift(t, 0, top);
 		lab.lines.push(...t.lines);
-		pg.place(lab, { kind: BlockKind.label, before: SP.s7, after: SP.s2, size: 0.8, font: LineFont.code, start: st, flags });
+		pg.place(lab, { kind: BlockKind.label, before: SP.s8, after: SP.s3, size: 0.8, font: LineFont.code, start: st, flags });
 		if (heading) {
 			const hs = env.text.len;
 			const hb = para(headRuns(heading), W, headingSize, up(headingSize * 1.1), F.head);
 			if (id) hb.anchors.push({ id, y: 0 });
-			pg.place(hb, { kind: BlockKind.heading, level: 2, before: 0, after: SP.s3, size: headingSize, font: LineFont.bold, start: hs, anchor: id, flags });
+			pg.place(hb, { kind: BlockKind.heading, level: 2, before: 0, after: SP.s4, size: headingSize, font: LineFont.bold, start: hs, anchor: id, flags });
 		}
 	};
 
@@ -373,12 +438,10 @@ export function flowArticle(inp: FlowInput): FlowOut {
 		}
 		const used = new Set<number>();
 		d.figures.forEach((id, i) => {
-			const art = figures.get(id);
-			if (!art) throw new Error(`${where}: distill figure "${id}" is not in figures.ts`);
 			const ci = (d.captions ?? []).findIndex((c) => c.fig === id);
 			if (ci >= 0) used.add(ci);
 			const num = pg.figNo + 1;
-			placeFigure_(art, 'wide', 0, ci >= 0 ? { num, text: d.captions![ci].text } : undefined);
+			placeExhibit_(id, 'wide', 0, ci >= 0 ? { num, text: d.captions![ci].text } : undefined);
 			void i;
 		});
 		const extra = (d.captions ?? []).filter((_, i) => !used.has(i));
@@ -465,7 +528,7 @@ export function flowArticle(inp: FlowInput): FlowOut {
 				if (bl.depth <= 2) {
 					sectionNo++;
 					pg.section = sectionNo;
-					sectionEntry(`${String(sectionNo).padStart(2, '0')} / ${String(total).padStart(2, '0')}`, bl.runs, bl.id, 0);
+					sectionEntry(`ROOM ${String(sectionNo).padStart(2, '0')} / ${String(total).padStart(2, '0')}`, bl.runs, bl.id, 0);
 					leadNext = true;
 				} else {
 					const bs = bl.depth === 3 ? 1.25 : 1.05;
@@ -496,10 +559,11 @@ export function flowArticle(inp: FlowInput): FlowOut {
 				leadNext = false;
 				break;
 			}
-			case 'fig': {
-				const art = figures.get(bl.id);
-				if (!art) throw new Error(`${where}:${bl.line}: ::fig id "${bl.id}" is not in figures.ts`);
-				placeFigure_(art, bl.place, 0);
+			case 'exhibit': {
+				if (directiveIds.has(bl.id)) throw new Error(`${where}:${bl.line}: two ::exhibit directives for "${bl.id}" (one exhibit instance per post)`);
+				directiveIds.add(bl.id);
+				if (!figures.has(bl.id) && !scripts.has(bl.id)) throw new Error(`${where}:${bl.line}: ::exhibit id "${bl.id}" is neither exhibits/${bl.id}.flecs nor an entry of exhibits/art.ts`);
+				placeExhibit_(bl.id, bl.place, 0);
 				leadNext = false;
 				break;
 			}
@@ -552,37 +616,43 @@ export function flowArticle(inp: FlowInput): FlowOut {
 	if (hasBrief) foldEndY = bodyEnd;
 	pg.folded = false;
 
-	// ---- footer: previous and next ----
+	// ---- footer: the next room (large, one link) and the previous one (quiet) ----
 	{
 		const { prev, next } = inp.neighbours;
 		if (prev || next) {
 			const st = env.text.len;
 			const b = emptyBlk();
-			b.rects.push({ x0: 0, x1: W, y0: 0, y1: 0.05, colour: PAL2.rule, kind: RectKind.rule });
-			let y = SP.s4;
-			const half = cfg.cls === 2 ? W : W / 2 - 1;
-			const item = (nb: Neighbour, label: string, x: number, yy: number) => {
-				const l = layoutPara(env, [{ text: label, font: F.sans, size: 1, color: PAL2.muted, flags: 0 }], { x0: 0, width: half, bs: 0.75, lh: LH, font: F.sans, align: 'left' }, where);
+			b.rects.push({ x0: 0, x1: W, y0: 0, y1: 0.05, colour: PAL2.neutral3, kind: RectKind.rule });
+			let y = SP.s5;
+			const lab = (text: string, colour: number) => {
+				const l = layoutPara(env, [{ text, font: F.code, size: 1, color: colour, flags: GlyphFlag.code }], { x0: 0, width: W, bs: 0.72, lh: LH, font: F.code, align: 'left' }, where);
 				sentinelText(env);
-				const t = layoutPara(env, [{ text: nb.title, font: D, size: 1, color: PAL2.link, flags: GlyphFlag.display | GlyphFlag.link, href: `/thoughts/${nb.slug}` }], { x0: 0, width: half, bs: 1.25, lh: up(1.25 * 1.2), font: D, align: 'left' }, where);
-				sentinelText(env);
-				shift(l, x, yy);
-				shift(t, x, yy + LH);
-				b.lines.push(...l.lines, ...t.lines);
-				b.links.push(...t.links);
-				return LH + t.h;
+				return l;
 			};
-			if (cfg.cls === 2) {
-				if (prev) y += item(prev, 'PREVIOUS', 0, y) + SP.s3;
-				if (next) y += item(next, 'NEXT', 0, y);
-			} else {
-				const hs: number[] = [];
-				if (prev) hs.push(item(prev, 'PREVIOUS', 0, y));
-				if (next) hs.push(item(next, 'NEXT', W / 2 + 1, y));
-				y += Math.max(...hs, 0);
+			const link = (nb: Neighbour, size: number, colour: number, yy: number, font: number) => {
+				const t = layoutPara(env, [{ text: nb.title, font, size: 1, color: colour, flags: GlyphFlag.display | GlyphFlag.link, href: `/thoughts/${nb.slug}` }], { x0: 0, width: W, bs: size, lh: up(size * 1.15), font, align: 'left' }, where);
+				sentinelText(env);
+				shift(t, 0, yy);
+				b.lines.push(...t.lines);
+				b.links.push(...t.links);
+				return t.h;
+			};
+			if (next) {
+				const l = lab('NEXT ROOM', PAL2.accent);
+				shift(l, 0, y);
+				b.lines.push(...l.lines);
+				y += LH + SP.s1;
+				y += link(next, cfg.cls === 2 ? 1.8 : 2.6, PAL2.heading, y, D) + SP.s4;
 			}
-			b.h = y + SP.s2;
-			pg.place(b, { kind: BlockKind.nextprev, before: SP.s7, after: 0, size: 1, font: LineFont.body, start: st, flags: BlockFlag.hairTop });
+			if (prev) {
+				const l = lab('PREVIOUS ROOM', PAL2.muted);
+				shift(l, 0, y);
+				b.lines.push(...l.lines);
+				y += LH + SP.s1;
+				y += link(prev, 1.15, PAL2.muted, y, D) + SP.s2;
+			}
+			b.h = y;
+			pg.place(b, { kind: BlockKind.nextprev, before: SP.s8, after: 0, size: 1, font: LineFont.body, start: st, flags: BlockFlag.hairTop });
 		}
 	}
 
@@ -592,7 +662,10 @@ export function flowArticle(inp: FlowInput): FlowOut {
 		for (const f of pending) {
 			const r = p.refs[f.n - 1];
 			const st = env.text.len;
-			const b = refBlk(r, f.n, cfg.noteW);
+			const b = refBlk(r, f.n, cfg.noteW - 1.1);
+			// a margin note hangs from a hairline, like a label on the wall
+			b.rects.push({ x0: 0, x1: 0.07, y0: 0.15, y1: Math.max(0.3, up(b.h) - 0.15), colour: PAL2.neutral3, kind: RectKind.quoteBar });
+			shiftText(b, 1.1);
 			const h = up(b.h);
 			let y = Math.max(f.y, bottom + SP.s2);
 			for (let guard = 0; guard < 8; guard++) {
@@ -622,7 +695,7 @@ export function flowArticle(inp: FlowInput): FlowOut {
 	}
 	const parts: PageParts = {
 		widthClass: cfg.cls, colW: W, docX0: cfg.docX0, docX1: cfg.docX1, docH, foldY, foldH, peekH,
-		blocks: pg.blocks, notes: pg.notes, figureItems: pg.figs
+		blocks: pg.blocks, notes: pg.notes, exhibitItems: pg.exhibitItems
 	};
 	return { store: s, parts, words: wordsOf(p.blocks), finish: (text) => finalizeText(pg, text) };
 }

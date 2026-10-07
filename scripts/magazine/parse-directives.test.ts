@@ -8,12 +8,12 @@ import path from 'node:path';
 const FM = '---\ntitle: T\n---\n';
 
 describe('directives', () => {
-	test('fig and code-wide are extracted line for line', () => {
-		const src = `${FM}\nIntro.\n\n::fig{id="eval-timeline" place="wide"}\n\n:::code-wide\n\`\`\`ts\nconst a = 1;\n\`\`\`\n:::\n`;
+	test('exhibit and code-wide are extracted line for line', () => {
+		const src = `${FM}\nIntro.\n\n::exhibit{id="eval-timeline" place="wide"}\n\n:::code-wide\n\`\`\`ts\nconst a = 1;\n\`\`\`\n:::\n`;
 		const ex = extractDirectives(src, 'f.svx');
 		expect(ex.source.split('\n')).toHaveLength(src.split('\n').length);
-		expect([...ex.events.values()].map((e) => e.kind)).toEqual(['fig', 'code-wide-open', 'code-wide-close']);
-		expect(ex.events.get(7)).toMatchObject({ kind: 'fig', id: 'eval-timeline', place: 'wide' });
+		expect([...ex.events.values()].map((e) => e.kind)).toEqual(['exhibit', 'code-wide-open', 'code-wide-close']);
+		expect(ex.events.get(7)).toMatchObject({ kind: 'exhibit', id: 'eval-timeline', place: 'wide' });
 	});
 	test('plain svx is unchanged', () => {
 		const src = `${FM}\nJust text with :: inside and ::: not at line start.\n`;
@@ -25,8 +25,8 @@ describe('directives', () => {
 	});
 	test('control: unknown directive, bad place, missing id, unclosed container all fail with file:line', () => {
 		expect(() => extractDirectives(`${FM}::spread{layout="essay"}\n`, 'a.svx')).toThrow(/a\.svx:4: unknown directive ::spread/);
-		expect(() => extractDirectives(`${FM}::fig{id="x" place="huge"}\n`, 'a.svx')).toThrow(/a\.svx:4.*place/);
-		expect(() => extractDirectives(`${FM}::fig{place="wide"}\n`, 'a.svx')).toThrow(/needs id/);
+		expect(() => extractDirectives(`${FM}::exhibit{id="x" place="huge"}\n`, 'a.svx')).toThrow(/a\.svx:4.*place/);
+		expect(() => extractDirectives(`${FM}::exhibit{place="wide"}\n`, 'a.svx')).toThrow(/needs id/);
 		expect(() => extractDirectives(`${FM}:::code-wide\ntext\n`, 'a.svx')).toThrow(/never closed/);
 		expect(() => extractDirectives(`${FM}:::aside\n:::\n`, 'a.svx')).toThrow(DirectiveError);
 	});
@@ -53,16 +53,16 @@ describe('distill review gate (1.7 controls)', () => {
 });
 
 describe('parseArticle with directives and distill', () => {
-	test('fig block, wide code, distill frontmatter, body', async () => {
+	test('exhibit block, wide code, distill frontmatter, body', async () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mag-'));
 		const sub = path.join(dir, 'demo');
 		fs.mkdirSync(sub);
 		const f = path.join(sub, '+page.svx');
-		fs.writeFileSync(f, `---\ntitle: Demo\ndistill:\n  headline: Hi\n  figures: [x]\n---\n\nHello world.\n\n::fig{id="x" place="column"}\n\n:::code-wide\n\`\`\`ts\nlet a = 1;\n\`\`\`\n:::\n\n\`\`\`ts\nlet b = 2;\n\`\`\`\n`);
+		fs.writeFileSync(f, `---\ntitle: Demo\ndistill:\n  headline: Hi\n  figures: [x]\n---\n\nHello world.\n\n::exhibit{id="x" place="column"}\n\n:::code-wide\n\`\`\`ts\nlet a = 1;\n\`\`\`\n:::\n\n\`\`\`ts\nlet b = 2;\n\`\`\`\n`);
 		const p = await parseArticle(f);
 		expect(p.distill?.headline).toBe('Hi');
 		expect(p.body.startsWith('\nHello world.')).toBe(true);
-		const fig = p.blocks.find((b) => b.t === 'fig');
+		const fig = p.blocks.find((b) => b.t === 'exhibit');
 		expect(fig).toMatchObject({ id: 'x', place: 'column' });
 		const codes = p.blocks.filter((b) => b.t === 'code') as any[];
 		expect(codes.map((c) => !!c.wide)).toEqual([true, false]);

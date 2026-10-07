@@ -27,11 +27,11 @@ describe('docToClip', () => {
 });
 
 const blk = (firstItem: number, itemCount: number, kind: number = BlockKind.para) => ({
-	x0: 0, y0: 0, x1: 1, y1: 1, firstItem, itemCount, firstLine: 0, lineCount: 0, anchor: 0, fig: -1, kind, level: 0, flags: 0, section: 0, textOff: 0, textLen: 0
+	x0: 0, y0: 0, x1: 1, y1: 1, firstItem, itemCount, firstLine: 0, lineCount: 0, anchor: 0, ex: -1, kind, level: 0, flags: 0, section: 0, textOff: 0, textLen: 0
 });
 
 describe('itemRange', () => {
-	const model = { blocks: [blk(0, 10), blk(10, 5), blk(15, 0, BlockKind.figure), blk(15, 7), blk(22, 3)] };
+	const model = { blocks: [blk(0, 10), blk(10, 5), blk(15, 0, BlockKind.exhibit), blk(15, 7), blk(22, 3)] };
 	test('envelope of the visible blocks', () => {
 		expect(itemRange(model, 1, 3)).toEqual({ first: 10, count: 12 });
 		expect(itemRange(model, 0, 5)).toEqual({ first: 0, count: 25 });
@@ -87,7 +87,7 @@ describe('assemblePage', () => {
 		const model: ReadingModel = sampleReading();
 		const a = assemblePage({ dir: new Uint32Array(8), curves: new Uint16Array(8), bands: new Uint32Array(2) }, model);
 		expect(a.words[MH.nBlocks]).toBe(2);
-		expect(a.words[MH.nFigures]).toBe(1);
+		expect(a.words[MH.nExhibits]).toBe(1);
 		expect(a.words[MH.fdir]).toBe(DATA_BASE);
 		const offs = Object.entries(MH).filter(([k]) => !k.startsWith('n') && k !== 'magic' && k !== 'chans').map(([, v]) => a.words[v]).sort((x, y) => x - y);
 		expect(offs[offs.length - 1]).toBeLessThanOrEqual(a.words.length);
@@ -134,8 +134,8 @@ describe('packUiText', () => {
 		expect(run([g({ hdr: 1.5 })], 100, true, 2).out[8]).toBe(1.5);
 		expect(run([g({ a: 4 })]).out[7]).toBe(1);
 	});
-	test('capped at 4096 glyphs', () => {
-		expect(run(Array.from({ length: 5000 }, () => g())).n).toBe(4096);
+	test('capped at 8192 glyphs', () => {
+		expect(run(Array.from({ length: 9000 }, () => g())).n).toBe(8192);
 	});
 	test('shader reads the same union glyph table and coverage as the article text', () => {
 		const ui = PAGE_WGSL.slice(PAGE_WGSL.indexOf('fn vs_ui'));

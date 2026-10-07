@@ -23,7 +23,7 @@ export const CODE_SIZE = 0.875;
 /** Code line pitch: 1.6 x CODE_SIZE (docs/READING.md 2.1), in em of the sheet. */
 export const CODE_LH = 1.6 * CODE_SIZE;
 /** Code panel: corner radius, the label row above the first line, and the top right corner kept free for the copy button (em). */
-export const CODE_PANEL = { radius: 0.6, padX: 0.95, padY: 0.9, labelRow: 0.62, labelSize: 0.7, copyW: 2.6, copyH: 1.9 } as const;
+export const CODE_PANEL = { radius: 0.7, padX: 1.15, padY: 1.0, labelRow: 0.7, labelSize: 0.66, copyW: 2.6, copyH: 1.9 } as const;
 
 // ---- sinks ---------------------------------------------------------------------------------------
 
@@ -576,14 +576,14 @@ export function layoutCode(env: Env, bl: Extract<Block, { t: 'code' }>, ctx: Ctx
 		charBase += text.length + 1;
 	});
 	if (label && b.lines.length) {
-		const sans = env.fonts.fonts[F.sans];
+		const sans = env.fonts.fonts[F.code]; // the language label is set in the code face (a museum placard stamp), not the sans
 		const size = CODE_PANEL.labelSize;
 		const first = b.lines[0];
 		const pgs: PG[] = [];
 		let lx = ctx.x0 + padX;
 		const labelBase = padY * 0.5 + 0.42; // cap top sits half a pad below the panel edge
 		for (const g of sans.shape(label)) {
-			const gi = glyphIndex(env, F.sans, g.gid);
+			const gi = glyphIndex(env, F.code, g.gid);
 			// glyph offsets point at the first source character: a click on the label lands at the start of the code, never in the hung label bytes
 			if (gi !== null) pgs.push({ x: lx + g.xOffset * size, y: labelBase, glyphId: gi, size, colour: PAL_EXT.ink3, flags: 0, off: first.off, deco: true });
 			lx += g.xAdvance * size;

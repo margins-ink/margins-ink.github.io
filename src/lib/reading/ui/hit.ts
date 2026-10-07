@@ -22,7 +22,7 @@ export function hitById(hits: readonly HitRect[], id: string): HitRect | null {
 	return null;
 }
 
-/** 0..1 position of x along a hit rect, clamped (figure scrub); the thumb drag uses `thumbScrollY` */
+/** 0..1 position of x along a hit rect, clamped (scrollbar thumb); the thumb drag uses `thumbScrollY` */
 export function fractionIn(h: HitRect, x: number): number {
 	return h.w <= 0 ? 0 : Math.max(0, Math.min(1, (x - h.x) / h.w));
 }

@@ -182,5 +182,70 @@ const Y = (s: any) => s.ev(`__reader.state[25]`) as Promise<number>;
   await s.close();
 }
 
+
+// 9. exhibits (docs/MUSEUM.md 7.5): Step three times changes the canvas inside the block and nothing in a 1 px ring outside it (scissor leak control), the URL
+// fragment holds `#x:turing=`, a reload restores the same state, wheel over the exhibit scrolls the page, the page goes idle, no DOM text (planted <p> control).
+// NOT RUN by the lane that wrote it (no browser): run it with the museum build.
+{
+  const s = await open(1440, 900, 'models');
+  const ex = await s.ev(`__reader.exhibits.ids.indexOf('turing')`) as number;
+  check('models has a loaded turing exhibit', ex >= 0 && (await s.ev(`__reader.reading.exhibit.state()[${ex}*8+0]`)) === 1, ex);
+  if (ex >= 0) {
+    if (!(await s.ev(`__reader.geometry.foldExpanded`))) { await s.ev(`__reader.act('aa:full')`); await Bun.sleep(800); }
+    const blk = JSON.parse(await s.ev(`JSON.stringify((()=>{const m=__reader.model,g=__reader.geometry,e=m.exhibits[${ex}],b=m.blocks[e.block];return {x0:g.originX+b.x0*g.emPx,y0:b.y0*g.emPx,w:(b.x1-b.x0)*g.emPx,h:(b.y1-b.y0)*g.emPx,k:e.scale*g.emPx}})())`));
+    await scrollTo(s, Math.max(0, blk.y0 - 150));
+    const top = await Y(s);
+    const R = { x: blk.x0, y: blk.y0 - top, w: blk.w, h: blk.h };
+    const clip = (x: number, y: number, w: number, h: number) => s.send('Page.captureScreenshot', { format: 'png', clip: { x, y, width: w, height: h, scale: 1 } }).then((r: any) => r.data as string);
+    const ring = async () => [await clip(R.x - 1, R.y - 1, R.w + 2, 1), await clip(R.x - 1, R.y + R.h, R.w + 2, 1), await clip(R.x - 1, R.y, 1, R.h), await clip(R.x + R.w, R.y, 1, R.h)];
+    const inner = () => clip(R.x, R.y, R.w, R.h);
+    // the Step button: the smallest rrect of the draw list that contains the 'Step' label
+    const btn = JSON.parse(await s.ev(`JSON.stringify((()=>{const x=__reader.reading.exhibit,p=x.pack(${ex}),it=p.items,n=p.count,out=[];for(let i=0;i<n;i++){const o=i*8;if(it[o+4]===6&&x.str(it[o+7])==='Step'){const cx=it[o],cy=it[o+1]-it[o+3]/2;let best=null;for(let j=0;j<n;j++){const q=j*8;if(it[q+4]!==0)continue;if(cx>=it[q]&&cx<=it[q]+it[q+2]&&cy>=it[q+1]&&cy<=it[q+1]+it[q+3]){const a=it[q+2]*it[q+3];if(!best||a<best.a)best={x:it[q]+it[q+2]/2,y:it[q+1]+it[q+3]/2,a}}}if(best)out.push(best)}}return out[0]??null})())`));
+    check('the exhibit draw list has a Step button', btn !== null, btn);
+    if (btn) {
+      const cx = R.x + btn.x * blk.k, cy = R.y + btn.y * blk.k;
+      const ring0 = await ring(), in0 = await inner();
+      const click = async () => {
+        await s.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: cx, y: cy }); await Bun.sleep(80);
+        await s.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: cx, y: cy, button: 'left', clickCount: 1 });
+        await s.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: cx, y: cy, button: 'left', clickCount: 1 }); await Bun.sleep(250);
+      };
+      for (let i = 0; i < 3; i++) await click();
+      await Bun.sleep(700);
+      const ring1 = await ring(), in1 = await inner();
+      check('Step x3 changes the canvas pixels inside the block', in1 !== in0);
+      check('a 1 px ring outside the block is byte-identical (scissor does not leak)', ring0.every((r, i) => r === ring1[i]), ring0.map((r, i) => r === ring1[i]));
+      check('control: the ring comparison sees a change when the ring is moved into the block', (await clip(R.x + 2, R.y + 2, R.w - 4, 1)) !== (await clip(R.x + 2, R.y + R.h / 2, R.w - 4, 1)));
+      const hash = await s.ev(`location.hash`) as string;
+      check('the URL fragment holds #x:turing=', /(^|&|#)x:turing=/.test(hash), hash);
+      const snap = await s.ev(`__reader.reading.exhibit.snapshot(${ex})`) as string;
+      await s.send('Page.reload');
+      for (let i = 0; i < 60; i++) { await Bun.sleep(500); if (await s.ev(`document.querySelector('.reader')?.dataset.ready==='true'`)) break; }
+      await Bun.sleep(1200);
+      const ex2 = await s.ev(`__reader.exhibits.ids.indexOf('turing')`) as number;
+      check('reload with the fragment restores the same exhibit state (same head, tape and steps)', (await s.ev(`__reader.reading.exhibit.snapshot(${ex2})`)) === snap && snap !== null, snap);
+      // control: a stale blob is refused with the toast text and leaves the state alone
+      const bad = await s.ev(`__reader.reading.exhibit.restore(${ex2}, 'deadbeef:junk')`);
+      check('control: a stale snapshot is refused', bad === false, bad);
+      await scrollTo(s, Math.max(0, blk.y0 - 150));
+      const y0 = await Y(s);
+      await s.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: R.x + R.w / 2, y: R.y + R.h / 2, deltaX: 0, deltaY: 300 }); await Bun.sleep(900);
+      check('wheel over the exhibit still scrolls the page', Math.abs((await Y(s)) - y0 - 300) < 2, [y0, await Y(s)]);
+      // idle: nothing running, no new draws after 4 s
+      await s.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 5 });
+      await Bun.sleep(4000);
+      const d0 = await s.ev(`__reader.counters.draws`) as number;
+      await Bun.sleep(1500);
+      const d1 = await s.ev(`__reader.counters.draws`) as number;
+      check('idle: with exhibits on screen and nothing running, no frame is drawn', d1 === d0, [d0, d1]);
+    }
+    const measure = `(()=>{const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);const txt=[];for(let n;n=w.nextNode();){const t=n.textContent.trim();const tag=n.parentElement&&n.parentElement.tagName;if(t&&tag!=='SCRIPT'&&tag!=='STYLE'&&tag!=='NOSCRIPT')txt.push(t.slice(0,60))}return txt.length})()`;
+    check('no DOM text node with an exhibit on screen', (await s.ev(measure)) === 0);
+    await s.ev(`(()=>{const p=document.createElement('p');p.id='planted';p.textContent='Step';document.body.append(p)})()`);
+    check('control: a planted <p> is detected', (await s.ev(measure)) > 0);
+  }
+  await s.close();
+}
+
 console.log(failed === 0 ? 'all checks passed' : `${failed} check(s) failed`);
 process.exit(failed === 0 ? 0 : 1);

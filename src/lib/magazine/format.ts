@@ -1,9 +1,9 @@
-// RDR3: binary format of one article as a single scrolling page (docs/READING.md section 4, docs/READING_CONTRACT.md).
+// RDR4: binary format of one article as a single scrolling page (docs/READING.md section 4, docs/READING_CONTRACT.md).
 // Shared by the build (scripts/magazine) and the runtime. No node imports here.
 //
 // Container, f16 helpers, glyph tables and fonts.bin are reused unchanged from the RDR1 module
 // (src/lib/reader/format.ts): same little-endian container, every section 4-byte aligned, magic
-// 'RDR3' tells the formats apart. Every record table below is described once in SCHEMA (field order,
+// 'RDR4' tells the formats apart. Every record table below is described once in SCHEMA (field order,
 // natural alignment, total padded to 4 bytes); pack and unpack are generated from it, so the byte
 // layout is exactly what SCHEMA lists and REC2 gives the sizes.
 //
@@ -21,7 +21,7 @@ import {
 export { toF16, fromF16, roundF16, cstr, packContainer, unpackContainer, PALETTE_SIZE };
 export type { GlyphTable, Container };
 
-export const ARTICLE2_MAGIC = 0x33524452; // 'RDR3'
+export const ARTICLE2_MAGIC = 0x34524452; // 'RDR4' (little-endian 'R' 'D' 'R' '4'); RDR3 had figure blocks, RDR4 has exhibit blocks (docs/MUSEUM.md)
 export const ARTICLE3_MAGIC = ARTICLE2_MAGIC;
 /** Body line pitch, em: two spacing units u = 0.81 em (docs/READING.md 2.3). */
 export const LINE_H = 1.62;
@@ -39,11 +39,11 @@ export const ItemType = { glyph: 0, rect: 1, image: 2, shape: 3, path: 4, stroke
 
 /** Block kinds (Block.kind). */
 export const BlockKind = {
-	hero: 0, heading: 1, para: 2, code: 3, quote: 4, list: 5, image: 6, figure: 7, rule: 8, math: 9, table: 10, fold: 11, refs: 12, footnotes: 13, caption: 14, pullquote: 15, numerals: 16, note: 17, label: 18, nextprev: 19, takeaway: 20
+	hero: 0, heading: 1, para: 2, code: 3, quote: 4, list: 5, image: 6, /* 7 was figure: deleted in RDR4 */ rule: 8, math: 9, table: 10, fold: 11, refs: 12, footnotes: 13, caption: 14, pullquote: 15, numerals: 16, note: 17, label: 18, nextprev: 19, takeaway: 20, exhibit: 21
 } as const;
 export type BlockKindId = (typeof BlockKind)[keyof typeof BlockKind];
 /** Block.flags bits. */
-export const BlockFlag = { lead: 1, folded: 2, brief: 4, wide: 8, margin: 16, hairTop: 32, tick: 64 } as const;
+export const BlockFlag = { lead: 1, folded: 2, brief: 4, wide: 8, margin: 16, hairTop: 32, tick: 64, /** a wall plaque or label card: the reader floats it by a few px against the scroll (parallax) */ plaque: 128 } as const;
 /** Width classes: viewport >= 1180 wide (notes in the margin), 720..1179 mid (inline notes), < 720 narrow. */
 export const WIDTH_CLASSES = [
 	{ id: 0, name: 'wide', minPx: 1180, col: 34 },
@@ -69,7 +69,12 @@ export const ShapeFlag = { stroke: 1, fillNone: 2, hatch: 4 } as const;
 export const StrokeFlag = { capRound: 0, capButt: 1, capSquare: 2, joinRound: 0, joinBevel: 4, closed: 8, evenOdd: 16 } as const;
 export const PathFlag = { evenOdd: 1 } as const;
 export const NumeralStyle = { fill: 0, outline: 1 } as const;
+/** Timeline mode set of an exhibit record (`mode`). */
 export const FigureMode = { loop: 0, once: 1, scrub: 2, static: 3 } as const;
+/** Exhibit.kind: a compiled timeline (exhibits/art.ts: static art + clock) or a Flecs script (exhibits/<id>.flecs). */
+export const ExhibitKind = { timeline: 0, script: 1 } as const;
+/** Height (em of the exhibit frame) of the Timeline control strip under a compiled art. */
+export const TIMELINE_STRIP = 2.4;
 export const Material = { matte: 1, coated: 2, field: 4, foil: 8 } as const;
 export const Ease = { linear: 0, inSine: 1, outSine: 2, inOutSine: 3, inCubic: 4, outCubic: 5, inOutCubic: 6, step: 7, outBack: 8 } as const;
 export type EaseName = keyof typeof Ease;
@@ -86,7 +91,7 @@ export type PaletteName = keyof typeof PAL2;
 export const Sec2 = {
 	blocks: 1, gridCells: 2, items: 3, glyphs: 4, rects: 5, images: 6, lines: 7, links: 8, anchors: 9,
 	exDir: 10, exCurves: 11, exBands: 12, text: 13, strings: 14, palette: 15,
-	shapes: 30, paths: 31, strokes: 32, segs: 33, groups: 34, chans: 35, keys: 36, figures: 37, digitSets: 38, numerals: 39, notes: 40
+	shapes: 30, paths: 31, strokes: 32, segs: 33, groups: 34, chans: 35, keys: 36, exhibits: 37, digitSets: 38, numerals: 39, notes: 40
 } as const;
 
 // ---- schema-driven record codec ----------------------------------------------------------------
@@ -98,10 +103,10 @@ const SZ: Record<FT, number> = { f32: 4, u32: 4, i32: 4, u16: 2, i16: 2, u8: 1, 
 export const SCHEMA = {
 	// A block of the page: the unit of culling, of the text layer element and of the Flecs entity. Box in document em.
 	// items: [firstItem, firstItem + itemCount) of the items table, in draw order (text blocks: glyph / rect / image words);
-	// a figure block has no items of its own, its figure record names a cell grid. section: index of the h2 it belongs to
-	// (0 = before the first h2). anchor: string offset of the heading / figure id, 0 = none. fig: figure index or -1.
+	// an exhibit block has no items of its own, its exhibit record names a cell grid (timeline kind; script exhibits have none). section: index of the h2 it belongs to
+	// (0 = before the first h2). anchor: string offset of the heading / exhibit id, 0 = none. ex: exhibit index or -1.
 	block: [['x0', 'f32'], ['y0', 'f32'], ['x1', 'f32'], ['y1', 'f32'], ['firstItem', 'u32'], ['itemCount', 'u32'], ['firstLine', 'u32'], ['lineCount', 'u32'],
-		['anchor', 'u32'], ['fig', 'i32'], ['kind', 'u8'], ['level', 'u8'], ['flags', 'u8'], ['pad0', 'u8'], ['section', 'u16'], ['pad1', 'u16'], ['textOff', 'u32'], ['textLen', 'u32']],
+		['anchor', 'u32'], ['ex', 'i32'], ['kind', 'u8'], ['level', 'u8'], ['flags', 'u8'], ['pad0', 'u8'], ['section', 'u16'], ['pad1', 'u16'], ['textOff', 'u32'], ['textLen', 'u32']],
 	// a margin sidenote: same fields as a block plus the block it annotates
 	note: [['x0', 'f32'], ['y0', 'f32'], ['x1', 'f32'], ['y1', 'f32'], ['firstItem', 'u32'], ['itemCount', 'u32'], ['firstLine', 'u32'], ['lineCount', 'u32'],
 		['anchorBlock', 'u32'], ['anchorLine', 'u32'], ['refIndex', 'i32']],
@@ -134,9 +139,12 @@ export const SCHEMA = {
 	anchor: [['idOffset', 'u32'], ['block', 'u32'], ['y', 'f32']],
 	chan: [['firstKey', 'u32'], ['keyCount', 'u32']],
 	key: [['t', 'f32'], ['v', 'f32'], ['ease', 'u32']],
-	// bounds x0..y1 in document em (the placed figure box); the cell grid (CELL_W x CELL_H em cells, origin x0,y0) lists the figure's items per cell
-	figure: [['id', 'u32'], ['firstChan', 'u32'], ['chanCount', 'u32'], ['mode', 'u32'], ['duration', 'f32'], ['poster', 'f32'],
-		['alt', 'u32'], ['describe', 'u32'], ['x0', 'f32'], ['y0', 'f32'], ['x1', 'f32'], ['y1', 'f32'], ['block', 'u32'],
+	// exhibit (RDR4): bounds x0..y1 in document em (the placed block box); the cell grid (CELL_W x CELL_H em cells, origin x0,y0) lists the compiled art's items per cell
+	// (kind 0, timeline; script exhibits have an empty grid). kind: ExhibitKind. name / src / title / claim / caption / alt / describe: string offsets (0 = none; src is the Flecs
+	// script text of a script exhibit). frameW, frameH: the exhibit-local frame in em (a timeline: art w, art h + TIMELINE_STRIP unless static); scale: document em per exhibit-local em.
+	exhibit: [['id', 'u32'], ['kind', 'u32'], ['firstChan', 'u32'], ['chanCount', 'u32'], ['mode', 'u32'], ['duration', 'f32'], ['poster', 'f32'],
+		['alt', 'u32'], ['describe', 'u32'], ['name', 'u32'], ['src', 'u32'], ['title', 'u32'], ['claim', 'u32'], ['caption', 'u32'], ['frameW', 'f32'], ['frameH', 'f32'],
+		['x0', 'f32'], ['y0', 'f32'], ['x1', 'f32'], ['y1', 'f32'], ['block', 'u32'],
 		['firstCell', 'u32'], ['gridCols', 'u16'], ['gridRows', 'u16'], ['scale', 'f32']],
 	cell: [['start', 'u32'], ['count', 'u16'], ['pad', 'u16']]
 } as const satisfies Record<string, Fields>;
@@ -227,7 +235,7 @@ export type LinkRec = Rec<'link'>;
 export type AnchorRec = Rec<'anchor'>;
 export type ChanRec = Rec<'chan'>;
 export type KeyRec = Rec<'key'>;
-export type FigureRec = Rec<'figure'>;
+export type ExhibitRec = Rec<'exhibit'>;
 export type CellRec = Rec<'cell'>;
 
 /** Rows may omit pad fields (they pack as 0); other fields are required by the type. */
@@ -262,7 +270,7 @@ export interface ReadingModel {
 	digitSets: number[][];
 	chans: ChanRec[];
 	keys: KeyRec[];
-	figures: FigureRec[];
+	exhibits: ExhibitRec[];
 	lines: LineRec[];
 	links: LinkRec[];
 	anchors: AnchorRec[];
@@ -273,17 +281,17 @@ export interface ReadingModel {
 	palette: Uint32Array;
 }
 
-const PARAMS = ['widthClass', 'colW', 'docX0', 'docX1', 'docH', 'foldY', 'foldH', 'peekH', 'plainTextBytes', 'blockCount', 'noteCount', 'figureCount'] as const;
+const PARAMS = ['widthClass', 'colW', 'docX0', 'docX1', 'docH', 'foldY', 'foldH', 'peekH', 'plainTextBytes', 'blockCount', 'noteCount', 'exhibitCount'] as const;
 const PARAMS_F = new Set<string>(['colW', 'docX0', 'docX1', 'docH', 'foldY', 'foldH', 'peekH']);
 
-/** Header params (magic 'RDR3' is in the container) in the order stored. */
-export const RDR3_PARAMS = PARAMS;
+/** Header params (magic 'RDR4' is in the container) in the order stored. */
+export const RDR4_PARAMS = PARAMS;
 
 export function packReading(m: ReadingModel): Uint8Array {
 	const fa = new Float32Array(1);
 	const ua = new Uint32Array(fa.buffer);
 	const params = PARAMS.map((k) => {
-		const v = k === 'blockCount' ? m.blocks.length : k === 'noteCount' ? m.notes.length : k === 'figureCount' ? m.figures.length : (m as unknown as Record<string, number>)[k];
+		const v = k === 'blockCount' ? m.blocks.length : k === 'noteCount' ? m.notes.length : k === 'exhibitCount' ? m.exhibits.length : (m as unknown as Record<string, number>)[k];
 		return PARAMS_F.has(k) ? ((fa[0] = v), ua[0]) : v;
 	});
 	for (const c of m.cells) if (c.count > 0xffff) throw new Error('rdr3: grid cell item count overflow');
@@ -311,7 +319,7 @@ export function packReading(m: ReadingModel): Uint8Array {
 		t(Sec2.numerals, 'numeral', m.numerals),
 		t(Sec2.chans, 'chan', m.chans),
 		t(Sec2.keys, 'key', m.keys),
-		t(Sec2.figures, 'figure', m.figures),
+		t(Sec2.exhibits, 'exhibit', m.exhibits),
 		{ id: Sec2.digitSets, data: digits, count: m.digitSets.length },
 		t(Sec2.lines, 'line', m.lines),
 		t(Sec2.links, 'link', m.links),
@@ -327,7 +335,7 @@ export function packReading(m: ReadingModel): Uint8Array {
 
 export function unpackReading(bytes: Uint8Array): ReadingModel {
 	const c = unpackContainer(bytes);
-	if (c.magic !== ARTICLE2_MAGIC) throw new Error('not an RDR3 bin');
+	if (c.magic !== ARTICLE2_MAGIC) throw new Error('not an RDR4 bin (RDR3 bins are stale: rebuild with bun scripts/magazine/build.ts)');
 	const p: Record<string, number> = {};
 	PARAMS.forEach((k, i) => (p[k] = PARAMS_F.has(k) ? c.paramsF[i] : c.params[i]));
 	const sec = (id: number) => {
@@ -353,7 +361,7 @@ export function unpackReading(bytes: Uint8Array): ReadingModel {
 		shapes: tbl(Sec2.shapes, 'shape'), paths: tbl(Sec2.paths, 'path'), strokes: tbl(Sec2.strokes, 'stroke'), segs: tbl(Sec2.segs, 'seg'),
 		groups: tbl(Sec2.groups, 'group'), numerals: tbl(Sec2.numerals, 'numeral'),
 		digitSets: Array.from({ length: sec(Sec2.digitSets).count }, (_, i) => Array.from(digits.subarray(i * 10, i * 10 + 10))),
-		chans: tbl(Sec2.chans, 'chan'), keys: tbl(Sec2.keys, 'key'), figures: tbl(Sec2.figures, 'figure'),
+		chans: tbl(Sec2.chans, 'chan'), keys: tbl(Sec2.keys, 'key'), exhibits: tbl(Sec2.exhibits, 'exhibit'),
 		lines: tbl(Sec2.lines, 'line'), links: tbl(Sec2.links, 'link'), anchors: tbl(Sec2.anchors, 'anchor'),
 		extra: { dir: u32v(Sec2.exDir), curves: u16v(Sec2.exCurves), bands: u32v(Sec2.exBands) },
 		text: sec(Sec2.text).bytes.slice(), strings: sec(Sec2.strings).bytes.slice(), palette: u32v(Sec2.palette).slice()
@@ -371,15 +379,15 @@ export function stringAt(strings: Uint8Array, off: number): string {
 // ---- sample buffer -------------------------------------------------------------------------------
 
 /**
- * A small valid model: one hero block with a glyph line, one figure block with a shape, a stroke, a group, a numeral,
+ * A small valid model: one hero block with a glyph line, one exhibit block with a shape, a stroke, a group, a numeral,
  * and one note. For tests and for lanes that need bytes before the build exists.
  */
 export function sampleReading(): ReadingModel {
 	return {
 		widthClass: 0, colW: 34, docX0: -3, docX1: 54, docH: 40, foldY: 30, foldH: 10, peekH: 4, plainTextBytes: 5,
 		blocks: [
-			{ x0: 0, y0: 4, x1: 34, y1: 9, firstItem: 0, itemCount: 1, firstLine: 0, lineCount: 1, anchor: 0, fig: -1, kind: BlockKind.hero, level: 1, flags: 0, section: 0, textOff: 0, textLen: 5 },
-			{ x0: -3, y0: 12, x1: 49, y1: 38, firstItem: 1, itemCount: 0, firstLine: 1, lineCount: 0, anchor: 2, fig: 0, kind: BlockKind.figure, level: 0, flags: BlockFlag.wide, section: 0, textOff: 0, textLen: 0 }
+			{ x0: 0, y0: 4, x1: 34, y1: 9, firstItem: 0, itemCount: 1, firstLine: 0, lineCount: 1, anchor: 0, ex: -1, kind: BlockKind.hero, level: 1, flags: 0, section: 0, textOff: 0, textLen: 5 },
+			{ x0: -3, y0: 12, x1: 49, y1: 38, firstItem: 1, itemCount: 0, firstLine: 1, lineCount: 0, anchor: 2, ex: 0, kind: BlockKind.exhibit, level: 0, flags: BlockFlag.wide, section: 0, textOff: 0, textLen: 0 }
 		],
 		notes: [{ x0: 37, y0: 12, x1: 54, y1: 15, firstItem: 1, itemCount: 0, firstLine: 1, lineCount: 0, anchorBlock: 0, anchorLine: 0, refIndex: 0 }],
 		cells: [{ start: 1, count: 4 }],
@@ -395,7 +403,7 @@ export function sampleReading(): ReadingModel {
 		digitSets: [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]],
 		chans: [{ firstKey: 0, keyCount: 2 }],
 		keys: [{ t: 0, v: 0, ease: 0 }, { t: 14, v: 72, ease: 5 }],
-		figures: [{ id: 0, firstChan: 0, chanCount: 1, mode: 0, duration: 14, poster: 11, alt: 6, describe: 12, x0: -3, y0: 12, x1: 49, y1: 38, block: 1, firstCell: 0, gridCols: 1, gridRows: 1, scale: 1.44 }],
+		exhibits: [{ id: 0, kind: ExhibitKind.timeline, firstChan: 0, chanCount: 1, mode: 0, duration: 14, poster: 11, alt: 6, describe: 12, name: 0, src: 0, title: 0, claim: 0, caption: 0, frameW: 36, frameH: 19.4, x0: -3, y0: 12, x1: 49, y1: 38, block: 1, firstCell: 0, gridCols: 1, gridRows: 1, scale: 1.44 }],
 		lines: [{ yTop: 4, yBot: 9, x0: 0, x1: 20, firstGlyph: 0, glyphCount: 1, textOff: 0, textLen: 5, block: 0, size: 4.2, font: LineFont.display, flags: 0 }],
 		links: [{ x0: 0, y0: 4, x1: 5, y1: 9, kind: 1, offset: 3, line: 0, t0: 0, t1: 5 }],
 		anchors: [{ idOffset: 0, block: 1, y: 12 }],

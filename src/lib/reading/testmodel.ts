@@ -8,7 +8,7 @@ import {
 } from '../magazine/format';
 
 export interface SLine { text: string; join?: boolean; marker?: string; links?: { c0: number; c1: number; kind: number }[] }
-export interface SBlock { kind: number; flags?: number; x0?: number; x1?: number; lines?: SLine[]; fig?: number; sep?: string; h?: number }
+export interface SBlock { kind: number; flags?: number; x0?: number; x1?: number; lines?: SLine[]; ex?: number; sep?: string; h?: number }
 
 const enc = new TextEncoder();
 const ADV = 1; // em per character column
@@ -32,7 +32,7 @@ export function synth(blocks: SBlock[], opts: { foldAfter?: number; foldBlocks?:
 		const x0 = sb.x0 ?? 0;
 		const b: BlockRec = {
 			x0, y0: y, x1: sb.x1 ?? 34, y1: y, firstItem: 0, itemCount: 0, firstLine: lines.length, lineCount: sb.lines?.length ?? 0,
-			anchor: 0, fig: sb.fig ?? -1, kind: sb.kind, level: 0, flags: sb.flags ?? 0, section: 0, textOff: bytes, textLen: 0
+			anchor: 0, ex: sb.ex ?? -1, kind: sb.kind, level: 0, flags: sb.flags ?? 0, section: 0, textOff: bytes, textLen: 0
 		};
 		const isFoldedStart = opts.foldAfter !== undefined && bi === opts.foldAfter + 1;
 		if (isFoldedStart) foldY = y;
@@ -91,7 +91,7 @@ export function synth(blocks: SBlock[], opts: { foldAfter?: number; foldBlocks?:
 	}
 	return {
 		...base, blocks: out, notes, lines, glyphs, links, text: enc.encode(text), docX0: -3, docX1: 54, docH: y + 4,
-		foldY, foldH, peekH: foldH > 0 ? (opts.peek ?? 2) : 0, plainTextBytes: bytes, figures: [], anchors: [], items: [], cells: []
+		foldY, foldH, peekH: foldH > 0 ? (opts.peek ?? 2) : 0, plainTextBytes: bytes, exhibits: [], anchors: [], items: [], cells: []
 	};
 }
 
@@ -100,7 +100,7 @@ export const demoBlocks = (): SBlock[] => [
 	{ kind: BlockKind.para, flags: BlockFlag.brief, lines: [{ text: 'alpha beta gamma delta', links: [{ c0: 6, c1: 10, kind: LinkKind.url }, { c0: 17, c1: 22, kind: LinkKind.ref }] }, { text: 'café half-', join: true }, { text: 'ated end.' }] },
 	{ kind: BlockKind.list, lines: [{ marker: '• ', text: 'one apple' }, { marker: '• ', text: 'two pears and' }, { text: 'a plum' }, { marker: '• ', text: 'three' }] },
 	{ kind: BlockKind.code, x1: 20, lines: [{ text: 'let x = 1;' }, { text: '  fn long_name(argument_one, argument_two)' }] },
-	{ kind: BlockKind.figure, fig: 0, x0: -3, x1: 49 },
+	{ kind: BlockKind.exhibit, ex: 0, x0: -3, x1: 49 },
 	{ kind: BlockKind.fold, flags: BlockFlag.hairTop, lines: [{ text: 'Read the full post' }] },
 	{ kind: BlockKind.para, flags: BlockFlag.folded, lines: [{ text: 'hidden alpha one' }, { text: 'two in the fold' }] },
 	{ kind: BlockKind.para, flags: BlockFlag.folded, lines: [{ text: 'folded last paragraph' }] },

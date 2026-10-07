@@ -5,7 +5,22 @@ import type { ReadingModel } from '../magazine/format';
 import type { UiGlyph } from './ui/types';
 
 /** A rounded rectangle in CSS pixels of the canvas, premultiplied on output. rgba are straight, 0..1; hdr multiplies rgb above 1 on an extended-range canvas. */
-export interface Overlay { x: number; y: number; w: number; h: number; radius: number; r: number; g: number; b: number; a: number; hdr?: number }
+export interface Overlay {
+	x: number; y: number; w: number; h: number; radius: number; r: number; g: number; b: number; a: number; hdr?: number;
+	/** shape kind: 0 rounded rect (default), 1 circle (the box's inscribed), 2 line, 3 arrow, 4 ring, 6 hatch, 7 spot (soft light pool inscribed in the box). line and arrow: (x, y) start and (w, h) delta in px. */
+	shape?: number;
+	/** px: stroke width of line, arrow and ring; stripe pitch of hatch */
+	width?: number;
+}
+
+/** One exhibit block's draw for the frame: drawn with its own scissor (`clip`, CSS px) before the chrome overlays. */
+export interface ExhibitDraw {
+	clip: { x0: number; y0: number; x1: number; y1: number };
+	overlays: Overlay[];
+	uiText: UiGlyph[];
+	/** the exhibit's set: spotlight pool and plinth, drawn scissored to `clip` BEFORE the page text and the compiled art (so they sit behind the exhibit) */
+	under?: Overlay[];
+}
 
 export interface PageFrame {
 	/** scroller scrollTop, CSS px */
@@ -43,8 +58,10 @@ export interface PageFrame {
 	blockDx?: Map<number, number>;
 	/** UI rectangles (progress rail, focus ring, hover frame, copy flash, selection plates), drawn over the page */
 	overlays: Overlay[];
+	/** exhibits on screen: scissored to `clip`, drawn after the page art and before the chrome `overlays` (their items share the overlay and UI buffers after the chrome ones) */
+	exhibits?: ExhibitDraw[];
 	/** UI text (chrome labels, find query ...), drawn after the overlays by a second instanced draw with the article's glyph atlas and coverage shader.
-	 *  Glyph ids come from ui/text.ts (fonts.bin union ids); ids out of range are skipped. Capped at 4096 glyphs per frame. */
+	 *  Glyph ids come from ui/text.ts (fonts.bin union ids); ids out of range are skipped. Capped at 8192 glyphs per frame. */
 	uiText?: UiGlyph[];
 	/** image lightbox: draws the image item of `block` fitted into the px rect `rect` (alpha 0..1), after the overlays and before uiText. `em` is the image's document box (em). */
 	lightbox?: { block: number; em: { x0: number; y0: number; x1: number; y1: number }; rect: { x: number; y: number; w: number; h: number }; alpha: number };

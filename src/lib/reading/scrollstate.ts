@@ -2,6 +2,7 @@
 // The pure parts (block lookup, fold mapping, anchor keys) are exported for tests; createScrollState wires them to a scroller.
 import { BlockFlag, BlockKind, stringAt, type ReadingModel } from '../magazine/format';
 import { LINE_EM } from './metrics';
+import { stripExhibitFragment } from './exhibit-fragment';
 export interface LineRange { first: number; last: number }
 
 export interface SavedState {
@@ -218,6 +219,7 @@ export function createScrollState(env: ScrollEnv): ScrollController {
 		return true;
 	}
 	function goToHash(hash: string, o: { smooth?: boolean } = {}): boolean {
+		hash = stripExhibitFragment(hash); // `#x:<id>=<blob>` is exhibit state, never an anchor
 		if (!hash || hash === '#') return false;
 		let id = hash.startsWith('#') ? hash.slice(1) : hash;
 		try { id = decodeURIComponent(id); } catch { /* keep raw */ }

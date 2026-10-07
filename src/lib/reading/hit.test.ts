@@ -51,7 +51,7 @@ describe('hitTest on the synthetic page', () => {
 		expect(shifted.frac).toBeLessThan(1);
 	});
 
-	test('kinds: link, cite, figure, code panel, margin, fold', () => {
+	test('kinds: link, cite, exhibit, code panel, margin, fold', () => {
 		const para = m.blocks[1];
 		const L = m.lines[para.firstLine];
 		const mid = (L.yTop + L.yBot) / 2;
@@ -60,9 +60,9 @@ describe('hitTest on the synthetic page', () => {
 		expect(url.kind).toBe('link');
 		expect(m.links[url.link].kind).toBe(0);
 		expect(hitTest(m, 19.5, mid).kind).toBe('cite');
-		const fig = m.blocks.findIndex((b) => b.kind === BlockKind.figure);
+		const fig = m.blocks.findIndex((b) => b.kind === BlockKind.exhibit);
 		const fb = m.blocks[fig];
-		expect(hitTest(m, 10, (fb.y0 + fb.y1) / 2)).toMatchObject({ kind: 'figure', block: fig, fig: 0 });
+		expect(hitTest(m, 10, (fb.y0 + fb.y1) / 2)).toMatchObject({ kind: 'exhibit', block: fig, ex: 0 });
 		const cb = m.blocks[codeBlock];
 		const cl = m.lines[cb.firstLine];
 		expect(hitTest(m, 15, (cl.yTop + cl.yBot) / 2).kind).toBe('code'); // panel right of the short first line

@@ -43,25 +43,35 @@ export interface ScrollTarget {
 	releasePointerCapture?(id: number): void;
 }
 
+export interface ScrollOptions {
+	/** Called first for every wheel and pointer event (mouse too); return true to swallow it: the engine never sees it. The reader's exhibit routing sits here. */
+	filter?: (kind: 'wheel' | 'down' | 'move' | 'up' | 'cancel', e: WheelEvent | PointerEvent) => boolean;
+}
+
 /** Wire wheel, touch/pen drag (pointer capture, coalesced moves) and keys of `el` and `keyTarget` (default window) to the engine.
  *  The element needs `touch-action: none` so the browser does not pan it. Returns the detach function. */
-export function attachScroll(el: ScrollTarget, api: ScrollApi, keyTarget: ScrollTarget = window as unknown as ScrollTarget): () => void {
+export function attachScroll(el: ScrollTarget, api: ScrollApi, keyTarget: ScrollTarget = window as unknown as ScrollTarget, opts: ScrollOptions = {}): () => void {
+	const { filter } = opts;
 	const onWheel = (e: WheelEvent) => {
+		if (filter?.('wheel', e)) return;
 		// ctrl + wheel is the browser's zoom: not ours, so it is not prevented
 		if (api.wheel(...wheelArgs(e)) && !e.ctrlKey) e.preventDefault();
 	};
 	const send = (kind: number, e: PointerEvent) => api.pointer(kind, pointerWord(e), e.clientX, e.clientY, e.timeStamp);
 	const onDown = (e: PointerEvent) => {
+		if (filter?.('down', e)) return;
 		if (pointerTypeCode(e.pointerType) === 0 || (e.pointerType === 'mouse' && e.button !== 0)) return;
 		if (send(POINTER_KIND.down, e)) el.setPointerCapture?.(e.pointerId);
 	};
 	const onMove = (e: PointerEvent) => {
+		if (filter?.('move', e)) return;
 		if (pointerTypeCode(e.pointerType) === 0) return;
 		const list = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
 		for (const c of list.length ? list : [e]) send(POINTER_KIND.move, c);
 		e.preventDefault();
 	};
 	const end = (kind: number) => (e: PointerEvent) => {
+		if (filter?.(kind === POINTER_KIND.up ? 'up' : 'cancel', e)) return;
 		if (pointerTypeCode(e.pointerType) === 0) return;
 		send(kind, e);
 		el.releasePointerCapture?.(e.pointerId);

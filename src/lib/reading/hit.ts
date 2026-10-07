@@ -9,7 +9,7 @@
 
 import { BlockFlag, BlockKind, LinkKind, NOTE_BIT, type ReadingModel } from '../magazine/format';
 
-export type HitKind = 'text' | 'link' | 'cite' | 'figure' | 'image' | 'code' | 'fold' | 'none';
+export type HitKind = 'text' | 'link' | 'cite' | 'exhibit' | 'image' | 'code' | 'fold' | 'none';
 
 export interface Hit {
 	kind: HitKind;
@@ -21,8 +21,8 @@ export interface Hit {
 	glyph: number;
 	/** index into model.links, -1 when none */
 	link: number;
-	/** figure index, -1 when none */
-	fig: number;
+	/** exhibit index, -1 when none */
+	ex: number;
 	/** index into model.notes for a wide-class margin sidenote, else -1 */
 	note: number;
 	/** byte offset of the first character of the glyph hit, -1 when no glyph */
@@ -36,7 +36,7 @@ export interface ViewOpts {
 	codeDx?: (block: number) => number;
 }
 
-export const NONE_HIT: Readonly<Hit> = Object.freeze({ kind: 'none', block: -1, line: -1, glyph: -1, link: -1, fig: -1, note: -1, off: -1 });
+export const NONE_HIT: Readonly<Hit> = Object.freeze({ kind: 'none', block: -1, line: -1, glyph: -1, link: -1, ex: -1, note: -1, off: -1 });
 
 const EPS = 1e-4;
 const dec = new TextDecoder();
@@ -278,7 +278,7 @@ function textHit(m: ReadingModel, ix: TextIndex, li: number, block: number, note
 	const j = glyphAtX(m, li, x);
 	const lk = link >= 0 ? m.links[link] : null;
 	const kind: HitKind = lk ? (lk.kind === LinkKind.ref ? 'cite' : 'link') : 'text';
-	return { kind, block, line: li, glyph: j, link, fig: -1, note, off: j >= 0 ? m.glyphs[j].charOffset : -1 };
+	return { kind, block, line: li, glyph: j, link, ex: -1, note, off: j >= 0 ? m.glyphs[j].charOffset : -1 };
 }
 
 /**
@@ -338,7 +338,7 @@ function hitInBlock(m: ReadingModel, ix: TextIndex, bi: number, x: number, y: nu
 		}
 	}
 	if (b.kind === BlockKind.code) return { ...NONE_HIT, kind: 'code', block: bi };
-	if (b.kind === BlockKind.figure) return { ...NONE_HIT, kind: 'figure', block: bi, fig: b.fig };
+	if (b.kind === BlockKind.exhibit) return { ...NONE_HIT, kind: 'exhibit', block: bi, ex: b.ex };
 	if (b.kind === BlockKind.image) return { ...NONE_HIT, kind: 'image', block: bi };
 	return { ...NONE_HIT, block: bi };
 }

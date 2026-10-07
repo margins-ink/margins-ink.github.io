@@ -5,7 +5,7 @@ import {
 } from './format';
 import { figure, rrect, track, text, path } from './dsl';
 
-describe('RDR3', () => {
+describe('RDR4', () => {
 	test('record sizes are 4-aligned and stable', () => {
 		for (const [k, v] of Object.entries(REC2)) expect(v % 4, k).toBe(0);
 		expect(REC2).toMatchObject({ glyph: 24, seg: 32, cell: 8 });
@@ -17,7 +17,7 @@ describe('RDR3', () => {
 		expect(itemIndex(w)).toBe(0x0abcdef);
 	});
 
-	test('header, blocks, notes and a figure round trip through bytes', () => {
+	test('header, blocks, notes and an exhibit round trip through bytes', () => {
 		const m = sampleReading();
 		const bytes = packReading(m);
 		expect(unpackContainer(bytes).magic).toBe(ARTICLE2_MAGIC);
@@ -36,7 +36,8 @@ describe('RDR3', () => {
 		expect(back.shapes[0].radius).toBe(roundF16(0.4));
 		expect(back.strokes[0].trimT0Chan).toBe(NO_CHAN);
 		expect(back.glyphs[0]).toMatchObject({ glyphId: 0x80000001, size: roundF16(4.2), group: NONE16 });
-		expect(back.figures[0]).toMatchObject({ duration: 14, poster: 11, x1: 49, y1: 38 });
+		expect(back.exhibits[0]).toMatchObject({ kind: 0, duration: 14, poster: 11, x1: 49, y1: 38, frameW: 36 });
+		expect(back.exhibits[0].scale).toBeCloseTo(1.44, 5);
 		expect(back.items).toEqual(m.items);
 		expect(new TextDecoder().decode(back.text)).toBe('Hello');
 		expect(Array.from(back.palette)).toEqual(Array.from(m.palette));
@@ -47,6 +48,10 @@ describe('RDR3', () => {
 		const bad = bytes.slice();
 		bad[0] ^= 0xff;
 		expect(() => unpackReading(bad)).toThrow();
+		// an RDR3 bin is rejected by magic
+		const old = packReading(sampleReading());
+		new DataView(old.buffer, old.byteOffset).setUint32(0, 0x33524452, true);
+		expect(() => unpackReading(old)).toThrow();
 		const m = sampleReading();
 		const back = unpackReading(packReading({ ...m, shapes: [{ ...m.shapes[0], x1: 19 }] }));
 		expect(back.shapes[0].x1).not.toBe(m.shapes[0].x1);

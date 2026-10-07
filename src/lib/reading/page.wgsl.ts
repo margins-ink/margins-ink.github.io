@@ -5,7 +5,7 @@
  *
  *   vs_ground / fs_ground   full screen triangle: page ground (theme.ts GROUND: one flat tinted near-black), rounded rect clip
  *   vs_text / fs_text       instanced quads over a contiguous range of the items table (glyph, rect, image words)
- *   vs_fig / fs_fig         one instanced quad per visible figure block, items found through the figure cell grid
+ *   vs_fig / fs_fig         one instanced quad per visible timeline exhibit block, items found through the exhibit cell grid
  *   vs_ovl / fs_ovl         instanced rounded rectangles (UI overlays)
  *   vs_ui / fs_ui           instanced UI glyph quads (same union glyph table and slug_cov coverage as the article text)
  *
@@ -26,8 +26,8 @@ import { GROUND_WGSL } from './theme';
 export const MH = {
 	magic: 0, fdir: 1, fcur: 2, fband: 3, xdir: 4, xcur: 5, xband: 6,
 	cells: 7, items: 8, glyphs: 9, rects: 10, images: 11, shapes: 12, paths: 13, strokes: 14, segs: 15,
-	groups: 16, numerals: 17, digits: 18, palette: 19, figures: 20, blocks: 21, notes: 22, chans: 23,
-	nBlocks: 24, nNotes: 25, nFigures: 26, nItems: 27
+	groups: 16, numerals: 17, digits: 18, palette: 19, exhibits: 20, blocks: 21, notes: 22, chans: 23,
+	nBlocks: 24, nNotes: 25, nExhibits: 26, nItems: 27
 } as const;
 export const MH_WORDS = 32;
 export const CHAN_FLOATS = 256;
@@ -52,7 +52,7 @@ const g = (rec: Rec, field: string, base = 'r'): string => {
 };
 const sz = (rec: Rec) => `${REC2[rec] / 4}u`;
 const headerConsts = Object.entries(MH).map(([k, v]) => `const MH_${k.toUpperCase()} = ${v}u;`).join('\n');
-const sizeConsts = (['glyph', 'rect', 'image', 'shape', 'path', 'stroke', 'seg', 'group', 'numeral', 'figure', 'cell'] as Rec[])
+const sizeConsts = (['glyph', 'rect', 'image', 'shape', 'path', 'stroke', 'seg', 'group', 'numeral', 'exhibit', 'cell'] as Rec[])
 	.map((k) => `const SZ_${k.toUpperCase()} = ${sz(k)};`).join('\n');
 const segCum = fieldOffset('seg', 'cum');
 
@@ -419,13 +419,16 @@ fn mg_rect(ix: u32, p0: vec2f, fw0: f32) -> vec4f {
     let sd = length(max(qq, vec2f(0.0))) + min(max(qq.x, qq.y), 0.0) - rad;
     cov = saturate(0.5 - sd / q.z);
     // 1 px hairline just inside the edge (code panel, RectKind.codeBg = 1): 1 where -1 px < sd < 0
-    edge = saturate(0.5 - (-sd - q.z) / q.z) * select(0.0, 1.0, ${g('rect', 'kind')} == 1u);
+    edge = saturate(0.5 - (-sd - q.z) / q.z) * select(0.0, 1.0, ${g('rect', 'kind')} == 1u || ${g('rect', 'kind')} == 8u);
   } else {
     cov = mg_box(q.xy, a, b, q.z);
   }
   if (cov <= 0.0) { return vec4f(0.0); }
   var pc = mg_pal(${g('rect', 'colour')});
-  if (edge > 0.0) { pc = mix(pc, mg_pal(4u), edge); } // palette slot 4 (PAL2.rule) is the hairline colour (theme.ts hairline)
+  if (edge > 0.0) {
+    // palette slot 4 (PAL2.rule) is the code panel hairline (theme.ts hairline); a RectKind.panel card (plaque, wall label) gets an ink hairline, lighter than the card
+    if (${g('rect', 'kind')} == 8u) { pc = mix(pc, mg_pal(0u), 0.11 * edge); } else { pc = mix(pc, mg_pal(4u), edge); }
+  }
   return vec4f(pc.rgb, cov * pc.a * q.w);
 }
 
@@ -779,17 +782,17 @@ fn mg_snap(ix: u32, dydx: vec2f) -> vec2f {
   return pg_out(c.rgb, a);
 }
 
-// ---- figures ----
+// ---- timeline exhibits (compiled art + clock; script exhibits have an empty grid) ----
 // straight alpha result of every item of the cell that holds the point p (document em); items in order, over blending
 fn fig_eval(fi: u32, p: vec2f, fw: f32) -> vec4f {
-  let r = reader[MH_FIGURES] + fi * SZ_FIGURE;
-  let cols = ${g('figure', 'gridCols')};
-  let rows = ${g('figure', 'gridRows')};
+  let r = reader[MH_EXHIBITS] + fi * SZ_EXHIBIT;
+  let cols = ${g('exhibit', 'gridCols')};
+  let rows = ${g('exhibit', 'gridRows')};
   if (cols == 0u || rows == 0u) { return vec4f(0.0); }
-  let q = p - vec2f(${g('figure', 'x0')}, ${g('figure', 'y0')});
+  let q = p - vec2f(${g('exhibit', 'x0')}, ${g('exhibit', 'y0')});
   let cx = u32(clamp(floor(q.x / MG_CELL_W), 0.0, f32(cols) - 1.0));
   let cy = u32(clamp(floor(q.y / MG_CELL_H), 0.0, f32(rows) - 1.0));
-  let cr = reader[MH_CELLS] + (${g('figure', 'firstCell')} + cy * cols + cx) * SZ_CELL;
+  let cr = reader[MH_CELLS] + (${g('exhibit', 'firstCell')} + cy * cols + cx) * SZ_CELL;
   let istart = reader[MH_ITEMS] + ${g('cell', 'start', 'cr')};
   let icount = ${g('cell', 'count', 'cr')};
   var acc = vec4f(0.0);
@@ -819,10 +822,10 @@ struct FOut {
 @vertex fn vs_fig(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> FOut {
   var o: FOut;
   let d = fig_inst[ii];
-  let r = reader[MH_FIGURES] + d.x * SZ_FIGURE;
+  let r = reader[MH_EXHIBITS] + d.x * SZ_EXHIBIT;
   let m = fu.v2.x;
-  let lo = vec2f(${g('figure', 'x0')}, ${g('figure', 'y0')}) - vec2f(m);
-  let hi = vec2f(${g('figure', 'x1')}, ${g('figure', 'y1')}) + vec2f(m);
+  let lo = vec2f(${g('exhibit', 'x0')}, ${g('exhibit', 'y0')}) - vec2f(m);
+  let hi = vec2f(${g('exhibit', 'x1')}, ${g('exhibit', 'y1')}) + vec2f(m);
   let c = vec2f(f32(vi & 1u), f32(vi >> 1u));
   let dy = bitcast<f32>(d.z);
   o.pos = pg_clip(pg_px(mix(lo, hi, c), dy, 0.0));
@@ -891,21 +894,80 @@ struct OOut {
 @vertex fn vs_ovl(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> OOut {
   var o: OOut;
   let r = ovl[3u * ii];
+  let k = ovl[3u * ii + 1u];
   let c = vec2f(f32(vi & 1u), f32(vi >> 1u));
-  let lo = r.xy - vec2f(1.5);
-  let hi = r.xy + r.zw + vec2f(1.5);
+  var lo = r.xy - vec2f(1.5);
+  var hi = r.xy + r.zw + vec2f(1.5);
+  let kind = u32(k.z);
+  if (kind == 2u || kind == 3u) {
+    // line and arrow: (x, y) start, (z, w) delta, k.w stroke width; arrowheads reach 5 widths back and half that to the side
+    let e = r.xy + r.zw;
+    let m = vec2f(1.5 + k.w * 3.0);
+    lo = min(r.xy, e) - m;
+    hi = max(r.xy, e) + m;
+  }
   o.pos = pg_clip(mix(lo, hi, c));
   o.oi = ii;
   return o;
 }
 
+fn pg_seg_sd(p: vec2f, a: vec2f, b: vec2f) -> f32 {
+  let ba = b - a;
+  let h = saturate(dot(p - a, ba) / max(dot(ba, ba), 1e-12));
+  return length(p - a - ba * h);
+}
+
+/** signed distance (css px, negative inside) of overlay shape kind: 0 rrect, 1 circle, 2 line, 3 arrow, 4 ring, 6 hatch, 7 spot (soft ellipse light pool) (the rrect box filled with 45 degree stripes: k.w pitch) */
 @fragment fn fs_ovl(in: OOut) -> @location(0) vec4f {
   let r = ovl[3u * in.oi];
   let k = ovl[3u * in.oi + 1u];
   let col = ovl[3u * in.oi + 2u];
   let css = in.pos.xy / fu.v0.z;
-  let sd = pg_rrect_sd(css, r.xy, r.xy + r.zw, k.x);
-  let a = col.a * saturate(0.5 - sd * fu.v0.z);
+  let kind = u32(k.z);
+  var sd = 0.0;
+  var amul = 1.0;
+  if (kind == 2u || kind == 3u) {
+    let a = r.xy;
+    let b = r.xy + r.zw;
+    let hw = 0.5 * k.w;
+    sd = pg_seg_sd(css, a, b) - hw;
+    if (kind == 3u) {
+      let d = b - a;
+      let len = max(length(d), 1e-6);
+      let u = d / len;
+      let n = vec2f(-u.y, u.x);
+      let hl = min(len, k.w * 4.5);
+      let base = b - u * hl;
+      // triangle head: two edges from the tip to base +- n * hl * 0.45, signed distance of the triangle
+      let w = hl * 0.45;
+      let p0 = b; let p1 = base + n * w; let p2 = base - n * w;
+      let e0 = p1 - p0; let e1 = p2 - p1; let e2 = p0 - p2;
+      let v0 = css - p0; let v1 = css - p1; let v2 = css - p2;
+      let q0 = v0 - e0 * saturate(dot(v0, e0) / dot(e0, e0));
+      let q1 = v1 - e1 * saturate(dot(v1, e1) / dot(e1, e1));
+      let q2 = v2 - e2 * saturate(dot(v2, e2) / dot(e2, e2));
+      let s = sign(e0.x * e2.y - e0.y * e2.x);
+      let dd = min(min(vec2f(dot(q0, q0), s * (v0.x * e0.y - v0.y * e0.x)), vec2f(dot(q1, q1), s * (v1.x * e1.y - v1.y * e1.x))), vec2f(dot(q2, q2), s * (v2.x * e2.y - v2.y * e2.x)));
+      let tri = -sqrt(dd.x) * sign(dd.y);
+      sd = min(sd, tri);
+    }
+  } else if (kind == 4u) {
+    // ring: rounded-rect outline inside the box (k.x corner radius, k.w stroke)
+    sd = abs(pg_rrect_sd(css, r.xy, r.xy + r.zw, k.x) + 0.5 * k.w) - 0.5 * k.w;
+  } else if (kind == 7u) {
+    // spot: soft elliptical light pool inscribed in the box (alpha falls off as (1 - d^2)^2 from the centre), no edge
+    let q = (css - (r.xy + 0.5 * r.zw)) / max(0.5 * r.zw, vec2f(1.0));
+    let d = saturate(1.0 - dot(q, q));
+    sd = -1.0;
+    amul = d * d;
+  } else {
+    sd = pg_rrect_sd(css, r.xy, r.xy + r.zw, select(k.x, 0.5 * min(r.z, r.w), kind == 1u));
+    if (kind == 6u) {
+      let ph = fract((css.x + css.y) / max(k.w, 1.0));
+      amul = smoothstep(0.0, 0.08, ph) * (1.0 - smoothstep(0.42, 0.5, ph));
+    }
+  }
+  let a = col.a * amul * saturate(0.5 - sd * fu.v0.z);
   if (a <= 0.0) { discard; }
   return pg_out(pg_srgb_dec(col.rgb) * k.y, a);
 }

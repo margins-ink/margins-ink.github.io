@@ -5,16 +5,17 @@
 import './reader.css';
 import { goto, pushState, replaceState } from '$app/navigation';
 import { page } from '$app/state';
-import { BlockKind, BlockFlag, LinkKind, FigureMode, stringAt, type ReadingModel } from '$lib/magazine/format';
-import { evalKeys, figureTime } from '$lib/magazine/chan';
-import { INPUT, RD, MAX_FIG_STATE, SCROLL_MODE, type Reading, type ReadingEventKind } from './abi';
+import { BlockKind, BlockFlag, LinkKind, stringAt, type ReadingModel } from '$lib/magazine/format';
+import { INPUT, POINTER_KIND, RD, SCROLL_MODE, XS, type Reading, type ReadingEventKind } from './abi';
 import type { Overlay, PageFrame, PagePass } from './page-api';
 import { createPagePass } from './page';
 import { loadReadingOnly } from '$lib/ecs/reading';
 import { loadArticle, type LoadedArticle } from './load';
 import { barPxFor, cubicBezier, emPxFor, originXFor, scaleSteps, snapScale, widthClassFor, DEFAULT_SCALE } from './metrics';
 import { createScrollState, layoutToDocY, readHistoryState, type SavedState, type ScrollController } from './scrollstate';
-import { attachScroll } from './input';
+import { attachScroll, pointerWord } from './input';
+import { createExhibitDrawer, createRouter, evalTimelineChannels, exhibitId, keyMods, loadExhibits, mappingOf, routeKey, toLocal, xkeyOf, type RouteResult } from './exhibit';
+import { fromBlob, keepExhibitFragment, parseExhibitFragment, setExhibitFragment, toBlob } from './exhibit-fragment';
 import { THEME } from './theme';
 import { codeText, imageAlt } from './modeltext';
 import { hitTest, caretAt, type Hit, type ViewOpts } from './hit';
@@ -22,9 +23,9 @@ import { press, dragTo, selectAll, selectionRects, copyText, selEmpty, selLo, se
 import { findInModel, nextHit, prevHit, hitFrom, rangesToRects, type FindHit } from './find';
 import { buildChrome, createChromeAnim } from './ui/widgets';
 import { hitChrome } from './ui/hit';
-import type { ChromeState, ChromeInput, HitRect, KeyEvent, Rect, FindState, CodeBlockInfo, FigureInfo, ToastInfo } from './ui/layout';
+import type { ChromeState, ChromeInput, HitRect, KeyEvent, Rect, FindState, CodeBlockInfo, ToastInfo } from './ui/layout';
 import { newScrollbar, scrollbarFrame, scrollbarDragStart, scrollbarDragTo, scrollbarTrackClick } from './ui/scrollbar';
-import { loadUiTables, measureUi, setUiTables, shapeUi, uiGlyphs } from './ui/text';
+import { loadUiTables, setUiTables, shapeUi } from './ui/text';
 import type { ScrollbarInput } from './ui/types';
 
 
@@ -58,9 +59,9 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 
 	// ---- runtime (plain variables: nothing here drives the template) ----
 	const dev = import.meta.env.DEV;
-	const FIG_MODES = ['loop', 'once', 'scrub', 'static'] as const;
 	const ENTER_MS = 480;
 	const enterEase = cubicBezier(0.2, 0.7, 0.2, 1);
+	const PARALLAX_PX = 7;
 	let pass: PagePass | null = null;
 	let reading: Reading | null = null;
 	let art: LoadedArticle | null = null;
@@ -100,6 +101,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let enterState = new Uint8Array(0); // 0 waiting, 1 animating, 2 done
 	let enterStart = new Float64Array(0);
 	let enterBlocks: number[] = [];
+	let plaqueBlocks: number[] = []; // blocks with BlockFlag.plaque: the only blocks that float (parallax)
 	let foldBlockIdx = -1;
 	let codeBlocks: number[] = [];
 	const codeDx = new Map<number, number>();
@@ -109,7 +111,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let ptrType = 'mouse';
 	let primaryDown = false;
 	let captured: string | null = null;
-	let dragKind: 'select' | 'thumb' | 'fig' | null = null;
+	let dragKind: 'select' | 'thumb' | null = null;
 	let thumbGrab = 0;
 	let gesture: Gesture | null = null;
 	let sel: Sel | null = null;
@@ -118,7 +120,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let hoverHit: Hit | null = null;
 	let hoverBlockSent = -1;
 	let focusLinkIdx = -1;
-	let focusFig = -1; // block index in figure focus mode
 	let washBlock = -1, washT0 = 0;
 	let tocOpen = false, aaOpen = false;
 	let popover: { ref: number; link: number } | null = null;
@@ -138,11 +139,15 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	const sbState = { v: newScrollbar() };
 	let sbInput: ScrollbarInput | null = null;
 	let canvasEl: HTMLCanvasElement | null = null;
-	let scrubbing = new Set<number>();
-	let scrubTimers = new Map<number, ReturnType<typeof setTimeout>>();
-	let figPlaying: boolean[] = [];
-	let figT: number[] = [];
-	const prevFigClock: number[] = [];
+	// exhibits (exhibit.ts): the draw builder, the pointer state machine, the OS cursor they asked for, and the URL fragment debounce
+	const exDrawer = createExhibitDrawer();
+	const exDirty = new Set<number>();
+	let exTimer: ReturnType<typeof setTimeout> | undefined;
+	let exCursor: string | null = null;
+	let exIds: string[] = [];
+	let routed: { e: Event; r: RouteResult } | null = null;
+	let hotOff: (() => void) | null = null;
+	const swallowed = (e: Event): boolean => routed !== null && routed.e === e && routed.r.swallow;
 
 	const ov = (x: number, y: number, w: number, h: number, radius: number, r: number, g: number, b: number, a: number, hdr?: number): void => {
 		let o = pool[poolN];
@@ -207,7 +212,8 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		scrollSt?.dispose();
 		scrollSt = null;
 		sel = null; gesture = null; popover = null; lightbox = null; findHits = []; findCur = -1;
-		find.open = false; tocOpen = false; aaOpen = false; focusLinkIdx = -1; focusFig = -1;
+		find.open = false; tocOpen = false; aaOpen = false; focusLinkIdx = -1;
+		clearTimeout(exTimer); exDirty.clear(); exCursor = null; routed = null; router.clearFocus();
 	}
 
 	function readFoldPref(a: LoadedArticle): boolean {
@@ -256,6 +262,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		}
 		if (my !== genToken || disposed || !pass || !reading || !root) return;
 
+		const carry = key && model ? snapshotExhibits() : null; // a width-class reload keeps each exhibit's state
 		teardownArticle();
 		art = a;
 		model = a.model;
@@ -268,16 +275,18 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 
 		codeBlocks = [];
 		enterBlocks = [];
+		plaqueBlocks = [];
 		model.blocks.forEach((b, i) => {
 			if (b.kind === BlockKind.code) codeBlocks.push(i);
-			if (b.kind === BlockKind.figure || b.kind === BlockKind.image || b.kind === BlockKind.pullquote) enterBlocks.push(i);
+			if (b.kind === BlockKind.exhibit || b.kind === BlockKind.image || b.kind === BlockKind.pullquote || b.kind === BlockKind.label || b.flags & BlockFlag.plaque) enterBlocks.push(i);
+			if (b.flags & BlockFlag.plaque) plaqueBlocks.push(i);
 		});
 		enterState = new Uint8Array(model.blocks.length);
 		enterStart = new Float64Array(model.blocks.length);
 		codeDx.clear();
-		figPlaying = []; figT = [];
 
 		reading.load(model);
+		loadAndRestoreExhibits(carry);
 		computeMetrics();
 		reading.setViewport(viewW, viewH, dpr, emPx, cls);
 		reading.input(INPUT.reducedMotion, reduced ? 1 : 0);
@@ -302,8 +311,8 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			reduced: () => reduced,
 			scale: () => scale,
 			fromWorld: () => fromWorld,
-			replaceHash: (h) => { try { replaceState(location.pathname + location.search + h, page.state); } catch { /* router not ready */ } },
-			pushHash: (h) => { try { pushState(location.pathname + location.search + h, page.state); } catch { /* router not ready */ } }
+			replaceHash: (h) => { try { replaceState(location.pathname + location.search + keepExhibitFragment(h, location.hash), page.state); } catch { /* router not ready */ } },
+			pushHash: (h) => { try { pushState(location.pathname + location.search + keepExhibitFragment(h, location.hash), page.state); } catch { /* router not ready */ } }
 		});
 
 		restoredScroll = false;
@@ -396,17 +405,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			if (r.y + r.h < 0 || r.y > viewH) continue;
 			codeInfos.push({ block: i, rect: r, lang: codeLang(i) });
 		}
-		const figInfos: FigureInfo[] = [];
-		m.figures.forEach((f, i) => {
-			if (i >= MAX_FIG_STATE || f.mode === FigureMode.static) return;
-			if (st[RD.figBase + 2 * i + 1] === 0) return;
-			const b = m.blocks[f.block];
-			if (!b) return;
-			const r = viewRectOfBlock(f.block);
-			if (r.y + r.h < 0 || r.y > viewH) return;
-			figInfos.push({ fig: i, rect: r, playing: !!figPlaying[i], t: f.duration > 0 ? Math.min(1, (figT[i] ?? 0) / f.duration) : 0, steppable: true });
-		});
-		const hoverFig = hoverHit && hoverHit.kind === 'figure' ? hoverHit.fig : -1;
 		const hoverCode = hoverHit && hoverHit.kind === 'code' ? hoverHit.block : -1;
 		const lbSrc = lightbox ? { w: lightbox.w, h: lightbox.h, caption: lightbox.caption } : null;
 		const popAnchor = popover ? linkViewRects(popover.link)[0] : null;
@@ -431,8 +429,8 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			lightbox: lbSrc,
 			find,
 			copyFlash, toasts,
-			codeBlocks: codeInfos, figures: figInfos,
-			hoverCode, focusCode: -1, hoverFig, focusFig: focusFig >= 0 ? m.figures.findIndex((f) => f.block === focusFig) : -1, scrubFig: st[RD.scrubFig],
+			codeBlocks: codeInfos,
+			hoverCode, focusCode: -1,
 			hoverLink, focusLink: focusLinkR,
 			scrollbar: sbState.v,
 			ticks: parts.sections.map((s) => s.y),
@@ -573,14 +571,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		return true;
 	}
 
-	function figFor(f: number) { return model!.figures[f]; }
-	function figSet(i: number, v: number) { reading?.input(INPUT.scrubTo, i, Math.max(0, Math.min(figFor(i).duration, v))); }
-	function beginScrub(i: number) { if (!scrubbing.has(i)) { scrubbing.add(i); reading?.input(INPUT.scrubBegin, i); } }
-	function endScrub(i: number) {
-		clearTimeout(scrubTimers.get(i));
-		if (scrubbing.delete(i)) reading?.input(INPUT.scrubEnd, i, 0);
-	}
-
 	function act(a: string, x = 0, y = 0) {
 		if (!model || !reading) return;
 		const [k, p, q] = a.split(':');
@@ -605,16 +595,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			case 'copy': {
 				const b = Number(p);
 				void copyToClipboard(codeSource(b)).then((ok) => { copyFlash[b] = performance.now(); toast(ok ? 'Copied' : 'Copy failed'); });
-				break;
-			}
-			case 'fig': {
-				const i = Number(q), f = model.figures[i];
-				if (!f) break;
-				if (p === 'play') {
-					if (f.mode === FigureMode.once && !figPlaying[i] && (figT[i] ?? 0) >= f.duration - 0.02) { reading.input(INPUT.figureHome, i); reading.input(INPUT.figurePlay, i, 1); }
-					else reading.input(INPUT.figurePlay, i, figPlaying[i] ? 0 : 1);
-				} else if (p === 'back') reading.input(INPUT.figureStep, i, -0.25);
-				else if (p === 'fwd') reading.input(INPUT.figureStep, i, 0.25);
 				break;
 			}
 			case 'find':
@@ -656,24 +636,9 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			case 'link': case 'cite': if (hit.link >= 0) activateLink(hit.link); break;
 			case 'fold': setFold(!foldExpanded); break;
 			case 'image': openLightbox(hit.block); break;
-			case 'figure': {
-				const f = hit.fig >= 0 ? model!.figures[hit.fig] : null;
-				if (f && f.mode !== FigureMode.static && f.mode !== FigureMode.scrub) act(`fig:play:${hit.fig}`);
-				break;
-			}
 			default: break;
 		}
 	}
-
-	/** The OS cursor over a scrubbable figure (zero lag, never a drawn follower): chevrons left and right, white with a dark outline; the
-	 *  grabbing variant adds a filled centre dot. 24 px, hotspot centred, `ew-resize` as the fallback. Only figures with a real scrub track. */
-	const scrubCursor = (grabbing: boolean): string => {
-		const chev = (d: string) => `<path d="${d}" fill="none" stroke="#0b0e14" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/><path d="${d}" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
-		const dot = grabbing ? '<circle cx="12" cy="12" r="3.4" fill="#fff" stroke="#0b0e14" stroke-width="1.2"/>' : '';
-		const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">${chev('M8.5 6.5 3.5 12l5 5.5')}${chev('M15.5 6.5 20.5 12l-5 5.5')}${dot}</svg>`;
-		return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, ew-resize`;
-	};
-	const SCRUB_CURSOR = scrubCursor(false), SCRUB_CURSOR_GRAB = scrubCursor(true);
 
 	function cursorFor(h: Hit | null): string {
 		if (!h) return 'default';
@@ -681,7 +646,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			case 'link': case 'cite': case 'fold': return 'pointer';
 			case 'image': return 'zoom-in';
 			case 'text': case 'code': return 'text';
-			case 'figure': return h.fig >= 0 && model!.figures[h.fig]?.mode === FigureMode.scrub ? SCRUB_CURSOR : 'default';
+			case 'exhibit': return exCursor ?? 'default';
 			default: return 'default';
 		}
 	}
@@ -719,17 +684,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			clearTimeout(popTimer);
 			popTimer = setTimeout(() => { closePopover(); }, 160);
 		}
-		// scrub-mode figures follow the pointer
-		if (hit && hit.kind === 'figure' && hit.fig >= 0 && ptrType === 'mouse' && !ch) {
-			const f = model.figures[hit.fig];
-			if (f && f.mode === FigureMode.scrub) {
-				const b = model.blocks[f.block];
-				const fr = Math.max(0, Math.min(1, (toDocX(x) - b.x0) / Math.max(1e-6, b.x1 - b.x0)));
-				beginScrub(hit.fig); figSet(hit.fig, fr * f.duration);
-				clearTimeout(scrubTimers.get(hit.fig));
-				if (dragKind !== 'fig') scrubTimers.set(hit.fig, setTimeout(() => endScrub(hit.fig), 320));
-			}
-		}
 		needDraw = true;
 	}
 
@@ -738,16 +692,9 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		const p = localPoint(e);
 		ptr = p; ptrType = e.pointerType;
 		if (downAt && Math.hypot(p.x - downAt.x, p.y - downAt.y) > 4) downAt.moved = true;
+		if (swallowed(e)) { needDraw = true; return; } // an exhibit part holds this pointer
 		if (dragKind === 'thumb') {
 			reading.scroll.scrollTo(scrollbarDragTo(sbIn(), thumbGrab, p.y), false);
-			needDraw = true;
-			return;
-		}
-		if (dragKind === 'fig' && captured) {
-			const i = Number(captured.split(':')[2]);
-			const hit = lastChromeHits.find((r) => r.id === captured);
-			const f = model.figures[i];
-			if (hit && f) { const fr = Math.max(0, Math.min(1, (p.x - hit.x) / Math.max(1, hit.w))); beginScrub(i); figSet(i, fr * f.duration); }
 			needDraw = true;
 			return;
 		}
@@ -768,6 +715,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		ptr = p; ptrType = e.pointerType;
 		canvasEl?.focus?.();
 		if (e.button !== 0) return;
+		if (swallowed(e)) { needDraw = true; return; } // a press inside an exhibit starts no selection and no page drag
 		primaryDown = true;
 		const ch = chromeAt(p.x, p.y);
 		const hit = ch ? NONE : hitTest(model, toDocX(p.x), toDocY(p.y), viewOpts());
@@ -777,7 +725,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 				captured = ch.id;
 				canvasEl?.setPointerCapture(e.pointerId);
 				if (ch.id === 'sb:thumb') { dragKind = 'thumb'; thumbGrab = scrollbarDragStart(sbIn(), p.y); }
-				else if (ch.id.startsWith('fig:scrub')) { dragKind = 'fig'; const i = Number(ch.id.split(':')[2]); beginScrub(i); const f = model.figures[i]; if (f) figSet(i, Math.max(0, Math.min(1, (p.x - ch.x) / Math.max(1, ch.w))) * f.duration); }
 			}
 			needDraw = true;
 			return;
@@ -804,14 +751,15 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		if (!model || !reading) return;
 		const p = localPoint(e);
 		primaryDown = false;
+		if (swallowed(e)) { downAt = null; dragKind = null; needDraw = true; return; }
 		const d = downAt;
 		downAt = null;
 		const wasDrag = dragKind;
 		dragKind = null;
-		if (captured) { const id = captured; captured = null; if (id.startsWith('fig:scrub')) endScrub(Number(id.split(':')[2])); }
+		captured = null;
 		try { canvasEl?.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
 		if (!d || e.button !== 0) return;
-		if (wasDrag === 'thumb' || wasDrag === 'fig') return;
+		if (wasDrag === 'thumb') return;
 		if (d.moved && e.pointerType !== 'touch') {
 			// a selection drag ended; clear a collapsed selection
 			if (selEmpty(sel)) sel = null;
@@ -842,7 +790,8 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		ptr = null;
 		hoverHit = null;
 		if (hoverBlockSent !== -1) { hoverBlockSent = -1; reading?.input(INPUT.hoverBlock, -1); }
-		for (const i of [...scrubbing]) if (dragKind !== 'fig') endScrub(i);
+		if (canvasEl) router.event({ type: 'leave', id: 0, ptype: 'mouse', x: 0, y: 0, buttons: 0, mods: 0 });
+		exCursor = null;
 		needDraw = true;
 	}
 
@@ -872,7 +821,21 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		};
 		c.addEventListener('wheel', onCodeWheel, { passive: false });
 		const noKeys = { addEventListener() {}, removeEventListener() {} } as unknown as Parameters<typeof attachScroll>[2];
-		const detach = attachScroll(c as never, { wheel: (...a) => reading!.scroll.wheel(...a), pointer: (...a) => reading!.scroll.pointer(...a), key: () => false, scrollTo: (...a) => reading!.scroll.scrollTo(...a) }, noKeys);
+		// exhibit routing sits in front of the scroll engine: it swallows what an exhibit part owns (docs/MUSEUM.md 3.4)
+		const filter = (kind: 'wheel' | 'down' | 'move' | 'up' | 'cancel', e: WheelEvent | PointerEvent): boolean => {
+			if (!model || !reading || !ready) return false;
+			if (kind === 'wheel') return router.wheel();
+			const pe = e as PointerEvent;
+			if (pe.pointerType === 'mouse' && pe.button > 0 && kind !== 'move') return false;
+			const p = localPoint(pe);
+			const r = router.event({ type: kind, id: pe.pointerId, ptype: pe.pointerType === 'touch' ? 'touch' : pe.pointerType === 'pen' ? 'pen' : 'mouse', x: p.x, y: p.y, buttons: pe.buttons, mods: keyMods(pe), raw: pe });
+			routed = { e, r };
+			if (kind === 'move') exCursor = r.inside ? r.cursor : null;
+			else if (r.cursor !== null) exCursor = r.cursor;
+			if (r.swallow || r.inside) needDraw = true;
+			return r.swallow;
+		};
+		const detach = attachScroll(c as never, { wheel: (...a) => reading!.scroll.wheel(...a), pointer: (...a) => reading!.scroll.pointer(...a), key: () => false, scrollTo: (...a) => reading!.scroll.scrollTo(...a) }, noKeys, { filter });
 		c.addEventListener('pointermove', onPointerMove);
 		c.addEventListener('pointerdown', onPointerDown);
 		c.addEventListener('pointerup', onPointerUp);
@@ -894,7 +857,99 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		});
 	}
 	const disposersAlways: (() => void)[] = [];
-	const NONE: Hit = { kind: 'none', block: -1, line: -1, glyph: -1, link: -1, fig: -1, note: -1, off: -1 };
+	const NONE: Hit = { kind: 'none', block: -1, line: -1, glyph: -1, link: -1, ex: -1, note: -1, off: -1 };
+
+	// ---- exhibits ----
+
+	const exLoaded = (ex: number): boolean => !!reading && reading.exhibit.state()[ex * XS.stride + XS.loaded] !== 0;
+
+	const router = createRouter({
+		exhibitAt(x, y) {
+			if (!model || !reading || chromeAt(x, y)) return -1;
+			const h = hitTest(model, toDocX(x), toDocY(y), viewOpts());
+			if (h.kind !== 'exhibit' || h.ex < 0 || (blockAlpha.get(h.block) ?? 1) <= 0) return -1;
+			return exLoaded(h.ex) ? h.ex : -1;
+		},
+		local(ex, x, y) {
+			const rec = model?.exhibits[ex];
+			if (!rec) return null;
+			const r = viewRectOfBlock(rec.block);
+			return toLocal(mappingOf({ x: r.x, y: r.y + (blockDy.get(rec.block) ?? 0) }, rec.scale, emPx), x, y);
+		},
+		call(ex, kind, xEm, yEm, buttons, mods) {
+			needDraw = true;
+			return reading ? reading.exhibit.pointer(ex, kind, xEm, yEm, buttons, mods) : 0;
+		},
+		focus(ex) { reading?.exhibit.focus(ex); needDraw = true; },
+		capture(id) { try { canvasEl?.setPointerCapture(id); } catch { /* the pointer is gone */ } },
+		release(id) { try { canvasEl?.releasePointerCapture(id); } catch { /* not captured */ } },
+		engineDown(raw) {
+			const e = raw as PointerEvent;
+			if (reading?.scroll.pointer(POINTER_KIND.down, pointerWord(e), e.clientX, e.clientY, e.timeStamp)) { try { canvasEl?.setPointerCapture(e.pointerId); } catch { /* gone */ } }
+		}
+	});
+
+	/** load failure or hot-reload error: a toast and the dev overlay (the exhibit keeps drawing what it had, or nothing) */
+	function reportExhibitError(msg: string) {
+		console.error(msg);
+		toast(msg.split('\n')[0].slice(0, 90));
+		try { (globalThis as { reportError?: (e: unknown) => void }).reportError?.(new Error(msg)); } catch { /* no overlay */ }
+	}
+
+	/** snapshot text of every exhibit of the current article by id (state that survives a reload of the same article) */
+	function snapshotExhibits(): Map<string, string> {
+		const out = new Map<string, string>();
+		if (!reading || !model) return out;
+		for (let i = 0; i < model.exhibits.length; i++) {
+			const t = reading.exhibit.snapshot(i);
+			if (t !== null) out.set(exhibitId(model, i), t);
+		}
+		return out;
+	}
+
+	/** after `reading.load`: run every exhibit script, then restore state (carried over a reload, else the URL fragment) */
+	function loadAndRestoreExhibits(carry: Map<string, string> | null) {
+		if (!reading || !model) return;
+		const rep = loadExhibits(reading.exhibit, model, slug);
+		for (const msg of rep.errors) reportExhibitError(msg);
+		exIds = model.exhibits.map((_, i) => exhibitId(model!, i));
+		const want = new Map<string, string | null>();
+		for (const { id, blob } of parseExhibitFragment(location.hash)) want.set(id, fromBlob(blob));
+		exIds.forEach((id, i) => {
+			if (!rep.loaded[i]) return;
+			const text = carry?.get(id) ?? (want.has(id) ? want.get(id) : undefined);
+			if (text === undefined) return;
+			if (text === null || !reading!.exhibit.restore(i, text)) toast('exhibit state out of date');
+		});
+	}
+
+	/** an exhibit changed its state: write the fragment once things settle (replaceState, never pushState) */
+	function scheduleFragment(ex: number) {
+		exDirty.add(ex);
+		clearTimeout(exTimer);
+		exTimer = setTimeout(flushFragment, 300);
+	}
+	function flushFragment() {
+		if (!reading || !model) return;
+		let hash = location.hash;
+		for (const ex of exDirty) {
+			const snap = reading.exhibit.snapshot(ex);
+			hash = setExhibitFragment(hash, exhibitId(model, ex), snap === null ? null : toBlob(snap));
+		}
+		exDirty.clear();
+		if (hash === location.hash) return;
+		try { replaceState(location.pathname + location.search + hash, page.state); } catch { /* router not ready */ }
+	}
+
+	/** dev hot reload of one exhibit script: null when applied (the exhibit keeps its state), else the error text */
+	function reloadExhibit(id: string, src: string): string | null {
+		if (!reading) return 'reader not ready';
+		const ex = exIds.indexOf(id);
+		if (ex < 0) return `no exhibit "${id}" in this article`;
+		const err = reading.exhibit.reload(ex, src);
+		needDraw = true;
+		return err;
+	}
 
 	// ---- keyboard ----
 
@@ -946,9 +1001,14 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		if (mod && e.key.toLowerCase() === 'g' && findHits.length) { stepFind(e.shiftKey ? -1 : 1); e.preventDefault(); return; }
 		if (mod && e.key.toLowerCase() === 'c') { if (copySelection()) e.preventDefault(); return; }
 		if (mod && e.key.toLowerCase() === 'a') { sel = selectAll(model); gesture = null; needDraw = true; e.preventDefault(); return; }
+		// an exhibit with keyboard focus is offered the key first (never a Cmd/Ctrl combo); Esc it leaves unconsumed only releases the focus
+		if (router.focus >= 0 && !mod) {
+			const out = routeKey(router.focus, xkeyOf(e), keyMods(e), (c, m) => reading!.exhibit.key(c, m), () => router.clearFocus());
+			if (out.consumed || out.handled) { e.preventDefault(); needDraw = true; return; }
+		}
 		if (e.key === 'Escape') {
 			e.preventDefault();
-			if (closeLightbox() || closePopover() || (aaOpen && (aaOpen = false, true)) || (tocOpen && (tocOpen = false, true)) || (focusFig >= 0 && (focusFig = -1, reading.input(INPUT.open, -1), true))) { needDraw = true; return; }
+			if (closeLightbox() || closePopover() || (aaOpen && (aaOpen = false, true)) || (tocOpen && (tocOpen = false, true))) { needDraw = true; return; }
 			if (!selEmpty(sel)) { sel = null; gesture = null; needDraw = true; return; }
 			closeOrBack();
 			return;
@@ -971,13 +1031,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		if (k === 'k') { scrollSt?.jump(-1); e.preventDefault(); return; }
 		if (k === 'e') { setFold(!foldExpanded); e.preventDefault(); return; }
 		if (k === 't') { act('toc:toggle'); e.preventDefault(); return; }
-		if (k === 'f') {
-			const fi = hoverHit && hoverHit.fig >= 0 ? hoverHit.fig : -1;
-			if (focusFig >= 0) { focusFig = -1; reading.input(INPUT.open, -1); }
-			else if (fi >= 0) { focusFig = model.figures[fi].block; reading.input(INPUT.open, focusFig); scrollSt?.scrollToBlock(focusFig, true); }
-			e.preventDefault();
-			return;
-		}
 		const code = ({ Space: 1, PageDown: 2, PageUp: 3, Home: 4, End: 5, ArrowDown: 6, ArrowUp: 7 } as Record<string, number>)[e.code];
 		if (code && reading.scroll.key(code, e.shiftKey)) e.preventDefault();
 	}
@@ -1032,6 +1085,16 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		return animating;
 	}
 
+	/** 0..1 how awake an exhibit is: 1 with its centre near the middle of the viewport, falling to 0 as the block leaves (smooth, scroll-linked, stateless). Reduced motion: awake whenever drawn. */
+	function wakeOf(block: number): number {
+		if (reduced) return 1;
+		const r = viewRectOfBlock(block);
+		const mid = (barPx + viewH) / 2;
+		const d = Math.abs(r.y + r.h / 2 - mid) / (viewH / 2 + r.h / 2);
+		const t = Math.max(0, Math.min(1, (1 - d) * 1.6));
+		return t * t * (3 - 2 * t);
+	}
+
 	function frameLoop(now: number) {
 		raf = requestAnimationFrame(frameLoop);
 		const rd = reading, pg = pass, m = model;
@@ -1048,6 +1111,8 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		while ((ev = rd.poll())) {
 			for (const cb of eventCbs) cb(ev.kind, ev.arg);
 			if (ev.kind === 'foldExpand' && !foldExpanded) setFold(true, true);
+			else if (ev.kind === 'exhibitState') scheduleFragment(ev.arg);
+			else if (ev.kind === 'exhibitVisible' || ev.kind === 'exhibitHidden' || ev.kind === 'exhibitHalted') needDraw = true;
 		}
 		const fclip = st[RD.foldClipEm];
 		if (fclip !== lastClip) lastClip = fclip;
@@ -1057,25 +1122,19 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		if (rb !== lastReadBlock) { lastReadBlock = rb; scrollSt?.spy(rb); }
 		if (y !== lastY && y >= 0) scrollSt?.scheduleSave();
 
-		// live figures: channels of every visible figure at its clock
-		const nf = Math.min(m.figures.length, MAX_FIG_STATE);
-		for (let i = 0; i < nf; i++) {
-			if (st[RD.figBase + 2 * i + 1] === 0) continue;
-			const f = m.figures[i];
-			const clock = st[RD.figBase + 2 * i];
-			const moved = Math.abs(clock - (prevFigClock[i] ?? clock)) > 1e-4;
-			prevFigClock[i] = clock;
-			figT[i] = clock; figPlaying[i] = moved;
-			const t = figureTime(FIG_MODES[f.mode] ?? 'loop', clock, f.duration, f.poster);
-			for (let c = 0; c < f.chanCount; c++) {
-				const gi = f.firstChan + c;
-				if (gi >= 256) break;
-				const ch = m.chans[gi];
-				chans[gi] = evalKeys(m.keys, t, ch.firstKey, ch.keyCount);
-			}
-		}
+		// timeline exhibits: channels of every nearby exhibit at the clock the engine holds for it
+		evalTimelineChannels(m, rd.exhibit, st[RD.exVisFirst], st[RD.exVisCount], chans);
 
 		const animating = updateEnter(now, y, fclip || m.foldY + m.foldH);
+		if (!reduced) {
+			// plaque parallax: wall plaques and labels float up to 7 px against the scroll (the only moving type; text blocks never move)
+			for (const i of plaqueBlocks) {
+				const r = viewRectOfBlock(i);
+				if (r.y > viewH || r.y + r.h < 0) continue;
+				const c = Math.max(-1, Math.min(1, (r.y + r.h / 2 - (barPx + viewH) / 2) / viewH));
+				blockDy.set(i, (blockDy.get(i) ?? 0) - c * PARALLAX_PX);
+			}
+		}
 		const scrolling = st[RD.scrollMode] !== SCROLL_MODE.idle;
 		const washing = washBlock >= 0 && now - washT0 < 1200;
 		if (!washing) washBlock = -1;
@@ -1094,7 +1153,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		f.foldClipEm = fclip; f.hdrGain = hdrGain;
 		f.groundA = mode === 'only' ? 1 : 0.92;
 		f.ground.x0 = 0; f.ground.y0 = 0; f.ground.x1 = viewW; f.ground.y1 = viewH; f.ground.radius = 0;
-		f.clip = undefined; f.only = undefined;
+		f.clip = undefined; f.only = undefined; f.exhibits = undefined;
 		f.time = now / 1000; f.dirty = true;
 		for (const b of codeBlocks) { const dx = codeDx.get(b); if (dx) blockDx.set(b, dx * emPx); }
 
@@ -1148,25 +1207,20 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		chromeAnimating = out.animating;
 		for (const o of out.overlays) overlays.push(o);
 		f.uiText = out.uiText;
-		// scrub readout: the time under the pointer next to the figure while it is being scrubbed (mouse and pen only)
-		if (scrubbing.size && ptrType !== 'touch' && ptr) {
-			const i = [...scrubbing][0], fg = model!.figures[i], info = state.figures.find((q) => q.fig === i);
-			if (fg && info) {
-				const label = `${(figT[i] ?? 0).toFixed(1)} s / ${fg.duration.toFixed(0)} s`;
-				const sz = 12, padX = 8, w = measureUi(label, 'mono', sz) + padX * 2, h = 22;
-				const x = Math.max(8, Math.min(viewW - w - 8, ptr.x - w / 2)), y = Math.max(barPx + 4, info.rect.y - h - 6);
-				const [gr, gg, gb] = theme.surface.popover, [tr, tg, tb] = theme.text.primary;
-				overlays.push({ x, y, w, h, radius: 6, r: gr, g: gg, b: gb, a: 0.96 });
-				f.uiText = [...(f.uiText ?? []), ...uiGlyphs(label, 'mono', sz, x + padX, y + h / 2 + sz * 0.35, [tr, tg, tb, 1])];
-			}
-		}
+		// exhibits: scissored to their block, under the chrome overlays
+		f.exhibits = exDrawer.frame({
+			model: m, api: rd.exhibit, emPx, viewW, viewH,
+			foldClipY: (block) => (m.blocks[block].flags & BlockFlag.folded ? (fclip || m.foldY + m.foldH) * emPx - y : Infinity),
+			rectOf: viewRectOfBlock, wakeOf, alphaOf: (b) => blockAlpha.get(b) ?? 1, dyOf: (b) => blockDy.get(b) ?? 0,
+			first: st[RD.exVisFirst], count: st[RD.exVisCount]
+		});
 		for (const a of out.actions) act(a);
 		if (out.lightbox && lightbox) f.lightbox = { block: lightbox.block, em: lightbox.em, rect: out.lightbox.rect, alpha: out.lightbox.alpha };
 		else f.lightbox = undefined;
 		// toasts age out
 		for (let i = toasts.length - 1; i >= 0; i--) if (now - toasts[i].atMs > 2400) toasts.splice(i, 1);
 
-		if (canvasEl) canvasEl.style.cursor = dragKind === 'select' ? 'text' : dragKind === 'fig' ? SCRUB_CURSOR_GRAB : chromeCursor || cursorFor(ptr ? hoverHit : null);
+		if (canvasEl) canvasEl.style.cursor = dragKind === 'select' ? 'text' : router.captured >= 0 ? (exCursor ?? 'grabbing') : chromeCursor || cursorFor(ptr ? hoverHit : null);
 
 		if (dev && devHook.frame) devHook.frame(f);
 		const t0 = dev ? performance.now() : 0;
@@ -1212,6 +1266,11 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			relayout(widthChanged ? key : null);
 		});
 		ro.observe(r);
+		if (dev) {
+			void import('./exhibit-hot').then(({ attachExhibitHot }) => {
+				if (!disposed) hotOff = attachExhibitHot({ slug: () => slug, reload: reloadExhibit, report: reportExhibitError });
+			});
+		}
 		document.addEventListener('keydown', onKey);
 		document.addEventListener('paste', onPaste);
 		window.addEventListener('popstate', onPopState);
@@ -1234,6 +1293,8 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 				scrollTo: (id: string) => scrollSt?.goToAnchor(id, { smooth: false }),
 				act: (a: string) => act(a),
 				copySelection,
+				get exhibits() { return { ids: exIds, focus: router.focus, captured: router.captured, hover: router.hover, cursor: exCursor, pending: router.pending }; },
+				flushFragment,
 				hook: devHook
 			};
 		}
@@ -1257,6 +1318,8 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			teardownArticle();
 			for (const d of disposersAlways) d();
 			clearTimeout(popTimer);
+			clearTimeout(exTimer);
+			hotOff?.();
 			pass?.dispose();
 			pass = null;
 			if (dev) delete (window as unknown as { __reader?: unknown }).__reader;

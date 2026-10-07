@@ -37,7 +37,7 @@ export type Block =
 	| { t: 'heading'; depth: number; runs: Run[]; id?: string }
 	| { t: 'para'; runs: Run[] }
 	| { t: 'code'; lang: string; lines: Run[][]; source: string; wide?: boolean }
-	| { t: 'fig'; id: string; place: FigPlace; line: number }
+	| { t: 'exhibit'; id: string; place: FigPlace; line: number }
 	| { t: 'list'; ordered: boolean; start: number; items: Block[][] }
 	| { t: 'quote'; children: Block[] }
 	| { t: 'note'; children: Block[] }
@@ -345,7 +345,7 @@ async function blocks(ctx: Ctx, nodes: any[], inList = false): Promise<Block[]> 
 				const v: string = n.value;
 				const dir = directiveFromComment(v, ctx.events);
 				if (dir) {
-					if (dir.kind === 'fig') out.push({ t: 'fig', id: dir.id, place: dir.place, line: dir.line });
+					if (dir.kind === 'exhibit') out.push({ t: 'exhibit', id: dir.id, place: dir.place, line: dir.line });
 					else ctx.wide = dir.kind === 'code-wide-open';
 					break;
 				}

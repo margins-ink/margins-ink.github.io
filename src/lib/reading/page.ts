@@ -3,7 +3,8 @@
 //   1. ground            1 call  (full screen triangle, skipped when groundA = 0)
 //   2. text              1 call per run: contiguous item range of visible blocks with equal opacity / dy / dx
 //   3. notes text        1 call per run of the visible sidenotes
-//   4. figures           1 instanced call over the visible figure blocks
+//   3b. (before 2) exhibit sets: spotlight and plinth overlays of each exhibit, scissored to its block
+//   4. timeline exhibits 1 instanced call over the visible exhibit blocks with a compiled art; then per script exhibit: its overlays and UI text, scissored to the block
 //   5. overlays          1 instanced call
 //   6. UI text           1 instanced call (uiText glyphs, same glyph atlas and coverage as the article text)
 // Idle frames (dirty = false) draw nothing. Shader: page.wgsl.ts. Buffer layout: header words MH, channel table, sections.
@@ -18,9 +19,9 @@ import { CHAN_BASE, CHAN_FLOATS, DATA_BASE, FRAME_VEC4, MAGIC_PAGE, MH, PAGE_WGS
 
 const MAX_LAYER = 2048;
 const MAX_FIGS = 1024;
-const MAX_OVERLAYS = 512;
+const MAX_OVERLAYS = 2048; // chrome (~512) plus two exhibits at 400 items
 const OVERLAY_FLOATS = 12;
-const MAX_UI_GLYPHS = 4096;
+const MAX_UI_GLYPHS = 8192;
 const UI_FLOATS = 12;
 const MIN_BUF_BYTES = 1 << 20;
 
@@ -108,14 +109,14 @@ export function noteRuns(model: Pick<ReadingModel, 'notes'>, first: number, coun
 	return runs;
 }
 
-/** Figure instances: figure index, opacity, dy for the figure blocks in [lo, hi). */
-export function figureInstances(model: Pick<ReadingModel, 'blocks'>, lo: number, hi: number, maps: RunMaps = {}): { fig: number; alpha: number; dy: number }[] {
+/** Timeline exhibit instances: exhibit index, opacity, dy for the exhibit blocks in [lo, hi) that have a compiled art (a cell grid); script exhibits draw through the host. */
+export function exhibitInstances(model: Pick<ReadingModel, 'blocks' | 'exhibits'>, lo: number, hi: number, maps: RunMaps = {}): { fig: number; alpha: number; dy: number }[] {
 	const out: { fig: number; alpha: number; dy: number }[] = [];
 	for (let i = Math.max(0, lo); i < Math.min(model.blocks.length, hi) && out.length < MAX_FIGS; i++) {
 		const b = model.blocks[i];
-		if (b.fig < 0) continue;
+		if (b.ex < 0 || !(model.exhibits[b.ex]?.gridCols > 0)) continue;
 		const alpha = maps.alpha?.get(i) ?? 1;
-		if (alpha > 0) out.push({ fig: b.fig, alpha, dy: maps.dy?.get(i) ?? 0 });
+		if (alpha > 0) out.push({ fig: b.ex, alpha, dy: maps.dy?.get(i) ?? 0 });
 	}
 	return out;
 }
@@ -142,14 +143,14 @@ export function packFrame(f: PageFrame, canvasW: number, extended: boolean, hdrC
 	return out;
 }
 
-/** Overlay floats: x y w h, radius hdr 0 0, r g b a. */
-export function packOverlays(list: readonly Overlay[], extended: boolean, hdrGain: number, out: Float32Array): number {
-	const n = Math.min(list.length, MAX_OVERLAYS);
+/** Overlay floats: x y w h, radius hdr shape width, r g b a. Writes from overlay `at` on; returns the count written (capped by the buffer). */
+export function packOverlays(list: readonly Overlay[], extended: boolean, hdrGain: number, out: Float32Array, at = 0): number {
+	const n = Math.max(0, Math.min(list.length, MAX_OVERLAYS - at));
 	const cap = Math.max(1, hdrGain);
 	for (let i = 0; i < n; i++) {
 		const o = list[i];
 		const hdr = extended ? Math.min(o.hdr ?? 1, cap) : 1;
-		out.set([o.x, o.y, o.w, o.h, o.radius, hdr, 0, 0, o.r, o.g, o.b, o.a], i * OVERLAY_FLOATS);
+		out.set([o.x, o.y, o.w, o.h, o.radius, hdr, o.shape ?? 0, o.width ?? 0, o.r, o.g, o.b, o.a], (at + i) * OVERLAY_FLOATS);
 	}
 	return n;
 }
@@ -158,9 +159,9 @@ export function packOverlays(list: readonly Overlay[], extended: boolean, hdrGai
  * UI glyph floats, 3 vec4f per glyph: x y size glyphId (f32 integer), r g b a, hdr 0 0 0. Glyphs with a glyph id outside [0, glyphs) (or NO_GLYPH),
  * a non-finite position or size, or zero alpha are skipped. rgb stays straight sRGB (the shader decodes and premultiplies), alpha is clamped to 0..1.
  */
-export function packUiText(list: readonly UiGlyph[], glyphs: number, extended: boolean, hdrGain: number, out: Float32Array): number {
+export function packUiText(list: readonly UiGlyph[], glyphs: number, extended: boolean, hdrGain: number, out: Float32Array, at = 0): number {
 	const cap = Math.max(1, hdrGain);
-	let n = 0;
+	let n = at;
 	for (const g of list) {
 		if (n >= MAX_UI_GLYPHS) break;
 		if (g.glyphId === NO_GLYPH || g.glyphId < 0 || g.glyphId >= glyphs || g.glyphId >= 1 << 24 || !(g.size > 0) || !Number.isFinite(g.x) || !Number.isFinite(g.y) || !(g.a > 0)) continue;
@@ -170,7 +171,7 @@ export function packUiText(list: readonly UiGlyph[], glyphs: number, extended: b
 		out[o + 8] = extended ? Math.min(g.hdr ?? 1, cap) : 1; out[o + 9] = 0; out[o + 10] = 0; out[o + 11] = 0;
 		n++;
 	}
-	return n;
+	return n - at;
 }
 
 export interface Assembled {
@@ -212,7 +213,7 @@ export function assemblePage(fonts: GlyphTable, model: ReadingModel): Assembled 
 		[MH.glyphs, sec(Sec2.glyphs)], [MH.rects, sec(Sec2.rects)], [MH.images, imgRaw],
 		[MH.shapes, sec(Sec2.shapes)], [MH.paths, sec(Sec2.paths)], [MH.strokes, sec(Sec2.strokes)], [MH.segs, sec(Sec2.segs)],
 		[MH.groups, sec(Sec2.groups)], [MH.numerals, sec(Sec2.numerals)], [MH.digits, sec(Sec2.digitSets)], [MH.palette, sec(Sec2.palette)],
-		[MH.figures, sec(Sec2.figures)], [MH.blocks, sec(Sec2.blocks)], [MH.notes, sec(Sec2.notes)]
+		[MH.exhibits, sec(Sec2.exhibits)], [MH.blocks, sec(Sec2.blocks)], [MH.notes, sec(Sec2.notes)]
 	];
 	let total = DATA_BASE;
 	for (const [, p] of parts) total += p.length;
@@ -227,7 +228,7 @@ export function assemblePage(fonts: GlyphTable, model: ReadingModel): Assembled 
 	words[MH.chans] = CHAN_BASE;
 	words[MH.nBlocks] = model.blocks.length;
 	words[MH.nNotes] = model.notes.length;
-	words[MH.nFigures] = model.figures.length;
+	words[MH.nExhibits] = model.exhibits.length;
 	words[MH.nItems] = model.items.length;
 	return { words, imagesAt: words[MH.images], imageIds };
 }
@@ -488,7 +489,7 @@ class PageImpl implements PagePass {
 				lb = { rect: L.rect };
 			}
 		}
-		const figs = figureInstances(model, lo, hi, maps);
+		const figs = exhibitInstances(model, lo, hi, maps);
 
 		// per-frame writes: channels, frame uniform, run segments, figure list, overlays
 		dev.queue.writeBuffer(this.reader!, CHAN_BASE * 4, f.chans.buffer as ArrayBuffer, f.chans.byteOffset, Math.min(f.chans.length, CHAN_FLOATS) * 4);
@@ -517,10 +518,24 @@ class PageImpl implements PagePass {
 			figs.forEach((q, i) => { u[i * 4] = q.fig; fl[i * 4 + 1] = q.alpha; fl[i * 4 + 2] = q.dy; });
 			dev.queue.writeBuffer(this.figBuf, 0, this.figData, 0, figs.length * 16);
 		}
+		// chrome first, then each exhibit's items after them (drawn earlier through firstInstance)
 		const nOvl = packOverlays(f.overlays, this.extended, f.hdrGain, this.ovlData);
-		if (nOvl) dev.queue.writeBuffer(this.ovlBuf, 0, this.ovlData, 0, nOvl * OVERLAY_FLOATS);
 		const nUi = f.uiText?.length ? packUiText(f.uiText, this.uiGlyphs, this.extended, f.hdrGain, this.uiData) : 0;
-		if (nUi) dev.queue.writeBuffer(this.uiBuf, 0, this.uiData, 0, nUi * UI_FLOATS);
+		const exDraws: { clip: [number, number, number, number]; ovl0: number; nOvl: number; ui0: number; nUi: number }[] = [];
+		const unders: { clip: [number, number, number, number]; ovl0: number; n: number }[] = [];
+		let ovlEnd = nOvl;
+		let uiEnd = nUi;
+		for (const e of f.exhibits ?? []) {
+			const clip = this.scissor(e.clip.x0, e.clip.y0, e.clip.x1, e.clip.y1, s);
+			if (!clip) continue;
+			const no = packOverlays(e.overlays, this.extended, f.hdrGain, this.ovlData, ovlEnd);
+			const nu = packUiText(e.uiText, this.uiGlyphs, this.extended, f.hdrGain, this.uiData, uiEnd);
+			if (no || nu) exDraws.push({ clip, ovl0: ovlEnd, nOvl: no, ui0: uiEnd, nUi: nu });
+			ovlEnd += no;
+			uiEnd += nu;
+		}
+		if (ovlEnd) dev.queue.writeBuffer(this.ovlBuf, 0, this.ovlData, 0, ovlEnd * OVERLAY_FLOATS);
+		if (uiEnd) dev.queue.writeBuffer(this.uiBuf, 0, this.uiData, 0, uiEnd * UI_FLOATS);
 
 		const enc = dev.createCommandEncoder();
 		const pass = enc.beginRenderPass({
@@ -535,6 +550,13 @@ class PageImpl implements PagePass {
 			pass.setPipeline(this.pipes.ground);
 			pass.setBindGroup(1, this.g1, [0]);
 			pass.draw(3);
+			calls++;
+		}
+		for (const u of unders) { // exhibit sets (spotlight, plinth) sit on the ground, behind the text and the compiled art
+			pass.setScissorRect(...u.clip);
+			pass.setPipeline(this.pipes.ovl);
+			pass.setBindGroup(1, this.g1, [0]);
+			pass.draw(4, u.n, 0, u.ovl0);
 			calls++;
 		}
 		const clip = f.clip ? this.scissor(f.clip.x0, f.clip.y0, f.clip.x1, f.clip.y1, s) : full;
@@ -562,6 +584,20 @@ class PageImpl implements PagePass {
 				pass.setPipeline(this.pipes.fig);
 				pass.setBindGroup(1, this.g1, [0]);
 				pass.draw(4, figs.length);
+				calls++;
+			}
+		}
+		for (const e of exDraws) {
+			pass.setScissorRect(...e.clip);
+			pass.setBindGroup(1, this.g1, [0]);
+			if (e.nOvl) {
+				pass.setPipeline(this.pipes.ovl);
+				pass.draw(4, e.nOvl, 0, e.ovl0);
+				calls++;
+			}
+			if (e.nUi) {
+				pass.setPipeline(this.pipes.ui);
+				pass.draw(4, e.nUi, 0, e.ui0);
 				calls++;
 			}
 		}

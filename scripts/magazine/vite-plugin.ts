@@ -30,14 +30,37 @@ export function magazine(): Plugin {
 		configResolved(c) { serve = c.command === 'serve'; },
 		// Dev: the build used to run only at server start, so a post added later had no article ("magazine: unknown article models").
 		configureServer(server) {
+			const build = () => {
+				const r = spawnSync('bun', ['scripts/magazine/build.ts', '--preview'], { stdio: 'inherit' });
+				server.config.logger.info(r.status === 0 ? 'magazine: rebuilt' : 'magazine: rebuild FAILED (see output above)');
+				return r.status === 0;
+			};
 			const rebuild = () => {
 				clearTimeout(timer);
-				timer = setTimeout(() => {
-					const r = spawnSync('bun', ['scripts/magazine/build.ts', '--preview'], { stdio: 'inherit' });
-					server.config.logger.info(r.status === 0 ? 'magazine: rebuilt' : 'magazine: rebuild FAILED (see output above)');
-				}, 400);
+				timer = setTimeout(() => { if (build()) server.ws.send({ type: 'custom', event: 'exhibit:reload', data: { reload: true } }); }, 400);
 			};
-			const on = (f: string) => { if (f.startsWith(THOUGHTS) && /\/(\+page\.svx|figures\.ts|spread\.json)$/.test(f)) rebuild(); };
+			// a .flecs edit whose Frame did not change is pushed as text (exhibit:reload {slug, id, src}), no bin rebuild; the bin catches up after 5 s of quiet
+			const frames = new Map<string, string>();
+			let settle: ReturnType<typeof setTimeout> | undefined;
+			const flecs = (f: string) => {
+				const m = /\/thoughts\/([^/]+)\/exhibits\/([^/]+)\.flecs$/.exec(f);
+				if (!m) return rebuild();
+				const r = spawnSync('bun', ['scripts/magazine/exhibit.ts', '--check', f], { encoding: 'utf8' });
+				if (r.status !== 0) { server.config.logger.error(`exhibit ${m[2]}: ${r.stderr}`); return; }
+				const { frame, src } = JSON.parse(r.stdout) as { frame: [number, number]; src: string };
+				const key = JSON.stringify(frame);
+				const before = frames.get(f);
+				frames.set(f, key);
+				if (before !== key) return rebuild();
+				server.ws.send({ type: 'custom', event: 'exhibit:reload', data: { slug: m[1], id: m[2], src } });
+				clearTimeout(settle);
+				settle = setTimeout(build, 5000);
+			};
+			const on = (f: string) => {
+				if (!f.startsWith(THOUGHTS)) return;
+				if (/\/exhibits\/[^/]+\.flecs$/.test(f)) flecs(f);
+				else if (/\/(\+page\.svx|exhibits\/art\.ts|spread\.json)$/.test(f)) rebuild();
+			};
 			server.watcher.add(THOUGHTS);
 			for (const ev of ['add', 'change', 'unlink'] as const) server.watcher.on(ev, on);
 		},

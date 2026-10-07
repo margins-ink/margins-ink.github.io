@@ -136,7 +136,7 @@ describe('lint: other rules', () => {
 		const b = goodBlock();
 		expect(lintDistill({ ...b, figures: ['a', 'b', 'c'] }, p).errors.some((e) => e.path === 'figures')).toBe(true);
 		expect(lintDistill({ ...b, figures: [] }, p).errors.some((e) => e.path === 'figures')).toBe(true);
-		expect(lintDistill(b, p, { figureIds: ['z'] }).errors.some((e) => /figures.ts/.test(e.message))).toBe(true);
+		expect(lintDistill(b, p, { figureIds: ['z'] }).errors.some((e) => /exhibit/.test(e.message))).toBe(true);
 		expect(lintDistill({ ...b, captions: [{ ...b.captions[0], fig: 'q' }] }, p).errors.some((e) => e.path === 'captions[0].fig')).toBe(true);
 		expect(lintDistill({ ...b, quote: { text: 'w1 w2', from: 'Nope' } }, p).errors.some((e) => e.path === 'quote.from')).toBe(true);
 	});

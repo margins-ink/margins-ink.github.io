@@ -13,7 +13,7 @@
 //   dots    shape dot along the stroke of `along` (count in flags, stagger in param, u track -> chan)
 //   numeral numeral record (digit set of the display font), value track -> chan
 import {
-	Ease, ItemType, NONE16, NO_CHAN, PAL2, FigureMode, ShapeFlag, ShapeKind, StrokeFlag,
+	Ease, ItemType, NONE16, NO_CHAN, PAL2, FigureMode, ExhibitKind, TIMELINE_STRIP, ShapeFlag, ShapeKind, StrokeFlag,
 	type ChanRec, type GroupRec, type KeyRec, type PaletteName
 } from '../../../src/lib/magazine/format';
 import type { ColorRef, FigNode, FigureSpec, PathSpec, StrokeSpec } from '../../../src/lib/magazine/dsl';
@@ -26,7 +26,7 @@ import { compileFigure, LABEL_SIZE, type CompiledFigureX, type LintItem } from '
 import { lintFigure } from './lint';
 import { figureContrast, labelColour as labelName } from './contrast';
 
-export interface FigureArt { id: string; fragment: Fragment; size: [number, number]; compiled: CompiledFigure }
+export interface FigureArt { id: string; fragment: Fragment; size: [number, number]; /** em of the Timeline control strip under the art (0 for a static figure) */ strip: number; compiled: CompiledFigure }
 
 export interface FigEnv {
 	fonts: FontSet;
@@ -358,16 +358,19 @@ export function emitFigure(env: FigEnv, figId: string, spec: FigureSpec, cf: Com
 	}
 
 	const mode = spec.time.mode;
-	const figure = {
-		id: 0, firstChan: 0, chanCount: frag.chans.length, mode: FigureMode[mode], duration: spec.time.duration, poster: spec.time.poster,
-		alt: env.strings.add(spec.alt), describe: env.strings.add(spec.describe), x0: 0, y0: 0, x1: spec.size[0], y1: spec.size[1]
+	// the Timeline exhibit frame: the art plus the 2.4 em control strip below it (a static figure has no strip)
+	const strip = mode === 'static' ? 0 : TIMELINE_STRIP;
+	const exhibit = {
+		id: 0, kind: ExhibitKind.timeline, firstChan: 0, chanCount: frag.chans.length, mode: FigureMode[mode], duration: spec.time.duration, poster: spec.time.poster,
+		alt: env.strings.add(spec.alt), describe: env.strings.add(spec.describe), name: env.strings.add(figId), src: 0, title: 0, claim: 0, caption: 0,
+		frameW: spec.size[0], frameH: spec.size[1] + strip, x0: 0, y0: 0, x1: spec.size[0], y1: spec.size[1] + strip
 	};
 	if (Math.abs(spec.time.poster) > spec.time.duration + DURATION_EPS) throw new Error(`figure ${figId}: poster outside the timeline`);
-	const fragment: Fragment = { items, ...frag, figures: [figure] };
-	return { id: figId, fragment, size: [spec.size[0], spec.size[1]], compiled: cf };
+	const fragment: Fragment = { items, ...frag, exhibits: [exhibit] };
+	return { id: figId, fragment, size: [spec.size[0], spec.size[1]], strip, compiled: cf };
 }
 
-/** Compile, lint (fail closed) and emit every figure of a figures.ts default export. */
+/** Compile, lint (fail closed) and emit every figure of a exhibits/art.ts default export. */
 export function buildFigures(env: FigEnv, set: Record<string, FigureSpec>, where: string): Map<string, FigureArt> {
 	const out = new Map<string, FigureArt>();
 	const errors: string[] = [];
@@ -381,14 +384,14 @@ export function buildFigures(env: FigEnv, set: Record<string, FigureSpec>, where
 			errors.push((e as Error).message);
 		}
 	}
-	if (errors.length) throw new Error(`${where}: figure errors:\n    ${errors.join('\n    ')}`);
+	if (errors.length) throw new Error(`${where}: exhibit art errors:\n    ${errors.join('\n    ')}`);
 	return out;
 }
 
-/** The `fig` lane entry the build calls: import the article's figures.ts (default export: Record<id, FigureSpec>). */
+/** The `fig` lane entry the build calls: import the article's exhibits/art.ts (default export: Record<id, FigureSpec>). */
 export async function loadFigures(file: string, env: FigEnv): Promise<Map<string, FigureArt>> {
 	const mod = await import(file);
 	const set = mod.default as Record<string, FigureSpec> | undefined;
-	if (!set || typeof set !== 'object') throw new Error(`${file}: figures.ts must default-export a record of figures`);
+	if (!set || typeof set !== 'object') throw new Error(`${file}: art.ts must default-export a record of figures (exhibits/art.ts)`);
 	return buildFigures(env, set, file);
 }

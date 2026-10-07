@@ -1,16 +1,16 @@
-// emit: the article's tables (text blocks written by flow.ts, figure fragments from the figure compiler) -> one RDR3 model.
+// emit: the article's tables (text blocks written by flow.ts, figure fragments from the figure compiler) -> one RDR4 model.
 //
 // Lane contract. Every producer (planner for text, frames and the distilled spread; figure compiler for
 // shapes, strokes, groups and channels) returns a `Fragment`: tables with indices LOCAL to the fragment
 // and coordinates in the figure's em frame (origin top-left of the figure, x right, y down). `appendFragment`
-// rebases every index (items, strokes -> segs, groups, channels, keys, figure channel ranges, line glyph
+// rebases every index (items, strokes -> segs, groups, channels, keys, exhibit channel ranges, line glyph
 // ranges, dot -> stroke) so fragments compose. Glyph ids, string offsets and text offsets are ARTICLE-GLOBAL
 // already (the producers share one GlyphTableBuilder pair, StringSink and TextSink through PlanEnv), so
 // they are never rebased.
 import {
-	ItemType, MAX_CELL_ITEMS, NONE16, NO_CHAN, PAL2, PALETTE2_SIZE, CELL_W, CELL_H, ShapeKind, packItem, packReading,
+	ItemType, MAX_CELL_ITEMS, NONE16, NO_CHAN, PAL2, PALETTE2_SIZE, CELL_W, CELL_H, ShapeKind, ExhibitKind, packItem, packReading,
 	type ReadingModel, type BlockRec, type NoteRec, type GlyphInst, type RectInst, type ImageInst, type ShapeInst, type PathInst, type StrokeRec, type SegRec,
-	type GroupRec, type NumeralInst, type LineRec, type LinkRec, type AnchorRec, type ChanRec, type KeyRec, type FigureRec
+	type GroupRec, type NumeralInst, type LineRec, type LinkRec, type AnchorRec, type ChanRec, type KeyRec, type ExhibitRec
 } from '../../src/lib/magazine/format';
 import { EXTRA_BIT } from '../../src/lib/reader/format';
 import type { GlyphTableBuilder } from '../reader/fonts';
@@ -38,7 +38,7 @@ export interface Fragment {
 	numerals?: Loose<NumeralInst>[];
 	chans?: ChanRec[];
 	keys?: KeyRec[];
-	figures?: Partial<FigureRec>[];
+	exhibits?: Partial<ExhibitRec>[];
 }
 
 export interface EmitContext {
@@ -61,12 +61,12 @@ const rebaseGroup16 = (g: number | undefined, base: number) => (g === undefined 
 export interface Store {
 	items: FItem[];
 	glyphs: GlyphInst[]; rects: RectInst[]; images: ImageInst[]; shapes: ShapeInst[]; paths: PathInst[]; strokes: StrokeRec[]; segs: SegRec[];
-	groups: GroupRec[]; numerals: NumeralInst[]; chans: ChanRec[]; keys: KeyRec[]; figures: FigureRec[];
+	groups: GroupRec[]; numerals: NumeralInst[]; chans: ChanRec[]; keys: KeyRec[]; exhibits: ExhibitRec[];
 	lines: LineRec[]; links: LinkRec[]; anchors: AnchorRec[];
 }
 
 export const newStore = (): Store => ({
-	items: [], glyphs: [], rects: [], images: [], shapes: [], paths: [], strokes: [], segs: [], groups: [], numerals: [], chans: [], keys: [], figures: [],
+	items: [], glyphs: [], rects: [], images: [], shapes: [], paths: [], strokes: [], segs: [], groups: [], numerals: [], chans: [], keys: [], exhibits: [],
 	lines: [], links: [], anchors: []
 });
 
@@ -118,7 +118,7 @@ export function appendFragment(s: Store, f: Fragment): { bases: Bases; items: FI
 	for (const x of all(f.numerals)) s.numerals.push({ ...x, chan: c(x.chan), group: g(x.group) } as NumeralInst);
 	for (const x of all(f.chans)) s.chans.push({ ...x, firstKey: x.firstKey + b.key });
 	for (const x of all(f.keys)) s.keys.push({ ...x });
-	for (const x of all(f.figures)) s.figures.push({ ...x, firstChan: (x.firstChan ?? 0) + b.chan } as FigureRec);
+	for (const x of all(f.exhibits)) s.exhibits.push({ ...x, firstChan: (x.firstChan ?? 0) + b.chan } as ExhibitRec);
 	const items = f.items.map((it) => {
 		const k = BASE_KEY[it.type];
 		if (k === undefined) throw new Error(`emit: unknown item type ${it.type}`);
@@ -144,7 +144,7 @@ export function placeFigure(art: Fragment, dx: number, dy: number, scale = 1): F
 		paths: all(art.paths).map((x) => ({ ...x, group: shiftG(x.group) })),
 		strokes: all(art.strokes).map((x) => ({ ...x, group: shiftG(x.group) })),
 		numerals: all(art.numerals).map((x) => ({ ...x, group: shiftG(x.group) })),
-		figures: all(art.figures).map((x) => ({ ...x, x0: (x.x0 ?? 0) * scale + dx, x1: (x.x1 ?? 0) * scale + dx, y0: (x.y0 ?? 0) * scale + dy, y1: (x.y1 ?? 0) * scale + dy })),
+		exhibits: all(art.exhibits).map((x) => ({ ...x, x0: (x.x0 ?? 0) * scale + dx, x1: (x.x1 ?? 0) * scale + dx, y0: (x.y0 ?? 0) * scale + dy, y1: (x.y1 ?? 0) * scale + dy })),
 		items: art.items.map((it) => ({
 			...it,
 			// the new root group is group 0, so group items shift by one; they are listed only for completeness
@@ -243,8 +243,8 @@ export function buildFigureGrid(s: Store, items: FItem[], box: Box, ctx: EmitCon
 export interface PageParts {
 	widthClass: number; colW: number; docX0: number; docX1: number; docH: number; foldY: number; foldH: number; peekH: number;
 	blocks: BlockRec[]; notes: NoteRec[];
-	/** per figure (in figure table order): the placed items and the figure box */
-	figureItems: { items: FItem[]; box: Box }[];
+	/** per exhibit (in exhibit table order): the placed items and the box; absent for a script exhibit (no static items, empty grid) */
+	exhibitItems: ({ items: FItem[]; box: Box } | undefined)[];
 }
 
 export interface EmitResult { model: ReadingModel; bytes: Uint8Array }
@@ -253,23 +253,26 @@ export interface EmitResult { model: ReadingModel; bytes: Uint8Array }
 export function emitReading(s: Store, p: PageParts, ctx: EmitContext, where: string): EmitResult {
 	const items: number[] = s.items.map((it) => packItem(it.type, it.index));
 	const cells: { start: number; count: number }[] = [];
-	const figures = s.figures.map((f, i) => {
-		const fi = p.figureItems[i];
-		if (!fi) throw new Error(`${where}: figure ${i} has no items`);
-		const g = buildFigureGrid(s, fi.items, fi.box, ctx, `${where} figure ${f.id}`);
+	const exhibits = s.exhibits.map((f, i) => {
+		const fi = p.exhibitItems[i];
+		if (!fi) {
+			if (f.kind !== ExhibitKind.script) throw new Error(`${where}: timeline exhibit ${i} has no items`);
+			return { ...f, firstCell: cells.length, gridCols: 0, gridRows: 0 };
+		}
+		const g = buildFigureGrid(s, fi.items, fi.box, ctx, `${where} exhibit ${f.id}`);
 		const firstCell = cells.length, base = items.length;
 		for (const w of g.list) items.push(w);
 		for (const c of g.cells) cells.push({ start: c.start + base, count: c.count });
 		return { ...f, firstCell, gridCols: g.cols, gridRows: g.rows };
 	});
-	for (const f of figures) if (f.chanCount > 256) throw new Error(`${where}: figure ${f.id} has ${f.chanCount} channels (limit 256)`);
+	for (const f of exhibits) if (f.chanCount > 256) throw new Error(`${where}: exhibit ${f.id} has ${f.chanCount} channels (limit 256)`);
 	if (s.chans.length > 256) throw new Error(`${where}: ${s.chans.length} animation channels, the runtime table holds 256`);
 	const model: ReadingModel = {
 		widthClass: p.widthClass, colW: p.colW, docX0: p.docX0, docX1: p.docX1, docH: p.docH, foldY: p.foldY, foldH: p.foldH, peekH: p.peekH,
 		plainTextBytes: ctx.text.length,
 		blocks: p.blocks, notes: p.notes, cells, items,
 		glyphs: s.glyphs, rects: s.rects, images: s.images, shapes: s.shapes, paths: s.paths, strokes: s.strokes, segs: s.segs, groups: s.groups, numerals: s.numerals,
-		digitSets: ctx.digitSets, chans: s.chans, keys: s.keys, figures, lines: s.lines, links: s.links, anchors: s.anchors,
+		digitSets: ctx.digitSets, chans: s.chans, keys: s.keys, exhibits, lines: s.lines, links: s.links, anchors: s.anchors,
 		extra: ctx.extra.finish(), text: ctx.text, strings: ctx.strings, palette: ctx.palette
 	};
 	if (model.palette.length !== PALETTE2_SIZE) throw new Error(`${where}: palette must have ${PALETTE2_SIZE} entries`);

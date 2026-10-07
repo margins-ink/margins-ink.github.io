@@ -3,8 +3,8 @@
 import fs from 'node:fs';
 import { wasiImports } from '../../src/lib/gpu/room/world.ts';
 import { createReading } from '../../src/lib/ecs/reading.ts';
-import { INPUT, RD, READING_EVENTS, type ReadingExports, type ScrollExports } from '../../src/lib/reading/abi.ts';
-import { BlockFlag, BlockKind, FigureMode, sampleReading, type BlockRec, type ReadingModel } from '../../src/lib/magazine/format.ts';
+import { INPUT, RD, READING_EVENTS, XS, type ReadingExports, type ScrollExports } from '../../src/lib/reading/abi.ts';
+import { BlockFlag, BlockKind, ExhibitKind, FigureMode, sampleReading, type BlockRec, type ReadingModel } from '../../src/lib/magazine/format.ts';
 
 let memory!: WebAssembly.Memory;
 const bytes = fs.readFileSync(new URL('../../src/lib/gpu/room/world.wasm', import.meta.url));
@@ -30,17 +30,18 @@ const drain = () => {
 };
 const S = RD;
 const st = () => r.state();
-const clock = (fig: number) => st()[S.figBase + 2 * fig];
-const onscreen = (fig: number) => st()[S.figBase + 2 * fig + 1];
+const xs = () => r.exhibit.state();
+const clock = (ex: number) => xs()[XS.stride * ex + XS.clock];
+const animating = (ex: number) => xs()[XS.stride * ex + XS.animating];
 const EM = 16;
 const scrollTo = (yEm: number) => r.setScroll(yEm * EM);
 const NONE = 'none';
 
-// ---- the model: 12 blocks, a fold at 100..160 (peek 10), two figures, two notes ----
+// ---- the model: 12 blocks, a fold at 100..160 (peek 10), two exhibits, two notes ----
 function model(): ReadingModel {
 	const m = sampleReading();
 	const blk = (y0: number, y1: number, kind: number, o: Partial<BlockRec> = {}) =>
-		({ x0: 0, y0, x1: 34, y1, firstItem: 0, itemCount: 0, firstLine: 0, lineCount: 0, anchor: 0, fig: -1, kind, level: 0, flags: 0, section: 0, textOff: 0, textLen: 0, ...o }) as BlockRec;
+		({ x0: 0, y0, x1: 34, y1, firstItem: 0, itemCount: 0, firstLine: 0, lineCount: 0, anchor: 0, ex: -1, kind, level: 0, flags: 0, section: 0, textOff: 0, textLen: 0, ...o }) as BlockRec;
 	m.docH = 200;
 	m.foldY = 100;
 	m.foldH = 60;
@@ -48,7 +49,7 @@ function model(): ReadingModel {
 	m.blocks = [
 		blk(4, 9, BlockKind.hero, { level: 1 }), // 0
 		blk(10, 20, BlockKind.para), // 1
-		blk(22, 40, BlockKind.figure, { fig: 0, flags: BlockFlag.wide, x0: -3, x1: 49 }), // 2
+		blk(22, 40, BlockKind.exhibit, { ex: 0, flags: BlockFlag.wide, x0: -3, x1: 49 }), // 2
 		blk(42, 45, BlockKind.heading, { level: 2, section: 1, anchor: 2 }), // 3
 		blk(46, 70, BlockKind.para, { section: 1 }), // 4
 		blk(72, 96, BlockKind.para, { section: 1 }), // 5
@@ -57,14 +58,14 @@ function model(): ReadingModel {
 		blk(130, 160, BlockKind.para, { section: 1, flags: BlockFlag.folded }), // 8
 		blk(160, 163, BlockKind.heading, { level: 2, section: 2, anchor: 4 }), // 9
 		blk(165, 190, BlockKind.para, { section: 2 }), // 10
-		blk(192, 199, BlockKind.figure, { fig: 1, section: 2 }) // 11
+		blk(192, 199, BlockKind.exhibit, { ex: 1, section: 2 }) // 11
 	];
 	m.notes = [
 		{ ...m.notes[0], x0: 37, x1: 54, y0: 22, y1: 25, anchorBlock: 2 },
 		{ ...m.notes[0], x0: 37, x1: 54, y0: 47, y1: 50, anchorBlock: 4 }
 	];
-	const fig = (id: number, mode: number, duration: number, poster: number, block: number) => ({ ...m.figures[0], id, mode, duration, poster, block, alt: 6 });
-	m.figures = [fig(0, FigureMode.loop, 10, 2, 2), fig(1, FigureMode.scrub, 8, 0, 11)];
+	const ex = (id: number, mode: number, duration: number, poster: number, block: number) => ({ ...m.exhibits[0], id, kind: ExhibitKind.timeline, mode, duration, poster, block, alt: 6 });
+	m.exhibits = [ex(0, FigureMode.loop, 10, 2, 2), ex(1, FigureMode.scrub, 8, 0, 11)];
 	m.anchors = [
 		{ idOffset: 2, block: 3, y: 42 },
 		{ idOffset: 4, block: 9, y: 160 }
@@ -101,7 +102,7 @@ drain();
 // ---- load, entities, events ----
 r.load(m);
 const ev0 = drain();
-check('load emits layout and the first figure entering the data range', ev0.includes(`layout:0`) && ev0.includes('figureVisible:0'), ev0);
+check('load emits layout and the first exhibit entering the data range', ev0.includes(`layout:0`) && ev0.includes('exhibitVisible:0'), ev0);
 const count1 = r.entityCount();
 check('entities: article, 12 blocks, 2 notes, 1 link', count1 >= 1 + 12 + 2 + 1, count1);
 check('blockAt is a binary search over y1', r.blockAt(0) === 0 && r.blockAt(50) === 4 && r.blockAt(1000) === 11, [r.blockAt(0), r.blockAt(50), r.blockAt(1000)]);
@@ -112,7 +113,7 @@ tick(1);
 	const s = st();
 	check('collapsed fold: clip, height, max', near(s[S.foldClipEm], 110) && near(s[S.docHeightEm], 150) && near(s[S.scrollMaxEm], 110), [s[S.foldClipEm], s[S.docHeightEm], s[S.scrollMaxEm]]);
 	check('viewport em and typography', near(s[S.viewportEm], VIEW_EM) && s[S.emPx] === EM && s[S.widthClass] === 0, [s[S.viewportEm], s[S.emPx]]);
-	check('relations start empty', s[S.section] === -1 && s[S.readingBlock] === -1 && s[S.hoverBlock] === -1 && s[S.scrubFig] === -1 && s[S.openBlock] === -1);
+	check('relations start empty', s[S.section] === -1 && s[S.readingBlock] === -1 && s[S.hoverBlock] === -1 && s[S.openBlock] === -1);
 	check('fold starts settled and collapsed', s[S.foldSettled] === 1 && s[S.foldT] === 0 && s[S.foldTarget] === 0);
 }
 
@@ -124,7 +125,7 @@ for (const [fold, clip] of [[0, 110], [1, 160]] as const) {
 		scrollTo(y);
 		tick(1);
 		const s = st();
-		const e = expectVis(m, y, VIEW_EM, clip);
+		const e = expectVis(m, Math.min(y, s[S.scrollMaxEm]), VIEW_EM, clip); // the engine clamps scroll to the page
 		check(`cull fold=${fold} y=${y}: [${e.first}, +${e.count})`, s[S.visFirst] === e.first && s[S.visCount] === e.count && e.covers, [s[S.visFirst], s[S.visCount], e]);
 	}
 }
@@ -136,7 +137,7 @@ check('cull y=0 collapsed is blocks 0..4 and both notes', st()[S.visFirst] === 0
 scrollTo(100);
 tick(1);
 check('cull y=100 collapsed skips the first five blocks and all notes', st()[S.visFirst] === 5 && st()[S.visCount] === 7 && st()[S.noteCount] === 0, Array.from(st().slice(6, 10)));
-check('figure data range at y=100 holds both figures', st()[S.figVisFirst] === 0 && st()[S.figVisCount] === 2, [st()[S.figVisFirst], st()[S.figVisCount]]);
+check('exhibit data range at y=100 holds both exhibits', st()[S.exVisFirst] === 0 && st()[S.exVisCount] === 2, [st()[S.exVisFirst], st()[S.exVisCount]]);
 
 // ---- dirty bits: idle frames cost nothing ----
 tick(5);
@@ -152,25 +153,30 @@ scrollTo(100);
 tick(1);
 r.ackDirty();
 
-// ---- figure clock: advances only when on screen (60 percent) and the page is idle ----
+// ---- exhibit clock: a Timeline exhibit advances only while live (60 percent on screen) and the page is idle ----
+for (const i of [0, 1]) {
+	const err = r.exhibit.load(i, `fig${i} : Timeline {}`);
+	check(`exhibit_load ${i} returns null on success`, err === null, err);
+}
+check('XS rows say loaded, a timeline', xs()[XS.loaded] === 1 && xs()[XS.stride + XS.loaded] === 1 && xs()[XS.kind] === 0, Array.from(xs().slice(0, 16)));
+check('an unknown index is an error text, not a throw', typeof r.exhibit.load(5, 'x : Timeline {}') === 'string');
 scrollTo(0);
 tick(1);
-check('figure 0 is on screen at y=0', onscreen(0) === 1 && onscreen(1) === 0, [onscreen(0), onscreen(1)]);
 const t0 = clock(0);
 check('the clock starts at the poster', near(t0, 2), t0);
 tick(8); // 128 ms of idle: not yet
 check('not before the page has been idle for 0.2 s', near(clock(0), t0, 1e-4), clock(0));
 tick(30);
 check('advances once idle', clock(0) > t0 + 0.2 && clock(0) < t0 + 0.7, clock(0));
-check('a live figure marks bit 2', (st()[S.dirty] & 4) === 4, st()[S.dirty]);
-scrollTo(100); // figure 0 off screen
+check('a live exhibit sets dirty bit 5', (st()[S.dirty] & 32) === 32 && animating(0) === 1, [st()[S.dirty], animating(0)]);
+scrollTo(100); // exhibit 0 off screen
 tick(1);
 const tOff = clock(0);
 tick(40);
-check('paused while off screen', near(clock(0), tOff, 1e-4) && onscreen(0) === 0, [clock(0), onscreen(0)]);
+check('paused while off screen', near(clock(0), tOff, 1e-4), [clock(0), tOff]);
 scrollTo(30); // 10 of 18 em inside: 55 percent, below the 60 percent bar
 tick(40);
-check('paused while less than 60 percent inside', onscreen(0) === 1 && near(clock(0), tOff, 1e-4), [clock(0), tOff]);
+check('paused while less than 60 percent inside', near(clock(0), tOff, 1e-4), [clock(0), tOff]);
 scrollTo(0);
 for (let i = 0; i < 30; i++) {
 	r.setScroll(i % 2); // a 1 px wiggle every frame keeps the page busy
@@ -185,41 +191,6 @@ check('paused while scrolling', near(clock(0), tBusy, 1e-4), [clock(0), tBusy]);
 r.setScroll(0);
 tick(40);
 check('resumes after the scroll stops', clock(0) > tBusy + 0.2, [clock(0), tBusy]);
-
-// ---- scrub, step, home, play ----
-r.input(INPUT.scrubBegin, 0);
-r.input(INPUT.scrubTo, 0, 5);
-check('scrubTo moves the clock and Scrubbing is set', near(clock(0), 5) && st()[S.scrubFig] === 0, [clock(0), st()[S.scrubFig]]);
-tick(30);
-check('a held figure does not autoplay', near(clock(0), 5), clock(0));
-r.input(INPUT.scrubEnd, 0, 2);
-tick(5);
-check('momentum after release', clock(0) > 5.05 && st()[S.scrubFig] === -1, [clock(0), st()[S.scrubFig]]);
-tick(65);
-const rest = clock(0);
-tick(20);
-check('autoplay waits after a touch', near(clock(0), rest, 0.01), [clock(0), rest]);
-tick(40);
-check('then resumes', clock(0) > rest + 0.2, [clock(0), rest]);
-r.input(INPUT.figureHome, 0);
-check('figureHome returns to the poster', near(clock(0), 2), clock(0));
-r.input(INPUT.figureStep, 0, 0.25);
-check('figureStep adds seconds', near(clock(0), 2.25), clock(0));
-r.input(INPUT.figureStep, 0, -100);
-check('figureStep clamps at 0', clock(0) === 0, clock(0));
-r.input(INPUT.figureStep, 0, 100);
-check('figureStep clamps at the duration', clock(0) === 10, clock(0));
-r.input(INPUT.scrubTo, 1, 100);
-check('a scrub-mode figure clamps to its duration', clock(1) === 8, clock(1));
-r.input(INPUT.scrubTo, 1, -5);
-check('and to zero', clock(1) === 0, clock(1));
-r.input(INPUT.figureHome, 0);
-r.input(INPUT.figurePlay, 0, 2); // toggle: pause
-tick(130);
-check('paused by the user', near(clock(0), 2), clock(0));
-r.input(INPUT.figurePlay, 0, 1);
-tick(30);
-check('play resumes it', clock(0) > 2.2, clock(0));
 
 // ---- hover, focus, open ----
 drain();
@@ -296,15 +267,19 @@ check('section events follow the relation', evSec.join() === 'section:1,section:
 scrollTo(0);
 tick(40);
 r.input(INPUT.reducedMotion, 1);
-check('reduced motion snaps figures to the poster', near(clock(0), 2), clock(0));
+check('reduced motion snaps timelines to the poster', near(clock(0), 2), clock(0));
 tick(80);
-check('and keeps them there while live and idle', near(clock(0), 2) && onscreen(0) === 1, clock(0));
+check('and keeps them there while live and idle', near(clock(0), 2), clock(0));
 r.input(INPUT.foldSet, 1, 0);
 check('reduced motion makes the fold instant', st()[S.foldT] === 1 && near(st()[S.docHeightEm], 200), [st()[S.foldT], st()[S.docHeightEm]]);
 r.input(INPUT.foldSet, 0, 0);
 r.input(INPUT.reducedMotion, 0);
 tick(40);
-check('clearing it lets the figure play again', clock(0) > 2.2, clock(0));
+check('clearing it does not restart a paused timeline', near(clock(0), 2) && animating(0) === 0, [clock(0), animating(0)]);
+r.exhibit.focus(0);
+check('the play key (space) on the focused exhibit resumes it', r.exhibit.key(32, 0) === true);
+tick(40);
+check('and the clock runs again', clock(0) > 2.2, clock(0));
 
 // ---- viewport change: layout event and new height in em ----
 drain();

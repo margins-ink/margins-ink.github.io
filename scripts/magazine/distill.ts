@@ -175,7 +175,7 @@ export function parseDistill(meta: Record<string, unknown>, file = '<memory>'): 
 // ---- the lint ----------------------------------------------------------------------------------
 
 export interface LintOptions {
-	/** ids defined in the article's figures.ts; when given, every referenced id must be in it */
+	/** ids of the article's exhibits (exhibits/<id>.flecs and exhibits/art.ts); when given, every referenced id must be in it */
 	figureIds?: string[];
 	/** text labels per figure id (from the compiled figures); counted in the word budget */
 	figureLabels?: Record<string, string[]>;
@@ -219,7 +219,7 @@ export function lintDistill(b: DistillBlock, post: Post, opts: LintOptions = {})
 	if (b.captions.length > MAX_CAPTIONS) err('captions', `${b.captions.length} captions, at most ${MAX_CAPTIONS}`);
 	if (b.figures.length < 1 || b.figures.length > MAX_FIGURES) err('figures', `${b.figures.length} figures, need 1 to ${MAX_FIGURES}`);
 	if (new Set(b.figures).size !== b.figures.length) err('figures', 'duplicate figure id');
-	if (opts.figureIds) for (const f of b.figures) if (!opts.figureIds.includes(f)) err('figures', `figure "${f}" is not in figures.ts (${opts.figureIds.join(', ') || 'none'})`);
+	if (opts.figureIds) for (const f of b.figures) if (!opts.figureIds.includes(f)) err('figures', `figure "${f}" is not an exhibit of this article (exhibits/<id>.flecs or exhibits/art.ts: ${opts.figureIds.join(', ') || 'none'})`);
 	b.captions.forEach((c, i) => { if (!b.figures.includes(c.fig)) err(`captions[${i}].fig`, `"${c.fig}" is not one of figures`); });
 
 	// 3. word budget over headline, definition, deck, quote, captions and figure labels

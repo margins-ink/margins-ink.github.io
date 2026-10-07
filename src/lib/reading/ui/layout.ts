@@ -45,7 +45,6 @@ export interface ChromeMeta {
 
 /** a code block (viewport-space rect = already scrolled, may extend off screen) */
 export interface CodeBlockInfo { block: number; rect: Rect; lang: string }
-export interface FigureInfo { fig: number; rect: Rect; playing: boolean; /** 0..1 */ t: number; steppable: boolean }
 
 export interface ChromeAnim {
 	secLabel: string; secPrev: string; secT: number;
@@ -54,7 +53,6 @@ export interface ChromeAnim {
 	linkRects: Rect[];
 	hover: Record<string, number>;
 	codeT: Record<number, number>;
-	figT: Record<number, number>;
 	/** hits of the previous frame (hover is resolved against these, so occlusion by upper layers is honoured) */
 	prevHits: HitRect[];
 	/** last popover (kept while it fades out) */
@@ -65,7 +63,7 @@ export interface ChromeAnim {
 export function createChromeAnim(): ChromeAnim {
 	return {
 		secLabel: '', secPrev: '', secT: 1, aaT: 0, tocT: 0, popT: 0, lbT: 0, findT: 0, linkT: 0, linkRects: [],
-		hover: {}, codeT: {}, figT: {}, prevHits: [], lastPop: null, lastLb: null
+		hover: {}, codeT: {}, prevHits: [], lastPop: null, lastLb: null
 	};
 }
 
@@ -83,7 +81,7 @@ export interface ChromeState {
 	/** accent peak above 1 on extended-range canvases (hover underline, focus ring); 1 = SDR */
 	hdrGain: number;
 	nowMs: number;
-	/** touch pointer: copy buttons and figure controls are always visible */
+	/** touch pointer: copy buttons are always visible */
 	touch: boolean;
 	view: { w: number; h: number };
 	/** CSS px of the left edge of the reading column (room for the sticky contents on wide) */
@@ -102,9 +100,7 @@ export interface ChromeState {
 	copyFlash: Record<number, number>;
 	toasts: ToastInfo[];
 	codeBlocks: CodeBlockInfo[];
-	figures: FigureInfo[];
 	hoverCode: number; focusCode: number;
-	hoverFig: number; focusFig: number; scrubFig: number;
 	/** viewport-space line rects of the hovered / keyboard-focused link */
 	hoverLink: Rect[] | null; focusLink: Rect[] | null;
 	scrollbar: ScrollbarState;
@@ -119,7 +115,7 @@ export interface ChromeInput {
 	pointer: { x: number; y: number } | null;
 	/** primary button is down */
 	down: boolean;
-	/** id of the hit that holds pointer capture (scrollbar thumb, figure scrub), else null */
+	/** id of the hit that holds pointer capture (scrollbar thumb), else null */
 	captured: string | null;
 	keys: KeyEvent[];
 }
@@ -392,25 +388,6 @@ export function layoutCodeCorner(b: CodeBlockInfo, copied: boolean, m: Measure):
 	const button = { x: b.rect.x + b.rect.w - 8 - bw, y: b.rect.y + 8, w: bw, h: bh };
 	const corner = { x: b.rect.x + b.rect.w - 8 - cw + 6, y: b.rect.y + 4, w: cw + 2, h: bh + 8 };
 	return { corner, lang: { x: button.x - gap - lw, y: button.y + bh / 2, text: b.lang }, button, label };
-}
-
-// ---- figure controls ----
-
-export interface FigLayout { strip: Rect; back: Rect | null; play: Rect; fwd: Rect | null; track: Rect; scrub: Rect }
-
-export function layoutFigure(f: FigureInfo): FigLayout {
-	const h = 36;
-	const strip = { x: f.rect.x + 8, y: f.rect.y + f.rect.h - 8 - h, w: Math.max(0, f.rect.w - 16), h };
-	let x = strip.x + 4;
-	let back: Rect | null = null, fwd: Rect | null = null;
-	if (f.steppable) { back = { x, y: strip.y + 4, w: 28, h: 28 }; x += 28; }
-	const play = { x, y: strip.y + 4, w: 28, h: 28 }; x += 28;
-	if (f.steppable) { fwd = { x, y: strip.y + 4, w: 28, h: 28 }; x += 28; }
-	x += 8;
-	const trackW = Math.max(0, strip.x + strip.w - 12 - x);
-	const track = { x, y: strip.y + h / 2 - 2, w: trackW, h: 4 };
-	const scrub = { x, y: strip.y + 4, w: trackW, h: 28 };
-	return { strip, back, play, fwd, track, scrub };
 }
 
 // ---- find bar ----

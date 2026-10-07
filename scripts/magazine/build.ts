@@ -1,6 +1,6 @@
-// Reading build: every thoughts/*/+page.svx (+ figures.ts, spread.json) -> RDR3 page binaries, one per width class.
+// Reading build: every thoughts/*/+page.svx (+ exhibits/, spread.json) -> RDR4 page binaries, one per width class.
 //   bun scripts/magazine/build.ts [--force] [--only slug]
-// Output: static/magazine/<slug>.<wide|mid|narrow>.<hash>.bin, fonts.<hash>.bin, index.json (version 3).
+// Output: static/magazine/<slug>.<wide|mid|narrow>.<hash>.bin, fonts.<hash>.bin, index.json (version 4).
 // Pipeline per article and class: parse (scripts/reader/parse.ts) -> figures (fig lane) -> flow layout (flow.ts) ->
 // emitReading (emit.ts: rebase, per-figure cell grids, pack). Output is byte-deterministic for the same inputs.
 import fs from 'node:fs';
@@ -22,6 +22,7 @@ import { buildPalette, PAL_SYNTAX_START } from './palette';
 import { SYNTAX_ORDER, syntaxHex } from '../../src/lib/reading/theme';
 import { loadEnUs, type Hyphenator } from './hyph';
 import { loadFigures, type FigureArt } from './fig/emit';
+import { artFile, checkNamespace, exhibitsDir, loadScriptExhibits, scriptIds } from './exhibit';
 
 export const THOUGHTS = path.join(ROOT, 'src/routes/(site)/thoughts');
 export const OUT_DIR = path.join(ROOT, 'static/magazine');
@@ -121,10 +122,12 @@ async function layOut(sh: Shared, p: Parsed, cls: MagClass, neighbours: { prev?:
 		strings: new StringSink(), text: new TextSink(), slug: p.slug, missing: sh.missing,
 		kp: { justify: false, hyphenator: hyphFor(side.hyphenExceptions) }
 	};
-	const figFile = path.join(dir, 'figures.ts');
+	const figFile = artFile(dir);
 	const figures = fs.existsSync(figFile) ? await loadFigures(figFile, env) : new Map<string, FigureArt>();
+	checkNamespace(p.file, scriptIds(dir), [...figures.keys()]);
+	const scripts = loadScriptExhibits(dir, p.source, p.file, (m) => console.log(m));
 	const flow = flowArticle({
-		p, env, cfg, figures, display: sh.fonts.display(voice.wdth, voice.wght), neighbours,
+		p, env, cfg, figures, scripts, display: sh.fonts.display(voice.wdth, voice.wght), neighbours,
 		ctx: { extra: env.extra, union: env.union, strings: env.strings.bytes(), palette, digitSets: env.digitSets } as never
 	});
 	const text = env.text.bytes();
@@ -144,7 +147,7 @@ async function prepare(files: string[], errors: string[], log: (...a: unknown[])
 		try {
 			if (p.distill) {
 				const post = parsePost(p.source, p.file);
-				const ids = fs.existsSync(path.join(path.dirname(p.file), 'figures.ts')) ? undefined : [];
+				const ids = fs.existsSync(artFile(path.dirname(p.file))) ? undefined : scriptIds(path.dirname(p.file));
 				const lint = lintDistill({ captions: [], synth: [], ...p.distill } as unknown as LintBlock, post, ids ? { figureIds: ids } : {});
 				for (const w of lint.warnings) log(`reading: ${p.slug}: distill warning ${w.path}: ${w.message}`);
 				if (!lint.ok) errors.push(`${p.file}: distill lint:\n    ${lint.errors.map((e) => `${e.path}: ${e.message}`).join('\n    ')}`);
@@ -168,6 +171,9 @@ function uiTexts(parsed: Parsed[]): string[] {
 		out.push(p.meta.title, p.meta.dek ?? '');
 		for (const r of p.refs) out.push(r.title ?? '');
 		for (const b of p.blocks) if (b.t === 'heading') out.push(b.runs.map((r) => r.text ?? '').join(''));
+		// exhibit scripts draw their own labels and terms (the lambda reducer prints λ): every character of their source gets a UI glyph
+		const dir = path.join(path.dirname(p.file), 'exhibits');
+		if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir)) if (f.endsWith('.flecs')) out.push(fs.readFileSync(path.join(dir, f), 'utf8'));
 	}
 	return out;
 }
@@ -191,10 +197,12 @@ export function inputsHash(thoughts = THOUGHTS): string {
 	const h = crypto.createHash('sha1');
 	const add = (f: string) => { h.update(f); h.update(fs.readFileSync(f)); };
 	for (const d of fs.readdirSync(thoughts).sort()) {
-		for (const n of ['+page.svx', 'figures.ts', 'spread.json']) {
+		for (const n of ['+page.svx', 'spread.json']) {
 			const f = path.join(thoughts, d, n);
 			if (fs.existsSync(f)) add(f);
 		}
+		const ex = exhibitsDir(path.join(thoughts, d));
+		if (fs.existsSync(ex)) for (const n of fs.readdirSync(ex).sort()) add(path.join(ex, n));
 	}
 	const walk = (dir: string) => {
 		for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
@@ -220,7 +228,7 @@ export async function buildMagazine(opts: BuildOpts = {}): Promise<BuildResult> 
 	const stamp = opts.only ? '' : inputsHash(thoughts);
 	if (!opts.force && stamp && fs.existsSync(stampFile)) {
 		const prev = JSON.parse(fs.readFileSync(stampFile, 'utf8'));
-		const ok = prev.version === 3 && prev.stamp === stamp && [prev.fonts, ...prev.articles.flatMap((a: any) => Object.values(a.bins).map((b: any) => b.file))].every((f: string) => fs.existsSync(path.join(outDir, f)));
+		const ok = prev.version === 4 && prev.stamp === stamp && [prev.fonts, ...prev.articles.flatMap((a: any) => Object.values(a.bins).map((b: any) => b.file))].every((f: string) => fs.existsSync(path.join(outDir, f)));
 		if (ok) return { skipped: true, index: prev, files: [], ms: performance.now() - t0 };
 	}
 	const all = fs.readdirSync(thoughts).sort().map((d) => path.join(thoughts, d, '+page.svx')).filter((f) => fs.existsSync(f));
@@ -270,7 +278,7 @@ export async function buildMagazine(opts: BuildOpts = {}): Promise<BuildResult> 
 		});
 	}
 	const index = {
-		version: 3, magic: 'RDR3', stamp, preview: false, stubs: [] as string[], fonts: fontsName, fontsBytes: fe.bytes, fontsBrotli: fe.brotli, glyphs: union.count,
+		version: 4, magic: 'RDR4', stamp, preview: false, stubs: [] as string[], fonts: fontsName, fontsBytes: fe.bytes, fontsBrotli: fe.brotli, glyphs: union.count,
 		classes: MAG_CLASSES.map((c, i) => ({ id: c.id, name: c.name, minPx: WIDTH_CLASSES[i].minPx, col: WIDTH_CLASSES[i].col })), articles, images: images.byId
 	};
 	if (!opts.only) {

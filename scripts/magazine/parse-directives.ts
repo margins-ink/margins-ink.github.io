@@ -5,7 +5,7 @@
 // parser in scripts/reader/parse.ts turns those comments back into blocks via `directiveFromComment`.
 //
 // Grammar (fail closed: any other directive name throws with file:line):
-//   ::fig{id="eval-timeline" place="inline"}          leaf; place: inline | wide | column | bleed
+//   ::exhibit{id="turing" place="wide"}               leaf; place: inline | wide | column | bleed
 //   :::code-wide ... :::                              container; every fenced code block inside is wide
 // Plain .svx with no directives is returned unchanged.
 import YAML from 'yaml';
@@ -14,7 +14,7 @@ export type FigPlace = 'inline' | 'wide' | 'column' | 'bleed';
 const PLACES: readonly FigPlace[] = ['inline', 'wide', 'column', 'bleed'];
 
 export type DirectiveEvent =
-	| { kind: 'fig'; id: string; place: FigPlace; line: number }
+	| { kind: 'exhibit'; id: string; place: FigPlace; line: number }
 	| { kind: 'code-wide-open'; line: number }
 	| { kind: 'code-wide-close'; line: number };
 
@@ -80,13 +80,13 @@ export function extractDirectives(source: string, file: string): Extracted {
 		}
 		const lf = LEAF.exec(line);
 		if (lf) {
-			if (lf[1] !== 'fig') throw new DirectiveError(`${where}: unknown directive ::${lf[1]} (known: fig; the first-draft ::spread/::pullquote/::numeral/:::aside were removed, the distill block picks those)`);
+			if (lf[1] !== 'exhibit') throw new DirectiveError(`${where}: unknown directive ::${lf[1]} (known: exhibit; ::fig is gone (docs/MUSEUM.md); the first-draft ::spread/::pullquote/::numeral/:::aside were removed, the distill block picks those)`);
 			const a = attrsOf(lf[2]);
-			if (!a.id) throw new DirectiveError(`${where}: ::fig needs id="..."`);
+			if (!a.id) throw new DirectiveError(`${where}: ::exhibit needs id="..."`);
 			const place = (a.place ?? 'inline') as FigPlace;
-			if (!PLACES.includes(place)) throw new DirectiveError(`${where}: ::fig place="${a.place}" must be one of ${PLACES.join(', ')}`);
-			for (const k of Object.keys(a)) if (k !== 'id' && k !== 'place') throw new DirectiveError(`${where}: ::fig has unknown attribute ${k}`);
-			events.set(n, { kind: 'fig', id: a.id, place, line: n });
+			if (!PLACES.includes(place)) throw new DirectiveError(`${where}: ::exhibit place="${a.place}" must be one of ${PLACES.join(', ')}`);
+			for (const k of Object.keys(a)) if (k !== 'id' && k !== 'place') throw new DirectiveError(`${where}: ::exhibit has unknown attribute ${k}`);
+			events.set(n, { kind: 'exhibit', id: a.id, place, line: n });
 			lines[i] = `<!--magdir:${n}-->`;
 		}
 	}

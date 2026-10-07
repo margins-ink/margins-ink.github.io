@@ -11,7 +11,7 @@ const ROOT = resolve(import.meta.dir, '../../..');
 const IFD = `${ROOT}/src/routes/(site)/thoughts/ifd`;
 
 mock.module('$lib/magazine/dsl', () => dsl); // the SvelteKit alias does not exist under bun test
-const figs = (await import(`${IFD}/figures.ts`)).default as dsl.FigureSet;
+const figs = (await import(`${IFD}/exhibits/art.ts`)).default as dsl.FigureSet;
 
 const base = (over: Partial<dsl.FigureSpec> = {}) =>
 	figure({
@@ -146,7 +146,7 @@ import { contrast, fromRgb, ok, quant, toHex, NEUTRAL, TINT_HUE } from '../../..
 
 const thoughts = `${ROOT}/src/routes/(site)/thoughts`;
 const all: [string, dsl.FigureSet][] = [];
-for (const d of readdirSync(thoughts)) if (existsSync(`${thoughts}/${d}/figures.ts`)) all.push([d, (await import(`${thoughts}/${d}/figures.ts`)).default as dsl.FigureSet]);
+for (const d of readdirSync(thoughts)) if (existsSync(`${thoughts}/${d}/exhibits/art.ts`)) all.push([d, (await import(`${thoughts}/${d}/exhibits/art.ts`)).default as dsl.FigureSet]);
 
 describe('figure contrast', () => {
 	test('every figure of every article clears the floors (shapes 1.5:1, strokes and text 4.5:1, labels on their fill 4.5:1)', () => {

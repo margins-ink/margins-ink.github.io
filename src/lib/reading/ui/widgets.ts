@@ -4,13 +4,13 @@
 //
 // Actions the root dispatches (HitRect.onClick, and `actions` for keyboard-driven ones):
 //   close, toggleAa, toc:toggle, toc:close, toc:<n> (heading index), aa:step:<i>, aa:full, aa:close,
-//   cite:open:<ref>, lb:close, copy:<block>, fig:play:<fig>, fig:back:<fig>, fig:fwd:<fig>, fig:scrub:<fig> (capture),
-//   find:field (click: caret via `caretIndexAt`), find:prev, find:next, find:close, find:query (text changed), sb:track, sb:thumb (capture)
+//   cite:open:<ref>, lb:close, copy:<block>,
+//   find:field (click: caret via `caretIndexAt`), find:prev, find:next, find:close, find:query (text changed), sb:track, sb:thumb (capture); exhibits draw and route their own controls (exhibit.ts)
 import type { Overlay } from '../page-api';
 import type { ScrollbarFrame, ScrollbarInput, ScrollbarState, Shaped, UiFont, UiGlyph } from './types';
 import { hitChrome } from './hit';
 import {
-	BAR_H, BTN, createChromeAnim, ellipsize, layoutAa, layoutBar, layoutCite, layoutCodeCorner, layoutFigure, layoutFind,
+	BAR_H, BTN, createChromeAnim, ellipsize, layoutAa, layoutBar, layoutCite, layoutCodeCorner, layoutFind,
 	layoutLightbox, layoutToast, layoutToc, scrollbarHit, sectionLabel, tocSticky, widthClassOf,
 	type ChromeInput, type ChromeState, type HitRect, type KeyEvent, type Measure, type Rect, type RGB
 } from './layout';
@@ -149,6 +149,26 @@ class Out {
 
 // ---- main ----
 
+/**
+ * The room rail: a quiet 2 px line along the bottom of the top bar, one segment per room (section start ticks) with a small gap between rooms; the part
+ * already walked is accent at low alpha, the rest a faint ink track. With no ticks it is one segment (plain reading progress).
+ */
+export function roomRail(out: Out, s: ChromeState, th: ChromeState['theme'], hdr: number): void {
+	const span = Math.max(1, s.docPx - s.view.h);
+	const ticks = (s.ticks ?? []).map((t) => Math.max(0, Math.min(1, t / span))).filter((t) => t > 0.001 && t < 0.999);
+	const edges = [0, ...ticks, 1];
+	const gap = 3;
+	const y = BAR_H - 2;
+	const p = Math.max(0, Math.min(1, s.scrollY / span)); // the same scale as the ticks (scroll offset over the scrollable span)
+	for (let i = 0; i < edges.length - 1; i++) {
+		const x0 = edges[i] * s.view.w + (i ? gap / 2 : 0), x1 = edges[i + 1] * s.view.w - (i < edges.length - 2 ? gap / 2 : 0);
+		if (x1 - x0 < 2) continue;
+		out.box({ x: x0, y, w: x1 - x0, h: 2 }, 1, th.ink, 0.05);
+		const f = Math.max(0, Math.min(1, (p - edges[i]) / Math.max(1e-6, edges[i + 1] - edges[i])));
+		if (f > 0) out.box({ x: x0, y, w: (x1 - x0) * f, h: 2 }, 1, th.accent, 0.5, hdr > 1 ? Math.min(hdr, 1.2) : undefined);
+	}
+}
+
 export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, deps: ChromeDeps): ChromeOut {
 	const a = s.anim;
 	const th = s.theme;
@@ -247,44 +267,6 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 		if (t > 0.5) out.hit(id, c.button, 'pointer', ov, id);
 	}
 
-	// ---- figure controls ----
-	for (const f of s.figures) {
-		if (f.rect.y + f.rect.h < BAR_H || f.rect.y > s.view.h) continue;
-		const want = s.hoverFig === f.fig || s.focusFig === f.fig || s.scrubFig === f.fig || s.touch || (hoverId?.startsWith(`fig:`) && hoverId.endsWith(`:${f.fig}`)) === true;
-		const t = (a.figT[f.fig] = track(a.figT[f.fig] ?? 0, want ? 1 : 0, 80));
-		if (t <= 0.004) { delete a.figT[f.fig]; continue; }
-		const L = layoutFigure(f);
-		const ovs = out.box(L.strip, 10, th.popover, 0.88 * t);
-		if (t > 0.5) out.hit(`fig:strip:${f.fig}`, L.strip, 'default', ovs);
-		const btn = (id: string, r: Rect, action: string, draw: (cx: number, cy: number) => void) => {
-			const hv = heat(id);
-			const ov = out.box(r, 8, th.ink, (0.1 * hv + (pressed && hoverId === id ? 0.06 : 0)) * t);
-			draw(r.x + r.w / 2, r.y + r.h / 2);
-			if (t > 0.5) out.hit(id, r, 'pointer', ov, action);
-		};
-		if (L.back) btn(`fig:back:${f.fig}`, L.back, `fig:back:${f.fig}`, (cx, cy) => out.text('‹', cx, cy, 'sans', 20, th.ink, t, { align: 'c' }));
-		btn(`fig:play:${f.fig}`, L.play, `fig:play:${f.fig}`, (cx, cy) => {
-			if (f.playing) {
-				out.box({ x: cx - 5, y: cy - 6, w: 3.5, h: 12 }, 1, th.ink, t);
-				out.box({ x: cx + 1.5, y: cy - 6, w: 3.5, h: 12 }, 1, th.ink, t);
-			} else {
-				const n = 8, hh = 12, ww = 10;
-				for (let k = 0; k < n; k++) {
-					const w = ww * (1 - Math.abs(((k + 0.5) / n) * 2 - 1));
-					out.box({ x: cx - 3.5, y: cy - hh / 2 + (k * hh) / n, w: Math.max(1, w), h: hh / n + 0.4 }, 0, th.ink, t);
-				}
-			}
-		});
-		if (L.fwd) btn(`fig:fwd:${f.fig}`, L.fwd, `fig:fwd:${f.fig}`, (cx, cy) => out.text('›', cx, cy, 'sans', 20, th.ink, t, { align: 'c' }));
-		if (L.track.w > 0) {
-			out.box(L.track, 2, th.ink, 0.2 * t);
-			const p = Math.max(0, Math.min(1, f.t));
-			out.box({ x: L.track.x, y: L.track.y, w: L.track.w * p, h: L.track.h }, 2, th.accent, 0.95 * t, hdr);
-			out.box({ x: L.track.x + L.track.w * p - 6, y: L.track.y + 2 - 6, w: 12, h: 12 }, 6, th.ink, t);
-			if (t > 0.5) out.hit(`fig:scrub:${f.fig}`, L.scrub, 'ew-resize', -1, `fig:scrub:${f.fig}`, true);
-		}
-	}
-
 	// ---- Aa outside-click catcher sits under the bar so the Aa button still toggles ----
 	if (s.aa.open) out.hit('aa:dismiss', { x: 0, y: 0, w: s.view.w, h: s.view.h }, 'default', -1, 'aa:close');
 
@@ -293,6 +275,7 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 	{
 		const ov = out.box(bar.bar, 0, th.ground, 1);
 		out.box({ x: 0, y: BAR_H - 1, w: s.view.w, h: 1 }, 0, th.ink, 0.07);
+		roomRail(out, s, th, hdr);
 		out.hit('bar', bar.bar, 'default', ov);
 		const iconBtn = (id: string, r: Rect, action: string, on: boolean, draw: (cx: number, cy: number) => void) => {
 			const hv = heat(id);
