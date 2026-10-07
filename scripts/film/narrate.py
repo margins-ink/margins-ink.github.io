@@ -257,6 +257,25 @@ def verify_line(lid: str, audio: np.ndarray, words: list[list], n_pauses: int) -
             "repaired_min_dur_words": 0, "inner_silences": sil, "expected_pauses": n_pauses, "failures": fails}
 
 
+SNAP_TOL = 0.100
+
+
+def snap_edges(words: list[list], audio: np.ndarray) -> tuple[list[list], dict]:
+    """Whisper's first/last word boundaries are often 100-400 ms off a soft onset or a trailing decay (it also collapses a
+    first content word to 0 ms). The audio is known, so when an outer edge is more than SNAP_TOL from the first/last sample
+    above -40 dBFS, move that edge to the audible bound. Raw (pre-snap) errors are reported so the aligner's quality stays visible."""
+    first, last = audible_bounds(audio)
+    w = [list(x) for x in words]
+    info = {"raw_onset_err": round(abs(first - w[0][1]), 3), "raw_end_err": round(abs(last - w[-1][2]), 3), "snapped": 0}
+    if abs(first - w[0][1]) > SNAP_TOL:
+        w[0][1] = round(first, 3)
+        info["snapped"] += 1
+    if abs(last - w[-1][2]) > SNAP_TOL:
+        w[-1][2] = round(last, 3)
+        info["snapped"] += 1
+    return w, info
+
+
 def fix_min_dur(words: list[list]) -> tuple[list[list], int]:
     """Whisper frames are 20 ms, so a weak function word can come back 0 ms long. Give it MIN_WORD by moving its
     start back (into the gap before it, else stealing the tail of the previous word). Returns (words, repaired)."""
@@ -368,7 +387,9 @@ def prepare_line(ln: dict, say: dict, key: str, engine: Engine | None, force: bo
         words = [[words_text[i], round(float(g[1]), 3), round(float(g[2]), 3)] for i, g in enumerate(got)]
         alj.write_text(json.dumps(words))
     m = json.loads(meta.read_text()) if meta.exists() else {}
+    words, info = snap_edges(words, audio)
     words, m["repaired_words"] = fix_min_dur(words)
+    m.update(info)
     return audio, words, m
 
 
@@ -406,6 +427,7 @@ def build(say: dict, out: Path, engine: Engine | None, only: set[str] | None = N
         pos = (start_idx + len(a)) / SR
         vers[ln["id"]] = verify_line(ln["id"], a, w, len(pause_parts(ln["spoken"])) - 1)
         vers[ln["id"]]["repaired_min_dur_words"] = m["repaired_words"]
+        vers[ln["id"]].update({k: m[k] for k in ("raw_onset_err", "raw_end_err", "snapped")})
     pieces.append(silence(TAIL_S))
     timeline = np.concatenate(pieces)
     total = len(timeline) / SR
@@ -458,6 +480,9 @@ def build(say: dict, out: Path, engine: Engine | None, only: set[str] | None = N
         "lines_over_onset_tol": [v["id"] for v in vers.values() if v["onset_err"] > ONSET_TOL],
         "lines_over_end_tol": [v["id"] for v in vers.values() if v["end_err"] > OFFSET_TOL],
         "inner_silences_unexpected": {v["id"]: v["inner_silences"] - v["expected_pauses"] for v in vers.values() if v["inner_silences"] > v["expected_pauses"]},
+        "aligner_raw": {"onset_err_max": max(v["raw_onset_err"] for v in vers.values()), "end_err_max": max(v["raw_end_err"] for v in vers.values()),
+                        "lines_edge_snapped": [v["id"] for v in vers.values() if v["snapped"]],
+                        "note": "raw = stable-ts word edge vs first/last sample above -40 dBFS, before edges beyond 100 ms were snapped to the audible bound"},
         "repaired_min_dur_words_total": sum(v["repaired_min_dur_words"] for v in vers.values()),
         "failures": fails, "lines": vers,
     }
