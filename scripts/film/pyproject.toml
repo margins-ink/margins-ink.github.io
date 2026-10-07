@@ -1,0 +1,17 @@
+[project]
+name = "film-narrate"
+version = "0.1.0"
+description = "Local offline narration pipeline: Qwen3-TTS (MLX) + stable-ts alignment + ffmpeg loudnorm"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "mlx-audio==0.5.8",
+  "stable-ts==2.19.1",
+  "numpy",
+  "soundfile",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false
