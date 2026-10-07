@@ -110,3 +110,10 @@ def test_unmatched_alignment_fails_with_line_id(env):
     with pytest.raises(SystemExit) as e:
         n.build(say, out, Bad(), work=work)
     assert "a:" in str(e.value)
+
+
+def test_zero_length_word_is_repaired_to_40ms():
+    fixed, n_fixed = n.fix_min_dur([["The", 0.14, 0.14], ["answer", 0.14, 0.38], ["x", 0.38, 0.38]])
+    assert n_fixed == 2
+    assert all(e - s >= 0.04 - 1e-9 for _, s, e in fixed)
+    assert all(fixed[i][2] <= fixed[i + 1][1] + 1e-9 for i in range(len(fixed) - 1))

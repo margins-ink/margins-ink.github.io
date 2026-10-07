@@ -254,7 +254,26 @@ def verify_line(lid: str, audio: np.ndarray, words: list[list], n_pauses: int) -
         fails.append(f"end error {1000 * off_err:.0f} ms (audio {last:.3f}, last word {words[-1][2]:.3f})")
     sil = inner_silences(audio)
     return {"id": lid, "dur": round(dur, 3), "words": len(words), "onset_err": round(on_err, 3), "end_err": round(off_err, 3),
-            "inner_silences": sil, "expected_pauses": n_pauses, "failures": fails}
+            "repaired_min_dur_words": 0, "inner_silences": sil, "expected_pauses": n_pauses, "failures": fails}
+
+
+def fix_min_dur(words: list[list]) -> tuple[list[list], int]:
+    """Whisper frames are 20 ms, so a weak function word can come back 0 ms long. Give it MIN_WORD by moving its
+    start back (into the gap before it, else stealing the tail of the previous word). Returns (words, repaired)."""
+    w = [list(x) for x in words]
+    fixed = set()
+    for _ in range(3):
+        changed = False
+        for i, x in enumerate(w):
+            if x[2] - x[1] < MIN_WORD - 1e-9:
+                x[1] = round(max(0.0, x[2] - MIN_WORD), 3)
+                if i and w[i - 1][2] > x[1]:
+                    w[i - 1][2] = x[1]
+                fixed.add(i)
+                changed = True
+        if not changed:
+            break
+    return w, len(fixed)
 
 
 # ---------------------------------------------------------------- engines
@@ -291,7 +310,12 @@ class QwenEngine(Engine):
 
         if self.aligner is None:
             self.aligner = stable_whisper.load_model("small.en", device="cpu")
-        r = self.aligner.align(audio.astype(np.float32), " ".join(words), language="en", original_split=False)
+        from scipy.signal import resample_poly
+
+        # stable-ts treats a bare array as 16 kHz; our clips are 24 kHz (bug found by the end-of-clip check: times were 1.5x)
+        a16 = resample_poly(audio, 2, 3).astype(np.float32)
+        r = self.aligner.align(a16, " ".join(words), language="en", verbose=None, suppress_silence=False,
+                               suppress_word_ts=False, regroup=False)
         got = [[w.word.strip(), w.start, w.end] for s in r.segments for w in s.words]
         return got
 
@@ -344,6 +368,7 @@ def prepare_line(ln: dict, say: dict, key: str, engine: Engine | None, force: bo
         words = [[words_text[i], round(float(g[1]), 3), round(float(g[2]), 3)] for i, g in enumerate(got)]
         alj.write_text(json.dumps(words))
     m = json.loads(meta.read_text()) if meta.exists() else {}
+    words, m["repaired_words"] = fix_min_dur(words)
     return audio, words, m
 
 
@@ -380,6 +405,7 @@ def build(say: dict, out: Path, engine: Engine | None, only: set[str] | None = N
                             "words": [[x, round(start + s, 3), round(start + e, 3)] for x, s, e in w]}
         pos = (start_idx + len(a)) / SR
         vers[ln["id"]] = verify_line(ln["id"], a, w, len(pause_parts(ln["spoken"])) - 1)
+        vers[ln["id"]]["repaired_min_dur_words"] = m["repaired_words"]
     pieces.append(silence(TAIL_S))
     timeline = np.concatenate(pieces)
     total = len(timeline) / SR
@@ -432,6 +458,7 @@ def build(say: dict, out: Path, engine: Engine | None, only: set[str] | None = N
         "lines_over_onset_tol": [v["id"] for v in vers.values() if v["onset_err"] > ONSET_TOL],
         "lines_over_end_tol": [v["id"] for v in vers.values() if v["end_err"] > OFFSET_TOL],
         "inner_silences_unexpected": {v["id"]: v["inner_silences"] - v["expected_pauses"] for v in vers.values() if v["inner_silences"] > v["expected_pauses"]},
+        "repaired_min_dur_words_total": sum(v["repaired_min_dur_words"] for v in vers.values()),
         "failures": fails, "lines": vers,
     }
     (out / "report.json").write_text(json.dumps(report, indent=1))
