@@ -1,8 +1,9 @@
 // THE colour token table of the reader (docs/READING_GPU.md "Colour and typography", docs/READING.md 2.4). Pure TS, no DOM: the build
 // (scripts/magazine/palette.ts, scripts/reader/shiki-theme.ts), the page shader (ground) and the tests all read the numbers here and nowhere else.
-// Everything is OKLCH (L 0..1, C, h degrees). ONE colour system for every article, the room and its UI: one flat tinted near-black
-// ground (never #000), one text ramp, ONE accent, one syntax palette, one set of figure colours. No per-article hue, tint or glow,
-// nothing that moves with scroll or page. Every text-bearing token is checked against its real ground by scripts/magazine/theme.test.ts.
+// 2026-10-07 (Andrew: "match code theme and general theme for everything of ix/packages/web"): every value below is copied from
+// /Volumes/Projects/indexable-inc/ix/packages/web (src/styles/site.css `.site` dark block, src/lib/docs/Blocks.svelte `.doc`,
+// src/styles/doc-code.css `.code-roles` dark). ix is monochrome: the accent IS ink-1 (no hue). OKLCH helpers stay for tests and the ground shader.
+// Every text-bearing token is checked against its real ground by scripts/magazine/theme.test.ts.
 
 export type Rgb = readonly [number, number, number]; // sRGB 0..1, gamma encoded
 export type Oklch = readonly [number, number, number]; // L 0..1, C, h degrees
@@ -80,88 +81,83 @@ export const ok = (L: number, C: number, h: number): Rgb => toRgb([L, fitChroma(
 
 // ---- thresholds (WCAG 2.2 AA) --------------------------------------------------------------------------
 
-export const CONTRAST = { text: 4.5, large: 3, graphic: 3, /** body ink: far above AA, long reading */ body: 9 } as const;
+export const CONTRAST = { text: 4.5, large: 3, graphic: 3, /** body ink on the page ground (ix ink-2 #b3b2af on #101011 is 8.97:1; was 9, lowered to 8.9 for the exact ix value) */ body: 8.9, /** code text on the code panel (ix code-ink and syntax colours) */ code: 6.5 } as const;
 
-// ---- ground and elevations -----------------------------------------------------------------------------
+// ---- ix tokens (site.css `.site` dark block), exact hex ----------------------------------------------------
 
-/** The one hue of the ground, surfaces and text tints (deep blue-grey: the cool counterpart of the warm accent). */
-export const TINT_HUE = 265; // used only by the syntax slots; surfaces and text are neutral (chroma about 0.003)
-/** Page ground: deep tinted near-black, flat (the same pixels on every page and at every scroll position). */
-export const GROUND = { L: 0.16, C: 0.003 } as const;
-
-/** Elevation steps above the ground (opaque L; the tint follows the article hue). Each also has a hairline: the border drawn on it. */
-export const ELEVATION = {
-	ground: { L: GROUND.L, C: GROUND.C },
-	/** code panel */
-	code: { L: 0.195, C: 0.003 },
-	/** figure card, tinted field */
-	card: { L: 0.222, C: 0.003 },
-	/** popover, cite card, menus */
-	popover: { L: 0.25, C: 0.003 }
+/** ix greys g-0..g-13 (site.css lines 58-71). */
+export const IX = {
+	g1: '#101011', g2: '#141415', g3: '#19191a', g4: '#1f1f20', g5: '#28282a', g6: '#333335', g7: '#414143', g8: '#57575a', g9: '#727274', g10: '#929190', g11: '#b3b2af', g12: '#d4d3cf', g13: '#ebeae6',
+	ink3: '#878684', codeInk: '#a9a8a5', docCodeInk: '#ff7369'
 } as const;
+/** --code-bg: color-mix(in srgb, g-2 70%, g-1) (site.css line 93). */
+const mixSrgb = (a: string, b: string, wa: number): string => toHex(fromHex(a).map((v, i) => v * wa + fromHex(b)[i] * (1 - wa)) as unknown as Rgb);
+export const CODE_BG_HEX = mixSrgb(IX.g2, IX.g1, 0.7);
+
+/** Kept for the tests: tint hue of the (now neutral) figure steps. */
+export const TINT_HUE = 265;
+/** Page ground = ix --bg (g-1). */
+export const GROUND_HEX = IX.g1;
+
+/** Surfaces: ground = --bg, code = --code-bg, card = --bg-3, popover = --bg-4. Each hairline is ix --line (ground, code) or --line-2 (card, popover). */
+export const ELEVATION = { ground: IX.g1, code: CODE_BG_HEX, card: IX.g3, popover: IX.g4 } as const;
 export type ElevationName = keyof typeof ELEVATION;
-/** Hairline: ink at this alpha over the surface it borders (about 1.6x to 1.8x contrast against it, deliberately faint; linear-light mix). */
-export const HAIRLINE_ALPHA = 0.06;
+export const HAIRLINE = { ground: IX.g5, code: IX.g5, card: IX.g6, popover: IX.g6 } as const;
 
-// ---- text ramp -----------------------------------------------------------------------------------------
-
-/** Text colours (L, C), all >= 4.5:1 on every elevation (tertiary is the floor: popover). */
-export const TEXT = {
-	primary: { L: 0.97, C: 0.003 },
-	secondary: { L: 0.785, C: 0.003 },
-	tertiary: { L: 0.66, C: 0.003 }
-} as const;
+/** Text ramp: ink-1, ink-2 (body), ink-3. */
+export const TEXT = { primary: IX.g13, secondary: IX.g11, tertiary: IX.ink3 } as const;
 export type TextName = keyof typeof TEXT;
 
-// ---- accent --------------------------------------------------------------------------------------------
+// ---- accent: monochrome (accent = ink-1) -----------------------------------------------------------------
 
-/** The one accent: warm amber, the hue of the room's lamps (world/scene LampColour {4, 2.4, 1.1}, NeonAmber). Used identically everywhere. */
-export const ACCENT = { L: 0.8, C: 0.125, h: 68, tintAlpha: 0.14, selectionAlpha: 0.28 } as const;
-/** The one supporting data colour a figure may use when it needs a second series (a fixed cool teal, same lightness family as the accent). */
-export const ACCENT2 = { L: 0.76, C: 0.09, h: 205 } as const;
-/** Text drawn on a filled accent. */
-export const ACCENT_INK = { L: 0.2, C: 0.01 } as const;
-/** Tinted field block (a `field` fill) and its text, plus the three neutral steps figures draw with. */
-export const FIELD = { L: 0.3, C: 0.1 } as const;
-/** Figure neutrals, light to dark: each >= 1.5:1 against the ground (shapes), the first two carry ink text at >= 4.5:1. */
-export const NEUTRAL = { L: [0.39, 0.355, 0.32], C: 0.012 } as const;
+/** The accent is ink-1 itself. Text on an accent fill is the ground ink. The second series is a mid grey (g-10). */
+export const ACCENT_HEX = IX.g13;
+export const ACCENT2_HEX = IX.g10;
+export const ACCENT_INK_HEX = IX.g1;
+/** ix --s-tint: ink-1 at 6% over the surface (inline code pill); selection and emphasis tint use ink-1 at these alphas. */
+export const TINT_ALPHA = 0.06, EMPHASIS_ALPHA = 0.14, SELECTION_ALPHA = 0.22;
+/** Figure `field` block (neutral, one step above card) and the three neutral steps figures draw with, light to dark. */
+export const FIELD_HEX = IX.g7;
+export const NEUTRAL_HEX = [IX.g8, IX.g7, IX.g6] as const;
 
-// ---- syntax (designed for the dark code panel, hue independent) -----------------------------------------
+// ---- syntax: doc-code.css `.code-roles` dark, exact -------------------------------------------------------
+
+/** The six ix roles (doc-code.css dark values). comment 7d8590; weights (keyword 600, title 500) are not carried by the palette. */
+export const ROLES = { keyword: '#ff7b72', string: '#7ee2a8', title: '#d2a8ff', attr: '#79c0ff', number: '#ffb86b', comment: '#7d8590' } as const;
 
 /**
- * Twelve slots (PALETTE2_SIZE 32 minus PAL_SYNTAX_START 20 = 12 syntax slots in the RDR palette). Lightness 0.76 to 0.84 on the
- * L 0.20 panel gives 6.5:1 to 9:1; chroma 0.075 to 0.125 keeps them balanced (no pure red or blue, nothing above C 0.13). Hue families follow the
- * dark-theme consensus (Tokyo Night, Catppuccin Mocha, Rose Pine, GitHub Dark, Night Owl): keyword mauve, function blue, type gold,
- * string green, number orange, constant cyan, attribute and macro pink, property coral, operator cream, comment a readable (4.5:1) blue grey.
+ * Twelve slots (PALETTE2_SIZE 32 minus PAL_SYNTAX_START 20), mapped onto the six roles plus ix code-ink. hljs groups: keyword/literal -> keyword red;
+ * string/regexp -> green; title/function -> purple; attr/property/variable/built_in/class/type -> blue; number/symbol/meta -> orange; comment -> grey.
+ * Operators, punctuation and plain identifiers have no ix role: they take ix `--code-ink`. `inline` is not a syntax colour: it is the docs inline-code
+ * colour (Blocks.svelte `--doc-code-ink`, #ff7369) carried in a slot so the baked layout can use it; no Shiki scope maps to it.
  */
 export const SYNTAX = {
-	keyword: [0.76, 0.12, 305],
-	function: [0.78, 0.11, 258],
-	type: [0.84, 0.115, 92],
-	string: [0.8, 0.12, 145],
-	number: [0.78, 0.125, 52],
-	constant: [0.8, 0.09, 200],
-	attribute: [0.78, 0.11, 345],
-	property: [0.77, 0.1, 22],
-	operator: [0.84, 0.04, 75],
-	punctuation: [0.72, 0.02, 265],
-	comment: [0.655, 0.04, 265],
-	variable: [0.9, 0.012, 265]
-} as const satisfies Record<string, Oklch>;
+	keyword: ROLES.keyword,
+	function: ROLES.title,
+	type: ROLES.attr,
+	string: ROLES.string,
+	number: ROLES.number,
+	constant: ROLES.attr,
+	attribute: ROLES.number,
+	property: ROLES.attr,
+	operator: IX.codeInk,
+	inline: IX.docCodeInk,
+	comment: ROLES.comment,
+	variable: IX.codeInk
+} as const satisfies Record<string, string>;
 export type SyntaxName = keyof typeof SYNTAX;
 /** Slot order: RDR palette syntax slot k is SYNTAX_ORDER[k]. */
 export const SYNTAX_ORDER = Object.keys(SYNTAX) as SyntaxName[];
 
-export const syntaxRgb = (): Record<SyntaxName, Rgb> =>
-	Object.fromEntries(SYNTAX_ORDER.map((k) => [k, quant(ok(...(SYNTAX[k] as unknown as [number, number, number])))])) as Record<SyntaxName, Rgb>;
-export const syntaxHex = (): Record<SyntaxName, string> =>
-	Object.fromEntries(SYNTAX_ORDER.map((k) => [k, toHex(quant(ok(...(SYNTAX[k] as unknown as [number, number, number]))))])) as Record<SyntaxName, string>;
+export const syntaxRgb = (): Record<SyntaxName, Rgb> => Object.fromEntries(SYNTAX_ORDER.map((k) => [k, fromHex(SYNTAX[k])])) as Record<SyntaxName, Rgb>;
+export const syntaxHex = (): Record<SyntaxName, string> => ({ ...SYNTAX });
 
 // ---- the table ---------------------------------------------------------------------------------------
 
-export interface Theme {	/** opaque surfaces */
+export interface Theme {
+	/** opaque surfaces */
 	surface: Record<ElevationName, Rgb>;
-	/** the border colour of each surface (ink over it at HAIRLINE_ALPHA) */
+	/** the border colour of each surface (ix --line / --line-2) */
 	hairline: Record<ElevationName, Rgb>;
 	text: Record<TextName, Rgb>;
 	accent: Rgb;
@@ -172,37 +168,33 @@ export interface Theme {	/** opaque surfaces */
 	field: Rgb;
 	neutral: readonly [Rgb, Rgb, Rgb];
 	syntax: Record<SyntaxName, Rgb>;
+	/** ink-1 at 6% over the ground: the inline code pill */
+	pill: Rgb;
 }
 
-/** All tokens, quantised to 8 bits (what the palette and the shiki theme ship). */
-function buildTheme(h: number): Theme {
-	const surface = Object.fromEntries(
-		(Object.keys(ELEVATION) as ElevationName[]).map((k) => [k, quant(ok(ELEVATION[k].L, ELEVATION[k].C, h))])
-	) as Record<ElevationName, Rgb>;
-	const text = Object.fromEntries(
-		(Object.keys(TEXT) as TextName[]).map((k) => [k, quant(ok(TEXT[k].L, TEXT[k].C, h))])
-	) as Record<TextName, Rgb>;
-	const hairline = Object.fromEntries(
-		(Object.keys(surface) as ElevationName[]).map((k) => [k, quant(over(text.primary, surface[k], HAIRLINE_ALPHA))])
-	) as Record<ElevationName, Rgb>;
-	const accent = quant(ok(ACCENT.L, ACCENT.C, ACCENT.h));
+function buildTheme(): Theme {
+	const map = <K extends string>(o: Record<K, string>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, fromHex(v as string)])) as Record<K, Rgb>;
+	const surface = map(ELEVATION);
+	const accent = fromHex(ACCENT_HEX);
 	return {
-		surface, hairline, text,
+		surface, hairline: map(HAIRLINE), text: map(TEXT),
 		accent,
-		accent2: quant(ok(ACCENT2.L, ACCENT2.C, ACCENT2.h)),
-		accentTint: quant(over(accent, surface.ground, ACCENT.tintAlpha)),
-		accentInk: quant(ok(ACCENT_INK.L, ACCENT_INK.C, TINT_HUE)),
-		selection: quant(over(accent, surface.ground, ACCENT.selectionAlpha)),
-		field: quant(ok(FIELD.L, FIELD.C, ACCENT.h)),
-		neutral: NEUTRAL.L.map((L) => quant(ok(L, NEUTRAL.C, h))) as unknown as readonly [Rgb, Rgb, Rgb],
-		syntax: syntaxRgb()
+		accent2: fromHex(ACCENT2_HEX),
+		accentTint: quant(over(accent, surface.ground, EMPHASIS_ALPHA)),
+		accentInk: fromHex(ACCENT_INK_HEX),
+		selection: quant(over(accent, surface.ground, SELECTION_ALPHA)),
+		field: fromHex(FIELD_HEX),
+		neutral: NEUTRAL_HEX.map(fromHex) as unknown as readonly [Rgb, Rgb, Rgb],
+		syntax: syntaxRgb(),
+		pill: quant(over(accent, surface.ground, TINT_ALPHA))
 	};
 }
 
 /** THE theme: the only instance. */
-export const THEME: Theme = buildTheme(TINT_HUE);
+export const THEME: Theme = buildTheme();
 
 // ---- WGSL snippets so the shader reads the same numbers ---------------------------------------------------
 
 /** Constants the ground shader splices in: the flat ground as `oklch(L, C, hue)`. */
-export const GROUND_WGSL = { L: GROUND.L.toFixed(4), chroma: GROUND.C.toFixed(4), hue: TINT_HUE.toFixed(1) } as const;
+const g = fromRgb(fromHex(GROUND_HEX));
+export const GROUND_WGSL = { L: g[0].toFixed(4), chroma: g[1].toFixed(4), hue: g[2].toFixed(1) } as const;

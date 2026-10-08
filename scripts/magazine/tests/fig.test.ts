@@ -93,7 +93,7 @@ describe('compileFigure and lintFigure', () => {
 import { readdirSync, existsSync } from 'node:fs';
 import { figureContrast, SHAPE_MIN, TEXT_MIN } from '../fig/contrast';
 import { paletteEntries } from '../palette';
-import { contrast, fromRgb, ok, quant, toHex, NEUTRAL, TINT_HUE } from '../../../src/lib/reading/theme';
+import { contrast, fromRgb, toHex } from '../../../src/lib/reading/theme';
 
 const thoughts = `${ROOT}/src/routes/(site)/thoughts`;
 const all: [string, dsl.FigureSet][] = [];
@@ -108,7 +108,7 @@ describe('figure contrast', () => {
 	test('the figure neutrals are visible on the ground and carry ink', () => {
 		const p = paletteEntries();
 		for (const n of ['neutral1', 'neutral2', 'neutral3'] as const) expect(contrast(p[n], p.paper)).toBeGreaterThanOrEqual(SHAPE_MIN);
-		for (const n of ['neutral1', 'neutral2'] as const) expect(contrast(p.ink, p[n])).toBeGreaterThanOrEqual(TEXT_MIN);
+		for (const n of ['neutral1', 'neutral2'] as const) expect(contrast(p.heading, p[n])).toBeGreaterThanOrEqual(TEXT_MIN);
 		expect(toHex(p.paper)).not.toBe('#000000');
 	});
 
@@ -116,7 +116,7 @@ describe('figure contrast', () => {
 	// that read fine only by luck, linear colour on an sRGB canvas) must fail the same check
 	test('control: the old invisible neutral and a ground-coloured fill fail', () => {
 		const p = paletteEntries();
-		const oldNeutral3 = quant(ok(0.15, NEUTRAL.C, TINT_HUE));
+		const oldNeutral3 = p.paper;
 		const planted = { ...p, neutral3: oldNeutral3 };
 		const spec = base({ nodes: [rrect('bar', { at: [2, 2], size: [6, 1], fill: 'neutral3' })], paths: [], tracks: [] });
 		expect(figureContrast('ctl', spec, p).filter((m) => m.includes('bar fill'))).toHaveLength(0);
@@ -126,7 +126,7 @@ describe('figure contrast', () => {
 		expect(contrast(dark, [0, 0, 0])).toBeLessThan(SHAPE_MIN);
 		// and a label colour that fails on its fill is caught
 		const bad = base({ nodes: [rrect('b', { at: [2, 2], size: [6, 2], fill: 'neutral2', label: 'x' })], paths: [], tracks: [] });
-		expect(figureContrast('ctl', bad, { ...p, ink: p.neutral2 }).some((m) => m.includes('label'))).toBe(true);
+		expect(figureContrast('ctl', bad, { ...p, heading: p.neutral2 }).some((m) => m.includes('label'))).toBe(true);
 		void fromRgb;
 	});
 });

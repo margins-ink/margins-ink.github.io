@@ -8,7 +8,7 @@ import { F, FONT_SPECS, FontSet, ROOT } from '../reader/fonts';
 import { readerTheme } from '../reader/shiki-theme';
 import { buildPalette, PAL_SYNTAX_START } from './palette';
 import {
-	CONTRAST, ELEVATION, GROUND, SYNTAX, SYNTAX_ORDER, TEXT, contrast, deltaE, fromHex, fromRgb, THEME, toHex, type Rgb, type SyntaxName, type Theme
+	CONTRAST, ELEVATION, IX, ROLES, SYNTAX, SYNTAX_ORDER, TEXT, contrast, deltaE, fromHex, fromRgb, THEME, toHex, type Rgb, type SyntaxName, type Theme
 } from '../../src/lib/reading/theme';
 import { quantiseSyntax } from './build';
 
@@ -33,13 +33,15 @@ describe('token table', () => {
 			const L = (c: Rgb) => fromRgb(c)[0];
 			expect(toHex(t.surface.ground)).not.toBe('#000000');
 			expect(L(t.surface.ground)).toBeGreaterThan(0.13);
-			expect(L(t.surface.ground)).toBeLessThan(0.17);
-			expect(L(t.surface.code)).toBeGreaterThan(L(t.surface.ground) + 0.03);
-			expect(L(t.surface.card)).toBeGreaterThan(L(t.surface.code) + 0.02);
-			expect(L(t.surface.popover)).toBeGreaterThan(L(t.surface.card) + 0.02);
-			expect(fromRgb(t.surface.ground)[1]).toBeGreaterThan(0.002); // near-neutral by design (2026-10-07: neutral ground, chroma about 0.004)
+			expect(L(t.surface.ground)).toBeLessThan(0.18);
+			expect(L(t.surface.code)).toBeGreaterThan(L(t.surface.ground) + 0.005);
+			expect(L(t.surface.card)).toBeGreaterThan(L(t.surface.code) + 0.01);
+			expect(L(t.surface.popover)).toBeGreaterThan(L(t.surface.card) + 0.01);
 		}
-		expect(ELEVATION.code.L).toBeCloseTo(0.195, 2);
+		// exact ix tokens (packages/web/src/styles/site.css .site dark block)
+		expect(ELEVATION).toEqual({ ground: '#101011', code: '#131314', card: '#19191a', popover: '#1f1f20' });
+		expect(TEXT).toEqual({ primary: '#ebeae6', secondary: '#b3b2af', tertiary: '#878684' });
+		expect(IX.codeInk).toBe('#a9a8a5');
 			});
 
 	test('text ramp: primary 9:1 on the ground, all three >= 4.5:1 on ground (lightest stop) and on all three elevations', () => {
@@ -71,7 +73,7 @@ describe('token table', () => {
 			expect(contrast(t.accentInk, t.accent)).toBeGreaterThanOrEqual(CONTRAST.text);
 			for (const k of Object.keys(t.surface) as (keyof typeof t.surface)[]) {
 				const r = contrast(t.hairline[k], t.surface[k]);
-				expect(r).toBeGreaterThan(1.3);
+				expect(r).toBeGreaterThan(1.2); // ix --line / --line-2 are 1.26 to 1.39:1 (were 1.3 minimum): decoration only
 				expect(r).toBeLessThan(2.1);
 			}
 		}
@@ -87,22 +89,21 @@ describe('token table', () => {
 			// the comment slot is the dimmest syntax colour but still clears the floor with margin
 			const cm = contrast(t.syntax.comment, t.surface.code);
 			expect(cm).toBeGreaterThanOrEqual(4.5);
-			for (const k of SYNTAX_ORDER) if (k !== 'comment' && k !== 'punctuation') expect(contrast(t.syntax[k], t.surface.code)).toBeGreaterThan(cm);
+			for (const k of SYNTAX_ORDER) if (k !== 'comment') expect(contrast(t.syntax[k], t.surface.code)).toBeGreaterThan(cm);
 			// syntax also reads on a card and a popover (inline code in a callout) at the 4.5 floor
 			expect(syntaxFailures(t.syntax, t.surface.card)).toEqual([]);
 		}
-		for (const k of SYNTAX_ORDER) {
-			const [, C, hue] = SYNTAX[k];
-			expect(C).toBeLessThanOrEqual(0.13);
-			expect(hue < 5 || hue > 355 ? 'red' : hue > 255 && hue < 270 && C > 0.2 ? 'blue' : 'ok').toBe('ok'); // nothing at the saturated primaries
-		}
+		// exact ix doc-code.css dark roles
+		expect(ROLES).toEqual({ keyword: '#ff7b72', string: '#7ee2a8', title: '#d2a8ff', attr: '#79c0ff', number: '#ffb86b', comment: '#7d8590' });
+		expect(SYNTAX.inline).toBe('#ff7369');
 	});
 
-	test('syntax families are distinct: pairwise OKLab distance >= 0.04 between every two slots', () => {
+	test('syntax roles are distinct: pairwise OKLab distance >= 0.04 between every two distinct role colours', () => {
 		const t = THEME;
 		const worst: [number, string][] = [];
-		for (let i = 0; i < SYNTAX_ORDER.length; i++) for (let j = i + 1; j < SYNTAX_ORDER.length; j++) {
-			const a = SYNTAX_ORDER[i], b = SYNTAX_ORDER[j];
+		const uniq = SYNTAX_ORDER.filter((k) => k !== 'inline').filter((k, i) => SYNTAX_ORDER.findIndex((o) => SYNTAX[o] === SYNTAX[k]) === i);
+		for (let i = 0; i < uniq.length; i++) for (let j = i + 1; j < uniq.length; j++) {
+			const a = uniq[i], b = uniq[j];
 			worst.push([deltaE(t.syntax[a], t.syntax[b]), `${a}/${b}`]);
 		}
 		worst.sort((x, y) => x[0] - y[0]);
@@ -169,7 +170,7 @@ fn main() -> ! {
 
 	test('Rust maps to the intended slots: keywords, functions, types, lifetimes, macros, attributes, comments, strings, numbers', async () => {
 		const hex = THEME.syntax;
-		const slot = (c: string) => SYNTAX_ORDER.find((k) => toHex(hex[k]) === c.toLowerCase());
+		const slot = (c: string) => SYNTAX_ORDER.find((k) => toHex(hex[k]) === c.toLowerCase()); // duplicates (ix reuses six roles): first slot with the colour
 		const lines = await tokenise('rust', rust);
 		const by = new Map<string, SyntaxName | undefined>();
 		for (const line of lines) for (const tk of line) by.set(tk.content.trim(), slot(String((tk.htmlStyle as Record<string, string>)['--shiki-dark'])));
@@ -178,16 +179,16 @@ fn main() -> ! {
 			['Peripherals', 'type'], ['main', 'function'], ['unwrap', 'function'], ['println!', 'attribute'], ['entry', 'attribute'], ['PWR', 'constant']
 		];
 		const got = want.map(([t]) => [t, by.get(t)]);
-		expect(got.filter(([, g], i) => g !== want[i][1]).map(([t, g]) => `${t}=${g}`)).toEqual([]);
+		expect(got.filter(([, g], i) => g !== slot(THEME.syntax[want[i][1]] ? toHex(THEME.syntax[want[i][1]]) : '')).map(([t, g]) => `${t}=${g}`)).toEqual([]);
 		// the lifetime token ('a) is in the attribute family (pink), distinct from keywords
 		const lt = [...by.entries()].find(([k]) => k.includes("'a"));
-		expect(lt?.[1] ?? 'attribute').toBe('attribute');
+		expect(lt ? toHex(THEME.syntax[lt[1] as SyntaxName]) : SYNTAX.attribute).toBe(SYNTAX.attribute);
 	});
 
 	test('quantiseSyntax maps each theme hex to its own slot', () => {
 		const pairs = new Map(SYNTAX_ORDER.map((k) => [toHex(THEME.syntax[k]), 3]));
 		const { idx } = quantiseSyntax(pairs);
-		SYNTAX_ORDER.forEach((k, i) => expect(idx.get(toHex(THEME.syntax[k]))).toBe(PAL_SYNTAX_START + i));
+		SYNTAX_ORDER.forEach((k, i) => expect(idx.get(toHex(THEME.syntax[k]))).toBe(PAL_SYNTAX_START + SYNTAX_ORDER.findIndex((o) => SYNTAX[o] === SYNTAX[k])));
 	});
 });
 

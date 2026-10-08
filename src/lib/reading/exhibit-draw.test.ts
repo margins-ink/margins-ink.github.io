@@ -46,9 +46,9 @@ describe('tones', () => {
 		});
 		expect(toneColour(99)).toEqual(toneColour(TONE_NAMES.indexOf('ink')));
 	});
-	test('the amber accent is one slot, distinct from the neutrals', () => {
+	test('the monochrome accent is ink-1 (ix has no accent hue), distinct from the other tones', () => {
 		const acc = toneColour(TONE_NAMES.indexOf('accent'));
-		for (const n of ['panel', 'ink', 'ink2', 'ink3', 'rule', 'ground']) expect(toneColour(TONE_NAMES.indexOf(n as never))).not.toEqual(acc);
+		for (const n of ['panel', 'ink2', 'ink3', 'rule', 'ground']) expect(toneColour(TONE_NAMES.indexOf(n as never))).not.toEqual(acc);
 	});
 });
 

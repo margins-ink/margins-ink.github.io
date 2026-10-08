@@ -10,6 +10,7 @@ import remarkMath from 'remark-math';
 import YAML from 'yaml';
 import { codeToTokens } from 'shiki';
 import { readerTheme } from './shiki-theme';
+import { SYNTAX_ORDER } from '../../src/lib/reading/theme';
 import { Pal, GlyphFlag } from '../../src/lib/reader/format';
 import { F } from './fonts';
 import { extractDirectives, directiveFromComment, parseDistill, bodyOf, type DirectiveEvent, type DistillBlock, type FigPlace } from '../magazine/parse-directives';
@@ -65,8 +66,8 @@ export interface Parsed {
 }
 
 interface Style { font: number; size: number; color: Run['color']; flags: number; href?: string; sup?: boolean; inlineCode?: boolean }
-/** inline code: the coral `property` syntax slot (palette slot 20 + its index in SYNTAX_ORDER) */
-const CODE_INK = 20 + 7;
+/** inline code: the ix docs coral (#ff7369) `inline` syntax slot (palette slot 20 + its index in SYNTAX_ORDER) */
+const CODE_INK = 20 + SYNTAX_ORDER.indexOf('inline');
 const BASE: Style = { font: F.body, size: 1, color: Pal.ink, flags: 0 };
 
 const processor = unified().use(remarkParse).use(remarkFrontmatter, ['yaml']).use(remarkGfm).use(remarkMath);

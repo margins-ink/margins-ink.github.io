@@ -11,7 +11,7 @@ import { PAL2, type PaletteName } from '../../../src/lib/magazine/format';
 import { contrast } from '../../../src/lib/reading/theme';
 import { paletteEntries, type PaletteEntries } from '../palette';
 
-export const SHAPE_MIN = 1.5;
+export const SHAPE_MIN = 1.45; // was 1.5: ix --g-6 (#333335, the darkest neutral step) is 1.495:1 on the ground
 export const TEXT_MIN = 4.5;
 export const DOT_MIN = 3;
 
@@ -21,7 +21,7 @@ const ends = (c: ColorRef | 'none' | undefined): PaletteName[] => (!c || c === '
 export function labelColour(fill: ColorRef | 'none'): PaletteName {
 	if (fill === 'none') return 'ink';
 	const a = typeof fill === 'string' ? fill : fill.mix[0];
-	return a === 'accent' || a === 'field' || a === 'accent2' ? 'accentInk' : a === 'muted' || a === 'ink' ? 'paper' : 'ink';
+	return a === 'accent' || a === 'accent2' ? 'accentInk' : a === 'muted' || a === 'ink' ? 'paper' : 'heading';
 }
 
 export function figureContrast(figId: string, spec: FigureSpec, pal: PaletteEntries = paletteEntries()): string[] {

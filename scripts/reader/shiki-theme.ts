@@ -1,4 +1,4 @@
-// The Shiki (TextMate) theme of the reader, generated from the token table (src/lib/reading/theme.ts SYNTAX): twelve colours, one per slot,
+// The Shiki (TextMate) theme of the reader, generated from the token table (src/lib/reading/theme.ts SYNTAX): twelve slots mapped onto the ix doc-code.css roles,
 // replace `github-dark` (whose light-theme-derived values were low contrast on the dark panel). Scopes map to slots by hue family; the most
 // specific scope wins in Shiki, so `keyword.operator` beats `keyword`, `storage.type.core` (Rust primitives) beats `storage.type`, and so on.
 // Rust is covered explicitly (lifetimes, macros, attributes, `::`, self, constants), then TS/JS, JSON, HTML/Svelte, shell, CSS, markdown, diff.
@@ -40,13 +40,13 @@ export const SCOPES: Record<SyntaxName, string[]> = {
 	operator: [
 		'keyword.operator', 'keyword.operator.arrow', 'keyword.operator.assignment', 'keyword.operator.comparison', 'keyword.operator.logical', 'keyword.operator.arithmetic',
 		'keyword.operator.borrow', 'keyword.operator.dereference', 'keyword.operator.math', 'keyword.operator.expression', 'punctuation.definition.template-expression',
-		'punctuation.separator.key-value', 'punctuation.vertical-bar', 'punctuation.definition.markdown'
-	],
-	punctuation: [
+		'punctuation.separator.key-value', 'punctuation.vertical-bar', 'punctuation.definition.markdown',
 		'punctuation', 'meta.brace', 'punctuation.separator', 'punctuation.terminator', 'punctuation.accessor', 'punctuation.definition.block', 'punctuation.definition.parameters',
 		'punctuation.brackets', 'punctuation.section', 'keyword.operator.namespace', 'keyword.operator.scope-resolution', 'punctuation.separator.namespace', 'punctuation.separator.dot',
 		'punctuation.definition.tag', 'meta.brace.round', 'meta.brace.square', 'punctuation.definition.typeparameters', 'keyword.operator.type.annotation', 'punctuation.definition.dictionary'
+	
 	],
+	inline: [],
 	comment: ['comment', 'punctuation.definition.comment', 'comment.block.documentation', 'comment.line.documentation', 'string.comment'],
 	variable: ['variable', 'variable.other', 'variable.other.readwrite', 'variable.parameter', 'meta.definition.variable', 'variable.other.local', 'variable.other.normal', 'support.variable', 'meta.embedded', 'source']
 };

@@ -4,7 +4,7 @@
 // y down, glyph y is the baseline. Moved from scripts/reader/layout.ts when the column reader was deleted.
 import { EXTRA_BIT, GlyphFlag, LinkKind, Pal, RectKind } from '../../src/lib/reader/format';
 import { PAL_EXT } from './palette';
-import { UNIT } from '../../src/lib/magazine/format';
+import { PAL2, UNIT } from '../../src/lib/magazine/format';
 import { F, type FontSet, type GlyphTableBuilder } from '../reader/fonts';
 import type { Block, Run } from '../reader/parse';
 import { mathObject, type MathObj } from '../reader/math';
@@ -362,7 +362,7 @@ export function layoutPara(env: Env, runs: Run[], o: ParaOpts, where: string, te
 			ln.off = ln.glyphs.length ? ln.glyphs[0].off : -1;
 			for (const s of spans) {
 				if (s.href && !s.code) b.rects.push({ x0: s.x0, x1: s.x1, y0: base + 0.16 * o.bs, y1: base + 0.16 * o.bs + 0.05, colour: PAL_EXT.ink3, kind: RectKind.rule });
-				if (s.code) b.rects.push({ x0: s.x0 - 0.15, x1: s.x1 + 0.15, y0: base - 0.95 * o.bs, y1: base + 0.3 * o.bs, colour: Pal.codeBg, kind: RectKind.inlineCodeBg, radius: 0.28 });
+				if (s.code) b.rects.push({ x0: s.x0 - 0.3, x1: s.x1 + 0.3, y0: base - 0.95 * o.bs, y1: base + 0.3 * o.bs, colour: PAL2.panel, kind: RectKind.inlineCodeBg, radius: 0.36 });
 				if (s.href) b.links.push({ x0: s.x0, x1: s.x1, y0: ln.yTop, y1: ln.yBot, kind: linkKind(s.href), target: s.href });
 			}
 			b.lines.push(ln);
@@ -907,7 +907,7 @@ export function breakSegs(env: Env, segs: Seg[], width: number, o: BreakOpts, bs
 			tl.off = tl.glyphs.length ? tl.glyphs[0].off : -1;
 			for (const s of spans) {
 				if (s.href && !s.code) tl.rects.push({ x0: s.x0, x1: s.x1, y0: 0.16 * bs, y1: 0.16 * bs + 0.05, colour: PAL_EXT.ink3, kind: RectKind.rule });
-				if (s.code) tl.rects.push({ x0: s.x0 - 0.15, x1: s.x1 + 0.15, y0: -0.95 * bs, y1: 0.3 * bs, colour: Pal.codeBg, kind: RectKind.inlineCodeBg, radius: 0.28 });
+				if (s.code) tl.rects.push({ x0: s.x0 - 0.3, x1: s.x1 + 0.3, y0: -0.95 * bs, y1: 0.3 * bs, colour: PAL2.panel, kind: RectKind.inlineCodeBg, radius: 0.36 });
 				if (s.href) tl.links.push({ x0: s.x0, x1: s.x1, href: s.href });
 			}
 			out.push(tl);
