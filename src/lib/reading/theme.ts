@@ -93,15 +93,15 @@ export const GROUND = { L: 0.15, C: 0.014 } as const;
 export const ELEVATION = {
 	ground: { L: GROUND.L, C: GROUND.C },
 	/** code panel */
-	code: { L: 0.2, C: 0.014 },
+	code: { L: 0.188, C: 0.013 },
 	/** figure card, tinted field */
-	card: { L: 0.23, C: 0.015 },
+	card: { L: 0.212, C: 0.014 },
 	/** popover, cite card, menus */
-	popover: { L: 0.26, C: 0.016 }
+	popover: { L: 0.235, C: 0.015 }
 } as const;
 export type ElevationName = keyof typeof ELEVATION;
 /** Hairline: ink at this alpha over the surface it borders (about 1.6x to 1.8x contrast against it, deliberately faint; linear-light mix). */
-export const HAIRLINE_ALPHA = 0.045;
+export const HAIRLINE_ALPHA = 0.03;
 
 // ---- text ramp -----------------------------------------------------------------------------------------
 

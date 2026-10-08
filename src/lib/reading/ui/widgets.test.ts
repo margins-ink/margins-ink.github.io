@@ -22,15 +22,11 @@ function state(w: number, h: number, over: Partial<ChromeState> = {}): ChromeSta
 		meta: {
 			title: 'A fairly long article title that must be truncated on small screens', closeKind: 'close', wordsBrief: 2300, wordsFull: 4600,
 			sections: [{ name: 'Intro', y: 0 }, { name: 'The second section has a long name', y: 2000 }, { name: 'End', y: 5000 }],
-			headings: [
-				{ level: 2, text: 'Intro', id: 'intro', y: 0 }, { level: 3, text: 'Sub', id: 'sub', y: 800 },
-				{ level: 2, text: 'The second section has a long name', id: 's2', y: 2000 }, { level: 2, text: 'End', id: 'end', y: 5000 }
-			],
 			refs: [{ title: 'IEEE Std 1003.1-2017 (POSIX) the very long reference title for wrapping', url: 'https://www.example.com/posix' }]
 		},
 		scrollY: 2100, docPx: 6000, progress: 0.4, section: 1, foldExpanded: false,
 		aa: { open: false, step: 1, steps: 5, hasFold: true, alwaysFull: false },
-		tocOpen: false, popover: null, lightbox: null,
+		popover: null, lightbox: null,
 		find: { open: false, query: '', caret: 0, count: 0, index: 0 },
 		copyFlash: {}, toasts: [],
 		codeBlocks: [{ block: 3, rect: { x: w * 0.1, y: 200, w: w * 0.8, h: 160 }, lang: 'rust' }],
@@ -60,7 +56,7 @@ const SIZES: [number, number][] = [[1440, 900], [900, 800], [390, 700]];
 function everything(w: number, h: number): ChromeState {
 	return state(w, h, {
 		aa: { open: true, step: 2, steps: 5, hasFold: true, alwaysFull: true },
-		tocOpen: true, popover: { ref: 0, anchor: { x: w * 0.4, y: 300, w: 20, h: 18 } },
+		popover: { ref: 0, anchor: { x: w * 0.4, y: 300, w: 20, h: 18 } },
 		find: { open: true, query: 'needle', caret: 6, count: 12, index: 3 },
 		toasts: [{ id: 1, msg: 'Copied', atMs: 9_800 }], copyFlash: { 3: 9_900 }
 	});
@@ -77,7 +73,6 @@ describe('layout at the three width classes', () => {
 				const o = settle(s);
 				expect(o.hits.length).toBeGreaterThan(3);
 				for (const hit of o.hits) {
-					if (hit.id === 'toc:panel' && w < 720) continue; // the phone sheet may not exceed the bottom
 					expect(hit.x).toBeGreaterThanOrEqual(-1e-6);
 					expect(hit.y).toBeGreaterThanOrEqual(-1e-6);
 					expect(hit.x + hit.w).toBeLessThanOrEqual(w + 1e-6);
@@ -94,7 +89,7 @@ describe('layout at the three width classes', () => {
 
 		test(`${w}x${h}: top bar controls do not overlap`, () => {
 			const o = settle(state(w, h));
-			const ids = ['bar:close', 'bar:aa', 'bar:contents', 'bar:section'];
+			const ids = ['bar:close', 'bar:aa'];
 			const rs = ids.map((id) => hitById(o.hits, id)).filter((x) => x !== null) as Rect[];
 			for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) expect(intersects(rs[i], rs[j])).toBe(false);
 			// bar text stays inside the bar band
@@ -117,19 +112,11 @@ describe('layout at the three width classes', () => {
 		});
 	}
 
-	test('wide has a sticky contents column and no contents button; mid and narrow have the button and a sheet', () => {
-		const wide = settle(state(1440, 900));
-		expect(hitById(wide.hits, 'bar:contents')).toBeNull();
-		expect(hitById(wide.hits, 'toc:0')).not.toBeNull();
-		const mid = settle(state(900, 800));
-		expect(hitById(mid.hits, 'bar:contents')).not.toBeNull();
-		expect(hitById(mid.hits, 'toc:0')).toBeNull();
-		const open = settle(state(900, 800, { tocOpen: true }));
-		expect(hitById(open.hits, 'toc:0')).not.toBeNull();
-		expect(hitById(open.hits, 'toc:scrim')!.onClick).toBe('toc:close');
-		const phone = settle(state(390, 700, { tocOpen: true }));
-		const panel = hitById(phone.hits, 'toc:panel')!;
-		expect(panel.y + panel.h).toBeCloseTo(700, 5);
+	test('there is no table of contents: no contents button, section label or toc hits at any width', () => {
+		for (const [w, h] of SIZES) {
+			const o = settle(everything(w, h));
+			for (const h2 of o.hits) expect(h2.id.startsWith('toc:') || h2.id === 'bar:contents' || h2.id === 'bar:section').toBe(false);
+		}
 	});
 });
 
@@ -198,7 +185,7 @@ describe('hit testing and layering', () => {
 	test('actions named for the root', () => {
 		const o = settle(everything(900, 800));
 		const clicks = new Set(o.hits.map((h) => h.onClick).filter(Boolean));
-		for (const a of ['close', 'toggleAa', 'toc:toggle', 'toc:close', 'toc:0', 'aa:step:0', 'aa:full', 'cite:open:0', 'copy:3', 'find:next', 'find:prev', 'find:close', 'find:field', 'sb:thumb']) {
+		for (const a of ['close', 'toggleAa', 'aa:step:0', 'aa:full', 'cite:open:0', 'copy:3', 'find:next', 'find:prev', 'find:close', 'find:field', 'sb:thumb']) {
 			expect(clicks.has(a)).toBe(true);
 		}
 	});
@@ -320,28 +307,6 @@ describe('animation', () => {
 		for (let i = 0; i < 200; i++) o2 = frame(s, idle, 16);
 		expect(o2.animating).toBe(false);
 		expect(s.anim.aaT).toBe(1);
-	});
-
-	test('section label crossfades over 160 ms and the label is numbered', () => {
-		const s = state(900, 800, { reduced: false, section: 0 });
-		frame(s, idle, 16);
-		s.section = 1;
-		frame(s, idle, 16);
-		expect(s.anim.secT).toBeLessThan(1);
-		const mid = frame(s, idle, 16);
-		expect(mid.animating).toBe(true);
-		for (let i = 0; i < 12; i++) frame(s, idle, 16);
-		expect(s.anim.secT).toBe(1);
-		const text = (o: ChromeOut) => o.uiText.map((g) => String.fromCodePoint(g.glyphId)).join('');
-		expect(text(frame(s))).toContain('02 The second');
-	});
-
-	test('reading time counts down with progress and hides on narrow', () => {
-		const wide = settle(state(900, 800, { progress: 0 }));
-		const txt = (o: ChromeOut) => o.uiText.map((g) => String.fromCodePoint(g.glyphId)).join('');
-		expect(txt(wide)).toContain('10 min left'); // 2300 words / 230
-		expect(txt(settle(state(900, 800, { progress: 0.5 })))).toContain('5 min left');
-		expect(txt(settle(state(390, 700, { progress: 0 })))).not.toContain('min left');
 	});
 
 	test('toast fades in and out by age and expires', () => {

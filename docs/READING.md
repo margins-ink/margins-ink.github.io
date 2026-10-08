@@ -402,3 +402,14 @@ Confidentiality: `/Volumes/Projects/indexable-inc/ix` is team-private and this r
 - Find: ix has no find story for the canvas. Ours is native Cmd+F over the text layer, which is why the text layer must sit at true document positions (section 7).
 - Selection inside **figures** is the one place we may need custom hit-testing (figure labels are canvas ink): labels are exposed as real `<text>`-like spans in the figure's DOM (`describe` and per-label spans, transparent), so labels are selectable and copyable without custom selection; word and line rules for them use the browser.
 - ix's unselectable rows (`TerminalView.svelte:234-235`) map to our `user-select: none` on UI chrome (bar, rail, toast), set in the DOM, not in the renderer.
+
+## 2026-10-07 style redo (Andrew: "completely redo the style ... clean, modern, like Apple or Brilliant")
+
+Supersedes the visual parts of sections 2.1 to 3.2 above (the hero plaque, ROOM labels, contents column, FIG cards are deleted).
+- Hero: date (secondary), title in Inter 700 opsz 32 (`F.title`, wide 2.8em = 56px), dek regular secondary, "N min read". No plaque, no room list, no kicker rule.
+- No table of contents: sticky column, bar button, slide-over, `t` key, `toc:*` hits, `tocOpen` and the bar section label are gone. The bar is close, title, Aa; the rail is one plain accent progress line.
+- h2 is plain Inter 600 opsz 28 at 1.9em with 6U above; no hairline, rule, label or lead-sentence split. Figure caption is one quiet 0.85em secondary line under the figure (a11y strings unchanged). Pull quote and takeaway are plain Inter 600, no bar. Footer says Next / Previous.
+- Code panel: radius 1.0em, no language label (`label = ''` in typeset.ts layoutCode), faint hairline (alpha 0.03). Inline code is a pill (radius 0.28em).
+- Body em: clamp(17.5, 14.5 + 0.004 vw, 20) so 20px at 1440, column 34em = 680px.
+- Palette: code L 0.188, card 0.212, popover 0.235 (was 0.2/0.23/0.26); thresholds untouched; theme.test hairline floor 1.3 is what limits how faint hairlines go.
+- Traps: `static/magazine` must be rebuilt (`bun scripts/magazine/build.ts --preview`) or the old plaque keeps showing; shelf.test stamp fails until then. Adding a font instance means appending to FONT_SPECS (indices are baked). Title tracking is not supported by the typesetter (opsz 32 carries tight spacing itself).

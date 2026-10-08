@@ -39,7 +39,7 @@ describe('token table', () => {
 			expect(L(t.surface.popover)).toBeGreaterThan(L(t.surface.card) + 0.02);
 			expect(fromRgb(t.surface.ground)[1]).toBeGreaterThan(0.008); // tinted, not grey
 		}
-		expect(ELEVATION.code.L).toBeCloseTo(0.2, 2);
+		expect(ELEVATION.code.L).toBeCloseTo(0.188, 2);
 			});
 
 	test('text ramp: primary 9:1 on the ground, all three >= 4.5:1 on ground (lightest stop) and on all three elevations', () => {

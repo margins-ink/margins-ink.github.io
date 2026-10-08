@@ -29,7 +29,6 @@ export interface ChromeTheme {
 }
 
 export interface SectionInfo { name: string; /** doc px of the section start */ y: number }
-export interface HeadingEntry { level: 2 | 3; text: string; id: string; /** doc px */ y: number }
 export interface RefInfo { title: string; url: string }
 
 export interface ChromeMeta {
@@ -39,7 +38,6 @@ export interface ChromeMeta {
 	wordsBrief: number;
 	wordsFull: number;
 	sections: SectionInfo[];
-	headings: HeadingEntry[];
 	refs: RefInfo[];
 }
 
@@ -47,8 +45,7 @@ export interface ChromeMeta {
 export interface CodeBlockInfo { block: number; rect: Rect; lang: string }
 
 export interface ChromeAnim {
-	secLabel: string; secPrev: string; secT: number;
-	aaT: number; tocT: number; popT: number; lbT: number; findT: number; linkT: number;
+	aaT: number; popT: number; lbT: number; findT: number; linkT: number;
 	/** last non-null link rects, kept while the underline fades out */
 	linkRects: Rect[];
 	hover: Record<string, number>;
@@ -62,7 +59,7 @@ export interface ChromeAnim {
 
 export function createChromeAnim(): ChromeAnim {
 	return {
-		secLabel: '', secPrev: '', secT: 1, aaT: 0, tocT: 0, popT: 0, lbT: 0, findT: 0, linkT: 0, linkRects: [],
+		aaT: 0, popT: 0, lbT: 0, findT: 0, linkT: 0, linkRects: [],
 		hover: {}, codeT: {}, prevHits: [], lastPop: null, lastLb: null
 	};
 }
@@ -84,7 +81,7 @@ export interface ChromeState {
 	/** touch pointer: copy buttons are always visible */
 	touch: boolean;
 	view: { w: number; h: number };
-	/** CSS px of the left edge of the reading column (room for the sticky contents on wide) */
+	/** CSS px of the left edge of the reading column */
 	colLeft: number;
 	meta: ChromeMeta;
 	scrollY: number; docPx: number; progress: number;
@@ -93,7 +90,6 @@ export interface ChromeState {
 	foldExpanded: boolean;
 	/** text-size step index into the scale steps and their count */
 	aa: { open: boolean; step: number; steps: number; hasFold: boolean; alwaysFull: boolean };
-	tocOpen: boolean;
 	popover: { ref: number; anchor: Rect } | null;
 	lightbox: { w: number; h: number; caption: string } | null;
 	find: FindState;
@@ -170,76 +166,26 @@ export const hostOf = (u: string): string => {
 	try { return new URL(u).host.replace(/^www\./, ''); } catch { return u; }
 };
 
-export function sectionLabel(s: ChromeState): string {
-	const sec = s.meta.sections[s.section];
-	return sec ? `${pad2(s.section + 1)} ${sec.name}` : '';
-}
-
-/** minutes left at 230 wpm; 0 on narrow or when unknown */
-export function minutesLeft(s: ChromeState): number {
-	if (widthClassOf(s.view.w) === 2) return 0;
-	const m = s.meta;
-	const words = (s.foldExpanded ? m.wordsFull : m.wordsBrief) || m.wordsFull || m.wordsBrief;
-	if (!words) return 0;
-	return Math.max(0, Math.ceil(((1 - s.progress) * words) / 230));
-}
-
 export const inRect = (r: Rect, x: number, y: number) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
 export const intersects = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 // ---- top bar ----
 
 export interface BarLayout {
-	bar: Rect; close: Rect; contents: Rect | null; aa: Rect;
-	time: { x: number; text: string; w: number } | null;
+	bar: Rect; close: Rect; aa: Rect;
 	title: { x: number; w: number; text: string } | null;
-	section: { x: number; w: number; text: string } | null;
 }
 
-/** is the contents list a sticky column left of the text (wide, with room), else a slide-over */
-export function tocSticky(s: ChromeState): boolean {
-	return widthClassOf(s.view.w) === 0 && Math.min(232, s.colLeft - 40) >= 150;
-}
-
-export function layoutBar(s: ChromeState, label: string, m: Measure): BarLayout {
+export function layoutBar(s: ChromeState, m: Measure): BarLayout {
 	const vw = s.view.w;
-	const cls = widthClassOf(vw);
 	const bar = { x: 0, y: 0, w: vw, h: BAR_H };
 	const close = { x: 8, y: (BAR_H - BTN) / 2, w: BTN, h: BTN };
-	let right = vw - 8;
-	let contents: Rect | null = null;
-	if (!tocSticky(s) && s.meta.headings.length > 0) { right -= BTN; contents = { x: right, y: close.y, w: BTN, h: BTN }; }
-	right -= BTN;
-	const aa = { x: right, y: close.y, w: BTN, h: BTN };
-	let time: BarLayout['time'] = null;
-	const mins = minutesLeft(s);
-	if (mins > 0) {
-		const text = `${mins} min left`;
-		const w = m(text, 'sans', 12);
-		right -= 8 + w;
-		time = { x: right, text, w };
-	}
+	const aa = { x: vw - 8 - BTN, y: close.y, w: BTN, h: BTN };
 	const midStart = close.x + BTN + 12;
-	const midEnd = right - 12;
-	const avail = Math.max(0, midEnd - midStart);
-	let title: BarLayout['title'] = null;
-	let section: BarLayout['section'] = null;
-	const title0 = s.meta.title;
-	if (cls === 2) {
-		// one slot: the section when there is one, else the title
-		const text = label || title0;
-		if (text) { const t = ellipsize(text, 'sans', 13, avail, m); section = label ? { x: midStart, w: m(t, 'sans', 13), text: t } : null; if (!label) title = { x: midStart, w: m(t, 'sans', 13), text: t }; }
-	} else {
-		const tw = Math.min(m(title0, 'sans', 13), avail * (label ? 0.42 : 1));
-		const tt = ellipsize(title0, 'sans', 13, tw, m);
-		title = tt ? { x: midStart, w: m(tt, 'sans', 13), text: tt } : null;
-		if (label) {
-			const sx = midStart + (title ? title.w + 24 : 0);
-			const sw = midEnd - sx;
-			if (sw > 40) { const t = ellipsize(label, 'sans', 13, sw, m); section = { x: sx, w: m(t, 'sans', 13), text: t }; }
-		}
-	}
-	return { bar, close, contents, aa, time, title, section };
+	const avail = Math.max(0, aa.x - 12 - midStart);
+	const tt = ellipsize(s.meta.title, 'sans', 13, avail, m);
+	const title = tt ? { x: midStart, w: m(tt, 'sans', 13), text: tt } : null;
+	return { bar, close, aa, title };
 }
 
 // ---- Aa popover ----
@@ -265,67 +211,6 @@ export function layoutAa(s: ChromeState, bar: BarLayout): AaLayout {
 		h += 8 + 32;
 	}
 	return { panel: { x, y, w, h }, label: { x: x + pad, y: y + pad + 12 }, steps, check, box };
-}
-
-// ---- contents ----
-
-export interface TocRow { index: number; entry: HeadingEntry; num: number; rect: Rect; active: boolean }
-export interface TocLayout {
-	sticky: boolean; panel: Rect; scrim: Rect | null; head: { x: number; y: number }; close: Rect | null; rows: TocRow[];
-	/** x offset of the slide: panel is drawn at panel.x + slide */
-	slide: { dx: number; dy: number };
-}
-
-export const TOC_ROW = 28;
-
-/** index of the active heading: the last one whose y is above 30 percent of the viewport */
-export function activeHeading(s: ChromeState): number {
-	let a = -1;
-	const probe = s.scrollY + s.view.h * 0.3;
-	s.meta.headings.forEach((h, i) => { if (h.y <= probe) a = i; });
-	return a;
-}
-
-export function layoutToc(s: ChromeState, t: number): TocLayout {
-	const cls = widthClassOf(s.view.w);
-	const sticky = tocSticky(s);
-	const hs = s.meta.headings;
-	const active = activeHeading(s);
-	let panel: Rect;
-	let scrim: Rect | null = null;
-	let close: Rect | null = null;
-	let slide = { dx: 0, dy: 0 };
-	if (sticky) {
-		const room = Math.min(232, s.colLeft - 40);
-		panel = { x: Math.max(16, s.colLeft - room - 24), y: BAR_H + 24, w: room, h: s.view.h - BAR_H - 24 - 24 };
-	} else if (cls === 1) {
-		const w = Math.min(320, s.view.w - 48);
-		panel = { x: 0, y: BAR_H, w, h: s.view.h - BAR_H };
-		slide = { dx: -(1 - t) * (w + 8), dy: 0 };
-		scrim = { x: 0, y: BAR_H, w: s.view.w, h: s.view.h - BAR_H };
-	} else {
-		const rowsH = hs.length * TOC_ROW + 56 + 12;
-		const h = Math.min(Math.round((s.view.h - BAR_H) * 0.7), rowsH);
-		panel = { x: 0, y: s.view.h - h, w: s.view.w, h };
-		slide = { dx: 0, dy: (1 - t) * (h + 8) };
-		scrim = { x: 0, y: BAR_H, w: s.view.w, h: s.view.h - BAR_H };
-	}
-	const padX = sticky ? 0 : 20;
-	const headH = sticky ? 28 : 48;
-	const head = { x: panel.x + padX, y: panel.y + (sticky ? 14 : 30) };
-	if (!sticky) close = { x: panel.x + panel.w - BTN - 8, y: panel.y + (headH - BTN) / 2 + 2, w: BTN, h: BTN };
-	const top = panel.y + headH + (sticky ? 4 : 4);
-	const cap = Math.max(1, Math.floor((panel.y + panel.h - top - 8) / TOC_ROW));
-	let start = 0;
-	if (hs.length > cap) start = Math.max(0, Math.min(hs.length - cap, active - Math.floor(cap / 2)));
-	const rows: TocRow[] = [];
-	const nums: number[] = [];
-	let n2 = 0;
-	for (const h of hs) nums.push(h.level === 2 ? ++n2 : 0);
-	for (let i = start; i < Math.min(hs.length, start + cap); i++) {
-		rows.push({ index: i, entry: hs[i], num: nums[i], rect: { x: panel.x + (sticky ? 0 : 8), y: top + (i - start) * TOC_ROW, w: panel.w - (sticky ? 0 : 16), h: TOC_ROW }, active: i === active });
-	}
-	return { sticky, panel, scrim, head, close, rows, slide };
 }
 
 // ---- citation popover ----

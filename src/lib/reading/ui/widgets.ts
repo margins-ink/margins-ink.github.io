@@ -3,7 +3,7 @@
 // Animation is exact and frame-rate independent (`v += (target - v) * (1 - exp(-dt / tau))`); `reduced` snaps.
 //
 // Actions the root dispatches (HitRect.onClick, and `actions` for keyboard-driven ones):
-//   close, toggleAa, toc:toggle, toc:close, toc:<n> (heading index), aa:step:<i>, aa:full, aa:close,
+//   close, toggleAa, aa:step:<i>, aa:full, aa:close,
 //   cite:open:<ref>, lb:close, copy:<block>,
 //   find:field (click: caret via `caretIndexAt`), find:prev, find:next, find:close, find:query (text changed), sb:track, sb:thumb (capture); exhibits draw and route their own controls (exhibit.ts)
 import type { Overlay } from '../page-api';
@@ -11,7 +11,7 @@ import type { ScrollbarFrame, ScrollbarInput, ScrollbarState, Shaped, UiFont, Ui
 import { hitChrome } from './hit';
 import {
 	BAR_H, BTN, createChromeAnim, ellipsize, layoutAa, layoutBar, layoutCite, layoutCodeCorner, layoutFind,
-	layoutLightbox, layoutToast, layoutToc, scrollbarHit, sectionLabel, tocSticky, widthClassOf,
+	layoutLightbox, layoutToast, scrollbarHit,
 	type ChromeInput, type ChromeState, type HitRect, type KeyEvent, type Measure, type Rect, type RGB
 } from './layout';
 
@@ -149,24 +149,11 @@ class Out {
 
 // ---- main ----
 
-/**
- * The room rail: a quiet 2 px line along the bottom of the top bar, one segment per room (section start ticks) with a small gap between rooms; the part
- * already walked is accent at low alpha, the rest a faint ink track. With no ticks it is one segment (plain reading progress).
- */
+/** Reading progress: a quiet 2 px accent line along the bottom of the top bar (no track, no segments). */
 export function roomRail(out: Out, s: ChromeState, th: ChromeState['theme'], hdr: number): void {
 	const span = Math.max(1, s.docPx - s.view.h);
-	const ticks = (s.ticks ?? []).map((t) => Math.max(0, Math.min(1, t / span))).filter((t) => t > 0.001 && t < 0.999);
-	const edges = [0, ...ticks, 1];
-	const gap = 3;
-	const y = BAR_H - 2;
-	const p = Math.max(0, Math.min(1, s.scrollY / span)); // the same scale as the ticks (scroll offset over the scrollable span)
-	for (let i = 0; i < edges.length - 1; i++) {
-		const x0 = edges[i] * s.view.w + (i ? gap / 2 : 0), x1 = edges[i + 1] * s.view.w - (i < edges.length - 2 ? gap / 2 : 0);
-		if (x1 - x0 < 2) continue;
-		out.box({ x: x0, y, w: x1 - x0, h: 2 }, 1, th.ink, 0.05);
-		const f = Math.max(0, Math.min(1, (p - edges[i]) / Math.max(1e-6, edges[i + 1] - edges[i])));
-		if (f > 0) out.box({ x: x0, y, w: (x1 - x0) * f, h: 2 }, 1, th.accent, 0.5, hdr > 1 ? Math.min(hdr, 1.2) : undefined);
-	}
+	const f = Math.max(0, Math.min(1, s.scrollY / span));
+	if (f > 0) out.box({ x: 0, y: BAR_H - 2, w: s.view.w * f, h: 2 }, 1, th.accent, 0.45, hdr > 1 ? Math.min(hdr, 1.2) : undefined);
 }
 
 export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, deps: ChromeDeps): ChromeOut {
@@ -203,24 +190,17 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 		return v;
 	};
 
-	const cls = widthClassOf(s.view.w);
-	const sticky = tocSticky(s);
-	const label = sectionLabel(s);
 
 	// progress of every layer
 	if (s.popover) a.lastPop = s.popover;
 	if (s.lightbox) a.lastLb = s.lightbox;
 	a.aaT = track(a.aaT, s.aa.open ? 1 : 0, 80);
-	a.tocT = track(a.tocT, s.tocOpen && !sticky ? 1 : 0, 110);
 	a.popT = track(a.popT, s.popover ? 1 : 0, 70);
 	a.lbT = track(a.lbT, s.lightbox ? 1 : 0, 100);
 	a.findT = track(a.findT, s.find.open ? 1 : 0, 80);
 	const linkOn = s.hoverLink ?? s.focusLink;
 	if (linkOn) a.linkRects = linkOn;
 	a.linkT = track(a.linkT, linkOn ? 1 : 0, 80);
-	if (label !== a.secLabel) { a.secPrev = a.secLabel; a.secLabel = label; a.secT = red ? 1 : 0; }
-	if (a.secT < 1) { a.secT = Math.min(1, a.secT + dtMs / 160); animating = a.secT < 1 || animating; }
-
 	const hdr = s.hdrGain;
 
 	// ---- scrollbar (below everything) ----
@@ -271,10 +251,10 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 	if (s.aa.open) out.hit('aa:dismiss', { x: 0, y: 0, w: s.view.w, h: s.view.h }, 'default', -1, 'aa:close');
 
 	// ---- top bar ----
-	const bar = layoutBar(s, label, m);
+	const bar = layoutBar(s, m);
 	{
 		const ov = out.box(bar.bar, 0, th.ground, 1);
-		out.box({ x: 0, y: BAR_H - 1, w: s.view.w, h: 1 }, 0, th.ink, 0.07);
+		out.box({ x: 0, y: BAR_H - 1, w: s.view.w, h: 1 }, 0, th.ink, 0.035);
 		roomRail(out, s, th, hdr);
 		out.hit('bar', bar.bar, 'default', ov);
 		const iconBtn = (id: string, r: Rect, action: string, on: boolean, draw: (cx: number, cy: number) => void) => {
@@ -291,61 +271,7 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 			out.text('A', x0, cy + 2.5, 'sans', 11, s.aa.open ? th.accent : th.ink2, 1);
 			out.text('A', x0 + w1 + 1, cy, 'sans', 16, s.aa.open ? th.accent : th.ink2, 1);
 		});
-		if (bar.contents) {
-			iconBtn('bar:contents', bar.contents, 'toc:toggle', s.tocOpen, (cx, cy) => {
-				for (const dy of [-5, 0, 5]) out.box({ x: cx - 7, y: cy + dy - 0.75, w: 14, h: 1.5 }, 0.75, s.tocOpen ? th.accent : th.ink2, 1);
-			});
-		}
-		if (bar.time) out.text(bar.time.text, bar.time.x, BAR_H / 2, 'sans', 12, th.ink3, 1);
 		if (bar.title) out.text(bar.title.text, bar.title.x, BAR_H / 2, 'sans', 13, th.ink2, 1);
-		// current section crossfade (new rises in, old fades up)
-		const secT = a.secT;
-		if (bar.section) {
-			out.text(bar.section.text, bar.section.x, BAR_H / 2, 'sans', 13, th.ink, secT, { dy: (1 - secT) * 6 });
-		}
-		if (secT < 1 && a.secPrev) {
-			const old = layoutBar(s, a.secPrev, m);
-			if (old.section) out.text(old.section.text, old.section.x, BAR_H / 2, 'sans', 13, th.ink, 1 - secT, { dy: -secT * 6 });
-		}
-		if (bar.section) {
-			out.hit('bar:section', { x: bar.section.x - 6, y: 4, w: bar.section.w + 12, h: BAR_H - 8 }, 'pointer', -1, 'toc:toggle');
-		}
-	}
-
-	// ---- contents ----
-	if (s.meta.headings.length > 0 && (sticky || a.tocT > 0.004)) {
-		const L = layoutToc(s, sticky ? 1 : a.tocT);
-		const t = sticky ? 1 : a.tocT;
-		if (!sticky) {
-			out.box(L.scrim!, 0, th.ground, 0.55 * t);
-			out.dimText(0.55 * t, BAR_H);
-			if (s.tocOpen) out.hit('toc:scrim', L.scrim!, 'default', -1, 'toc:close');
-			const p = { x: L.panel.x + L.slide.dx, y: L.panel.y + L.slide.dy, w: L.panel.w, h: L.panel.h };
-			let ov: number;
-			if (cls === 2) { ov = -1; out.box({ ...p, h: p.h + 16 }, 14, th.surface, 1); } else {
-				ov = out.box(p, 0, th.surface, 1);
-				out.box({ x: p.x + p.w, y: p.y, w: 1, h: p.h }, 0, th.ink, 0.1 * t);
-			}
-			if (s.tocOpen) out.hit('toc:panel', p, 'default', ov);
-			L.close && out.hit('toc:close', { ...L.close, x: L.close.x + L.slide.dx, y: L.close.y + L.slide.dy }, 'pointer', -1, 'toc:close');
-			if (L.close) out.text('×', L.close.x + L.slide.dx + BTN / 2, L.close.y + L.slide.dy + BTN / 2, 'sans', 22, th.ink2, t, { align: 'c' });
-		}
-		const dx = L.slide.dx, dy = L.slide.dy;
-		out.text('Contents', L.head.x + dx, L.head.y + dy, 'sans', 11, th.ink3, t);
-		for (const row of L.rows) {
-			const id = `toc:${row.index}`;
-			const r = { x: row.rect.x + dx, y: row.rect.y + dy, w: row.rect.w, h: row.rect.h };
-			const hv = heat(id);
-			const ov = out.box(r, 6, th.ink, 0.06 * hv * t);
-			if (row.active) out.box({ x: r.x, y: r.y + (r.h - 14) / 2, w: 2, h: 14 }, 1, th.accent, t, hdr);
-			const ink = row.active ? th.ink : th.ink2;
-			let tx = r.x + 12;
-			if (row.entry.level === 2) { out.text(String(row.num).padStart(2, '0'), tx, r.y + r.h / 2, 'mono', 11, th.ink3, t); tx += 26; } else tx += 36;
-			const text = row.entry.text;
-			const maxW = r.x + r.w - 8 - tx;
-			out.text(maxW > 0 ? ellipsize(text, 'sans', 13, maxW, m) : '', tx, r.y + r.h / 2, 'sans', 13, ink, t);
-			if (sticky || s.tocOpen) out.hit(id, r, 'pointer', ov, id);
-		}
 	}
 
 	// ---- citation popover ----

@@ -76,11 +76,13 @@ export const FONT_SPECS: FontSpec[] = [
 	// coverage fallback for glyphs the mono family lacks (box drawing, maths): Fira Code is OFL, vendored, and has the same 0.6 em advance as Berkeley Mono
 	{ name: 'Fira Code 400', file: 'FiraCode.ttf', variations: { wght: 400 }, features: ['kern'], defaultInstance: false },
 	// section headings (h2): Inter 600 at its display optical size, tracking 0, never the condensed Instrument Sans axis (that voice is the hero's)
-	{ name: 'Inter 600 opsz 28', file: 'Inter.ttf', variations: { wght: 600, opsz: 28 }, features: INTER, defaultInstance: false }
+	{ name: 'Inter 600 opsz 28', file: 'Inter.ttf', variations: { wght: 600, opsz: 28 }, features: INTER, defaultInstance: false },
+	// article title: Inter 700 at its largest optical size (tight built-in spacing), the Apple-style headline
+	{ name: 'Inter 700 opsz 32', file: 'Inter.ttf', variations: { wght: 700, opsz: 32 }, features: INTER, defaultInstance: false }
 ];
 // Indices into FONT_SPECS. `sans` is the label face (Inter 500); `display` is the default display instance;
 // per-article display instances are appended by FontSet.display().
-export const F = { body: 0, italic: 1, bold: 2, sans: 3, code: 4, codeBold: 5, emoji: 6, display: 7, fallback: 8, head: 9 } as const;
+export const F = { body: 0, italic: 1, bold: 2, sans: 3, code: 4, codeBold: 5, emoji: 6, display: 7, fallback: 8, head: 9, title: 10 } as const;
 /** Template font roles (src/lib/magazine/types.ts FontRole) to font index; display roles use FontSet.display(). */
 export const ROLE_FONT = { body: F.body, label: F.sans, code: F.code, display: F.display, pullquote: F.display, numeral: F.display } as const;
 /** Instrument Sans axis limits (METADATA.pb read 2026-10-06). */

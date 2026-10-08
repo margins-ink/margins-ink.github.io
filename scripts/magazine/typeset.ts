@@ -23,7 +23,7 @@ export const CODE_SIZE = 0.875;
 /** Code line pitch: 1.6 x CODE_SIZE (docs/READING.md 2.1), in em of the sheet. */
 export const CODE_LH = 1.6 * CODE_SIZE;
 /** Code panel: corner radius, the label row above the first line, and the top right corner kept free for the copy button (em). */
-export const CODE_PANEL = { radius: 0.7, padX: 1.15, padY: 1.0, labelRow: 0.7, labelSize: 0.66, copyW: 2.6, copyH: 1.9 } as const;
+export const CODE_PANEL = { radius: 1.0, padX: 1.3, padY: 1.0, labelRow: 0.7, labelSize: 0.66, copyW: 2.6, copyH: 1.9 } as const;
 
 // ---- sinks ---------------------------------------------------------------------------------------
 
@@ -361,7 +361,7 @@ export function layoutPara(env: Env, runs: Run[], o: ParaOpts, where: string, te
 			ln.x1 = x;
 			ln.off = ln.glyphs.length ? ln.glyphs[0].off : -1;
 			for (const s of spans) {
-				if (s.code) b.rects.push({ x0: s.x0 - 0.15, x1: s.x1 + 0.15, y0: base - 0.95 * o.bs, y1: base + 0.3 * o.bs, colour: Pal.codeBg, kind: RectKind.inlineCodeBg });
+				if (s.code) b.rects.push({ x0: s.x0 - 0.15, x1: s.x1 + 0.15, y0: base - 0.95 * o.bs, y1: base + 0.3 * o.bs, colour: Pal.codeBg, kind: RectKind.inlineCodeBg, radius: 0.28 });
 				if (s.href) b.links.push({ x0: s.x0, x1: s.x1, y0: ln.yTop, y1: ln.yBot, kind: linkKind(s.href), target: s.href });
 			}
 			b.lines.push(ln);
@@ -540,7 +540,7 @@ export function layoutCode(env: Env, bl: Extract<Block, { t: 'code' }>, ctx: Ctx
 	const { padX, padY } = CODE_PANEL;
 	const font = env.fonts.fonts[F.code];
 	// language label, top left of the panel (caption style, ink-3); its text precedes the source in the sink as a hung marker so copy and find never see it
-	const label = bl.lang && bl.lang !== 'text' ? bl.lang : '';
+	const label = ''; // quiet code panel: no language label
 	if (label) env.text.append(label + '\n');
 	const base0 = env.text.append(bl.source + '\n\n');
 	const pre = utf8Prefix(bl.source);
@@ -904,7 +904,7 @@ export function breakSegs(env: Env, segs: Seg[], width: number, o: BreakOpts, bs
 			tl.width = x;
 			tl.off = tl.glyphs.length ? tl.glyphs[0].off : -1;
 			for (const s of spans) {
-				if (s.code) tl.rects.push({ x0: s.x0 - 0.15, x1: s.x1 + 0.15, y0: -0.95 * bs, y1: 0.3 * bs, colour: Pal.codeBg, kind: RectKind.inlineCodeBg });
+				if (s.code) tl.rects.push({ x0: s.x0 - 0.15, x1: s.x1 + 0.15, y0: -0.95 * bs, y1: 0.3 * bs, colour: Pal.codeBg, kind: RectKind.inlineCodeBg, radius: 0.28 });
 				if (s.href) tl.links.push({ x0: s.x0, x1: s.x1, href: s.href });
 			}
 			out.push(tl);

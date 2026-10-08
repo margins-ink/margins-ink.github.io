@@ -1,7 +1,7 @@
 // Flow layout (docs/READING.md section 4): one article at one width class -> the RDR4 tables of a page in document em.
 // No pages, no spreads: a single column (34em, 21em on narrow) of blocks stacked on a 0.81em unit, ragged-right Knuth-Plass
 // setting, citation sidenotes in the right margin on the wide class (inline note blocks otherwise), wide figures at 52em,
-// an accent-rule section entry before every h2, an optional "In brief" section and fold built from the distill block.
+// plain h2 headings (no rules, no labels), an optional "In brief" section and fold built from the distill block.
 // Coordinates: x 0 = left edge of the column, y 0 = top of the page, y down; glyph y is the baseline.
 import {
 	BlockFlag, BlockKind, ExhibitKind, GlyphFlag, ItemType, LinkKind, NONE16, NOTE_BIT, PAL2, RectKind, UNIT, LINE_H as LH,
@@ -12,6 +12,7 @@ import { F } from '../reader/fonts';
 import type { Block, Parsed, RefEntry, Run } from '../reader/parse';
 import type { FigureArt } from './fig/emit';
 import type { ScriptExhibit } from './exhibit';
+import { PAL_EXT } from './palette';
 import { appendFragment, newStore, placeFigure, type Box, type EmitContext, type FItem, type PageParts, type Store } from './emit';
 import {
 	TextSink, emptyBlk, layoutBlocks, layoutCode, layoutPara, makeSegs, shift, stack, withMarker, type Blk, type Env
@@ -26,9 +27,9 @@ export interface Cfg {
 	title: number; h2: number; pull: number; hyph: boolean; topPad: number;
 }
 export const CFG: Cfg[] = [
-	{ cls: 0, colW: 34, docX0: -3, docX1: 54, figX: -3, figW: 52, noteX: 37, noteW: 17, margin: true, title: 5.8, h2: 2.3, pull: 2.4, hyph: false, topPad: SP.s8 },
-	{ cls: 1, colW: 34, docX0: 0, docX1: 34, figX: 0, figW: 34, noteX: 0, noteW: 34, margin: false, title: 4.8, h2: 2.2, pull: 1.75, hyph: false, topPad: SP.s7 },
-	{ cls: 2, colW: 21, docX0: 0, docX1: 21, figX: 0, figW: 21, noteX: 0, noteW: 21, margin: false, title: 3.0, h2: 1.6, pull: 1.5, hyph: true, topPad: SP.s7 }
+	{ cls: 0, colW: 34, docX0: -3, docX1: 54, figX: -3, figW: 52, noteX: 37, noteW: 17, margin: true, title: 2.8, h2: 1.9, pull: 1.7, hyph: false, topPad: SP.s8 },
+	{ cls: 1, colW: 34, docX0: 0, docX1: 34, figX: 0, figW: 34, noteX: 0, noteW: 34, margin: false, title: 2.7, h2: 1.9, pull: 1.6, hyph: false, topPad: SP.s7 },
+	{ cls: 2, colW: 21, docX0: 0, docX1: 21, figX: 0, figW: 21, noteX: 0, noteW: 21, margin: false, title: 2.1, h2: 1.5, pull: 1.35, hyph: true, topPad: SP.s6 }
 ];
 
 export interface Neighbour { slug: string; title: string }
@@ -226,7 +227,7 @@ class Page {
 const sentinelText = (env: Env, t = '\n\n') => { env.text.append(t); };
 
 export function flowArticle(inp: FlowInput): FlowOut {
-	const { p, env, cfg, figures, scripts, display: D } = inp;
+	const { p, env, cfg, figures, scripts } = inp;
 	const W = cfg.colW;
 	const where = `${p.file} [${['wide', 'mid', 'narrow'][cfg.cls]}]`;
 	env.kp = { justify: false, hyphenator: cfg.hyph ? env.kp?.hyphenator ?? null : null };
@@ -236,7 +237,6 @@ export function flowArticle(inp: FlowInput): FlowOut {
 	const pending: Pending[] = [];
 	const noted = new Set<string>();
 	const hasBrief = !!p.distill;
-	const total = p.blocks.filter((b) => b.t === 'heading' && b.depth === 2).length;
 	// h2: Inter 600 (opsz 28), tracking 0 (docs/READING.md 2.1); the condensed display voice stays on the hero
 	const headRuns = (runs: Run[]): Run[] => runs.map((r) => (r.inlineCode ? r : { ...r, font: F.head, color: PAL2.heading }));
 
@@ -281,56 +281,31 @@ export function flowArticle(inp: FlowInput): FlowOut {
 		return b;
 	};
 
-	// ---- hero: the title wall (kicker, large display title, dek) and the exhibition plaque ----
-	const rooms = p.blocks.filter((b) => b.t === 'heading' && b.depth === 2).map((b) => plain((b as Extract<Block, { t: 'heading' }>).runs).trim());
+	// ---- hero: quiet date, large Inter title, regular-weight dek, reading time ----
 	const mins = Math.max(1, Math.round(wordsOf(p.blocks) / 230));
 	const when = fmtDate(p.meta.date);
-	const year = when.match(/\d{4}/)?.[0] ?? '';
-	/** A card: parts stacked inside padding on a panel with a hairline (RectKind.panel). Wall plaques and wall labels are cards. */
-	const card = (parts: Blk[], padX: number, padY: number, width: number): Blk => {
-		for (const c of parts) shift(c, padX, 0);
-		const b = stack(parts, padY);
-		b.rects.unshift({ x0: 0, x1: width, y0: 0, y1: b.h, colour: PAL2.panel, kind: RectKind.panel, radius: 0.6 });
-		return b;
-	};
-	const mono = (text: string, colour: number, bs = 0.72): Run => ({ text, font: F.code, size: bs, color: colour, flags: GlyphFlag.code });
 	pg.y = cfg.topPad;
 	{
-		// kicker: the accent rule and the series line, above the title
-		const lab = emptyBlk();
-		lab.h = LH;
-		lab.rects.push({ x0: 0, x1: 2.4, y0: LH / 2 - 0.085, y1: LH / 2 + 0.085, colour: PAL2.accent, kind: RectKind.rule });
-		const st0 = env.text.len;
-		const t = layoutPara(env, [{ text: ['THOUGHTS', year].filter(Boolean).join('  /  '), font: F.code, size: 1, color: PAL2.muted, flags: GlyphFlag.code }], { x0: 3.1, width: W - 3.1, bs: 0.8, lh: LH, font: F.code, align: 'left' }, where);
-		sentinelText(env);
-		lab.lines.push(...t.lines);
-		pg.place(lab, { kind: BlockKind.label, before: 0, after: SP.s5, size: 0.8, font: LineFont.code, start: st0 });
-		const runs: Run[] = [{ text: p.meta.title, font: D, size: 1, color: PAL2.heading, flags: GlyphFlag.display }];
+		if (when) {
+			const st0 = env.text.len;
+			const k = para([{ text: when, font: F.sans, size: 1, color: PAL2.muted, flags: 0 }], W, 0.85, LH, F.sans);
+			pg.place(k, { kind: BlockKind.label, before: 0, after: SP.s3, size: 0.85, font: LineFont.sans, start: st0 });
+		}
+		const runs: Run[] = [{ text: p.meta.title, font: F.title, color: PAL2.heading, size: 1, flags: GlyphFlag.display }];
 		let size = cfg.title;
 		while (size > 1.4 && longestWord(runs, size) > W - 0.05) size -= 0.1;
-		const lh = up(size * 1.04);
+		const lh = up(size * 1.08);
 		const start = env.text.len;
-		const b = para(runs, W, size, lh, D);
-		pg.place(b, { kind: BlockKind.hero, level: 1, before: 0, after: SP.s5, size, font: LineFont.display, start, anchor: 'top' });
+		const b = para(runs, W, size, lh, F.title);
+		pg.place(b, { kind: BlockKind.hero, level: 1, before: 0, after: SP.s4, size, font: LineFont.display, start, anchor: 'top' });
 		if (p.meta.dek) {
 			const st = env.text.len;
-			const d = para(spanRuns(String(p.meta.dek), F.italic, PAL2.ink), W, 1.375, 1.925, F.italic);
-			pg.place(d, { kind: BlockKind.hero, level: 2, before: 0, after: SP.s6, size: 1.375, font: LineFont.italic, start: st });
+			const d = para(spanRuns(String(p.meta.dek), F.body, PAL2.muted), W, 1.3, 1.95, F.body);
+			pg.place(d, { kind: BlockKind.hero, level: 2, before: 0, after: SP.s3, size: 1.3, font: LineFont.body, start: st });
 		}
-		// the plaque: the exhibition label of the piece (date, reading time, the rooms of the article)
 		const st = env.text.len;
-		const padX = cfg.cls === 2 ? 1.1 : 1.6, padY = cfg.cls === 2 ? 1.0 : 1.4, iw = W - 2 * padX;
-		const parts: Blk[] = [];
-		const add = (runs: Run[], bs: number, lh: number, font: number, before = 0) => { const q = para(runs, iw, bs, lh, font); q.before = before; parts.push(q); return q; };
-		add([mono('EXHIBITION', PAL2.muted)], 0.72, LH, F.code);
-		add([{ text: [when, `${mins} min read`, rooms.length ? `${rooms.length} room${rooms.length === 1 ? '' : 's'}` : ''].filter(Boolean).join('  ·  '), font: F.sans, size: 1, color: PAL2.ink, flags: 0 }], 0.88, LH, F.sans, SP.s1);
-		rooms.slice(0, 8).forEach((r, i) => {
-			const room = [mono(String(i + 1).padStart(2, '0') + '  ', PAL2.accent, 0.8), { text: r, font: F.sans, size: 1, color: PAL2.muted, flags: 0 } as Run];
-			add(room, 0.86, LH, F.sans, i === 0 ? SP.s3 : SP.s1);
-		});
-		if (rooms.length > 8) add([mono(`+ ${rooms.length - 8} more`, PAL2.muted)], 0.72, LH, F.code, SP.s1);
-		const pk = card(parts, padX, padY, W);
-		pg.place(pk, { kind: BlockKind.hero, level: 3, before: 0, after: SP.s7, size: 0.88, font: LineFont.sans, start: st, flags: BlockFlag.plaque });
+		const rt = para([{ text: `${mins} min read`, font: F.sans, size: 1, color: PAL_EXT.ink3, flags: 0 }], W, 0.85, LH, F.sans);
+		pg.place(rt, { kind: BlockKind.hero, level: 3, before: 0, after: SP.s6, size: 0.85, font: LineFont.sans, start: st });
 	}
 
 	// ---- exhibits ----
@@ -381,46 +356,26 @@ export function flowArticle(inp: FlowInput): FlowOut {
 		if (wide) pg.wideRanges.push({ y0, y1: y0 + h });
 		pg.y = y0 + h;
 		pg.prevAfter = SP.s4;
-		// the wall label under every exhibit: FIG. n, the year and the kind, the title, and what to try
+		// a quiet caption line under the figure (secondary text, no box, no label)
 		{
-			const humanId = id.replace(/[-_]+/g, ' ').replace(/^./, (c) => c.toUpperCase());
 			const isStatic = !!art && art.strip === 0; // a static figure has no control strip
-			const kindName = scr ? 'Interactive' : isStatic ? 'Diagram' : 'Animated figure';
-			const title = (scr?.title || humanId).trim();
 			const firstSentence = (t: string) => (t.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? t).trim();
-			const tryText = caption?.text ?? (scr ? (scr.caption || scr.claim) : isStatic ? firstSentence(art!.compiled.describe) : 'Press play, or drag the scrub bar to move through it.');
-			const tryLabel = scr || !isStatic ? 'Try' : 'Look';
-			const padX = cfg.cls === 2 ? 1.1 : 1.5, padY = cfg.cls === 2 ? 0.9 : 1.2, iw = W - 2 * padX;
-			const st = env.text.len;
-			const parts: Blk[] = [];
-			const add = (runs: Run[], bs: number, lh: number, font: number, before = 0) => { const q = para(runs, iw, bs, lh, font); q.before = before; parts.push(q); };
-			add([{ text: `FIG. ${num}`, font: F.code, size: 0.72, color: PAL2.accent, flags: GlyphFlag.code }, { text: ['', year, kindName.toUpperCase()].filter((x, i) => i === 0 || x).join('  ·  '), font: F.code, size: 0.72, color: PAL2.muted, flags: GlyphFlag.code }], 0.72, LH, F.code);
-			add([{ text: title, font: F.head, size: 1, color: PAL2.heading, flags: 0 }], 1.25, up(1.25 * 1.15), F.head, SP.s1);
-			if (tryText) add([{ text: `${tryLabel}  `, font: F.sans, size: 1, color: PAL2.accent, flags: 0 }, ...spanRuns(tryText, F.sans, PAL2.muted)], 0.9, LH, F.sans, SP.s2);
-			pg.place(card(parts, padX, padY, W), { kind: BlockKind.caption, before: SP.s3, after: SP.s6, size: 0.9, font: LineFont.sans, start: st, flags: BlockFlag.plaque | flags });
+			const text = caption?.text ?? (scr ? (scr.caption || scr.claim) : isStatic ? firstSentence(art!.compiled.describe) : '');
+			if (text) {
+				const st = env.text.len;
+				const q = para(spanRuns(text, F.body, PAL2.muted), W, 0.85, 1.4, F.body);
+				pg.place(q, { kind: BlockKind.caption, before: SP.s2, after: SP.s5, size: 0.85, font: LineFont.body, start: st, flags });
+			} else pg.prevAfter = SP.s5;
 		}
 		return num;
 	};
 
-	// ---- section entry: a room threshold (hairline across the column, accent rule, ROOM n / N, the heading) ----
-	const sectionEntry = (label: string, heading: Run[] | null, id: string | undefined, flags: number, headingSize = cfg.h2) => {
-		const lab = emptyBlk();
-		const top = SP.s3;
-		lab.h = top + LH;
-		lab.rects.push({ x0: 0, x1: W, y0: 0, y1: 0.05, colour: PAL2.neutral3, kind: RectKind.rule });
-		lab.rects.push({ x0: 0, x1: 2.4, y0: top + LH / 2 - 0.085, y1: top + LH / 2 + 0.085, colour: PAL2.accent, kind: RectKind.rule });
-		const st = env.text.len;
-		const t = layoutPara(env, [{ text: label, font: F.code, size: 1, color: PAL2.muted, flags: GlyphFlag.code }], { x0: 3.1, width: W - 3.1, bs: 0.8, lh: LH, font: F.code, align: 'left' }, where);
-		sentinelText(env);
-		shift(t, 0, top);
-		lab.lines.push(...t.lines);
-		pg.place(lab, { kind: BlockKind.label, before: SP.s8, after: SP.s3, size: 0.8, font: LineFont.code, start: st, flags });
-		if (heading) {
-			const hs = env.text.len;
-			const hb = para(headRuns(heading), W, headingSize, up(headingSize * 1.1), F.head);
-			if (id) hb.anchors.push({ id, y: 0 });
-			pg.place(hb, { kind: BlockKind.heading, level: 2, before: 0, after: SP.s4, size: headingSize, font: LineFont.bold, start: hs, anchor: id, flags });
-		}
+	// ---- section heading: plain h2 with generous space above ----
+	const sectionEntry = (heading: Run[], id: string | undefined, flags: number, headingSize = cfg.h2) => {
+		const hs = env.text.len;
+		const hb = para(headRuns(heading), W, headingSize, up(headingSize * 1.15), F.head);
+		if (id) hb.anchors.push({ id, y: 0 });
+		pg.place(hb, { kind: BlockKind.heading, level: 2, before: SP.s7, after: SP.s3, size: headingSize, font: LineFont.bold, start: hs, anchor: id, flags });
 	};
 
 	// ---- the In brief section and the fold ----
@@ -429,7 +384,6 @@ export function flowArticle(inp: FlowInput): FlowOut {
 		const d = p.distill!;
 		pg.brief = true;
 		pg.section = 0;
-		sectionEntry('In brief', null, undefined, 0);
 		const lead = d.definition ?? d.deck ?? p.meta.dek;
 		{
 			const st = env.text.len;
@@ -447,42 +401,35 @@ export function flowArticle(inp: FlowInput): FlowOut {
 		const extra = (d.captions ?? []).filter((_, i) => !used.has(i));
 		for (const c of extra) {
 			const st = env.text.len;
-			const rs: Run[] = [{ text: c.text.replace(/`/g, ''), font: D, size: 1, color: PAL2.heading, flags: GlyphFlag.display }];
-			const b = para(rs, W, 1.5, up(1.5 * 1.2), D);
-			b.rects.push({ x0: 0, x1: 0.18, y0: 0.15, y1: Math.max(0.3, b.h - 0.15), colour: PAL2.accent, kind: RectKind.quoteBar });
-			// the bar sits left of the text: indent by shifting nothing; the text gets a 1.1em hang through the bar's own column
-			pg.place(shiftText(b, 1.1), { kind: BlockKind.takeaway, before: SP.s4, after: SP.s4, size: 1.5, font: LineFont.display, start: st });
+			const rs: Run[] = [{ text: c.text.replace(/`/g, ''), font: F.head, size: 1, color: PAL2.heading, flags: 0 }];
+			const b = para(rs, W, 1.4, up(1.4 * 1.25), F.head);
+			pg.place(b, { kind: BlockKind.takeaway, before: SP.s4, after: SP.s4, size: 1.4, font: LineFont.bold, start: st });
 		}
 		if (d.quote) {
 			const st = env.text.len;
 			const size = cfg.pull;
-			const rs: Run[] = [{ text: `“${d.quote.text}”`, font: D, size: 1, color: PAL2.heading, flags: GlyphFlag.display }];
-			const q = para(rs, W - 1.2, size, up(size * 1.15), D);
+			const rs: Run[] = [{ text: `“${d.quote.text}”`, font: F.head, size: 1, color: PAL2.heading, flags: 0 }];
+			const q = para(rs, W, size, up(size * 1.25), F.head);
 			const qh = q.h;
 			if (d.quote.from) {
-				const at = env.text.len;
-				const a = layoutPara(env, [{ text: `— ${d.quote.from}`, font: F.sans, size: 1, color: PAL2.muted, flags: 0 }], { x0: 0, width: W - 1.2, bs: 0.8, lh: LH, font: F.sans, align: 'left' }, where);
+				const a = layoutPara(env, [{ text: d.quote.from, font: F.sans, size: 1, color: PAL2.muted, flags: 0 }], { x0: 0, width: W, bs: 0.85, lh: LH, font: F.sans, align: 'left' }, where);
 				sentinelText(env);
 				shift(a, 0, qh + SP.s2);
 				q.lines.push(...a.lines);
 				q.h = qh + SP.s2 + LH;
-				void at;
 			}
-			q.rects.push({ x0: 0, x1: 0.18, y0: 0.2, y1: q.h - 0.2, colour: PAL2.accent, kind: RectKind.quoteBar });
-			pg.place(shiftText(q, 1.2), { kind: BlockKind.pullquote, before: SP.s5, after: SP.s6, size, font: LineFont.display, start: st });
+			pg.place(q, { kind: BlockKind.pullquote, before: SP.s5, after: SP.s6, size, font: LineFont.bold, start: st });
 		}
 		pg.brief = false;
 		// fold control
 		{
-			const mins = Math.max(1, Math.round(wordsOf(p.blocks) / 230));
 			const st = env.text.len;
 			const b = emptyBlk();
-			b.rects.push({ x0: 0, x1: W, y0: 0, y1: 0.05, colour: PAL2.rule, kind: RectKind.rule });
-			const t = layoutPara(env, [{ text: `Read the full post  ·  ${mins} min`, font: F.sans, size: 1, color: PAL2.link, flags: 0 }], { x0: 0, width: W, bs: 0.95, lh: 4 * U, font: F.sans, align: 'left' }, where);
+			const t = layoutPara(env, [{ text: `Read the full post  ·  ${mins} min`, font: F.sans, size: 1, color: PAL2.link, flags: 0 }], { x0: 0, width: W, bs: 1, lh: 4 * U, font: F.sans, align: 'left' }, where);
 			sentinelText(env);
 			b.lines.push(...t.lines);
 			b.h = 4 * U;
-			pg.place(b, { kind: BlockKind.fold, before: SP.s5, after: SP.s4, size: 0.95, font: LineFont.sans, start: st, flags: BlockFlag.hairTop });
+			pg.place(b, { kind: BlockKind.fold, before: SP.s5, after: SP.s4, size: 1, font: LineFont.sans, start: st });
 		}
 		pg.folded = true;
 		foldStart = pg.y + SP.s4; // the region starts one s4 below the control row
@@ -528,8 +475,8 @@ export function flowArticle(inp: FlowInput): FlowOut {
 				if (bl.depth <= 2) {
 					sectionNo++;
 					pg.section = sectionNo;
-					sectionEntry(`ROOM ${String(sectionNo).padStart(2, '0')} / ${String(total).padStart(2, '0')}`, bl.runs, bl.id, 0);
-					leadNext = true;
+					sectionEntry(bl.runs, bl.id, 0);
+					leadNext = false;
 				} else {
 					const bs = bl.depth === 3 ? 1.25 : 1.05;
 					const st = env.text.len;
@@ -616,21 +563,20 @@ export function flowArticle(inp: FlowInput): FlowOut {
 	if (hasBrief) foldEndY = bodyEnd;
 	pg.folded = false;
 
-	// ---- footer: the next room (large, one link) and the previous one (quiet) ----
+	// ---- footer: the next post (one large link) and the previous one (quiet) ----
 	{
 		const { prev, next } = inp.neighbours;
 		if (prev || next) {
 			const st = env.text.len;
 			const b = emptyBlk();
-			b.rects.push({ x0: 0, x1: W, y0: 0, y1: 0.05, colour: PAL2.neutral3, kind: RectKind.rule });
-			let y = SP.s5;
-			const lab = (text: string, colour: number) => {
-				const l = layoutPara(env, [{ text, font: F.code, size: 1, color: colour, flags: GlyphFlag.code }], { x0: 0, width: W, bs: 0.72, lh: LH, font: F.code, align: 'left' }, where);
+			let y = 0;
+			const lab = (text: string) => {
+				const l = layoutPara(env, [{ text, font: F.sans, size: 1, color: PAL2.muted, flags: 0 }], { x0: 0, width: W, bs: 0.85, lh: LH, font: F.sans, align: 'left' }, where);
 				sentinelText(env);
 				return l;
 			};
-			const link = (nb: Neighbour, size: number, colour: number, yy: number, font: number) => {
-				const t = layoutPara(env, [{ text: nb.title, font, size: 1, color: colour, flags: GlyphFlag.display | GlyphFlag.link, href: `/thoughts/${nb.slug}` }], { x0: 0, width: W, bs: size, lh: up(size * 1.15), font, align: 'left' }, where);
+			const link = (nb: Neighbour, size: number, colour: number, yy: number) => {
+				const t = layoutPara(env, [{ text: nb.title, font: F.head, size: 1, color: colour, flags: GlyphFlag.link, href: `/thoughts/${nb.slug}` }], { x0: 0, width: W, bs: size, lh: up(size * 1.2), font: F.head, align: 'left' }, where);
 				sentinelText(env);
 				shift(t, 0, yy);
 				b.lines.push(...t.lines);
@@ -638,21 +584,21 @@ export function flowArticle(inp: FlowInput): FlowOut {
 				return t.h;
 			};
 			if (next) {
-				const l = lab('NEXT ROOM', PAL2.accent);
+				const l = lab('Next');
 				shift(l, 0, y);
 				b.lines.push(...l.lines);
 				y += LH + SP.s1;
-				y += link(next, cfg.cls === 2 ? 1.8 : 2.6, PAL2.heading, y, D) + SP.s4;
+				y += link(next, cfg.cls === 2 ? 1.5 : 1.9, PAL2.heading, y) + SP.s4;
 			}
 			if (prev) {
-				const l = lab('PREVIOUS ROOM', PAL2.muted);
+				const l = lab('Previous');
 				shift(l, 0, y);
 				b.lines.push(...l.lines);
 				y += LH + SP.s1;
-				y += link(prev, 1.15, PAL2.muted, y, D) + SP.s2;
+				y += link(prev, 1.1, PAL2.muted, y) + SP.s2;
 			}
 			b.h = y;
-			pg.place(b, { kind: BlockKind.nextprev, before: SP.s8, after: 0, size: 1, font: LineFont.body, start: st, flags: BlockFlag.hairTop });
+			pg.place(b, { kind: BlockKind.nextprev, before: SP.s8, after: 0, size: 1, font: LineFont.body, start: st });
 		}
 	}
 

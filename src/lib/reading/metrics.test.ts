@@ -13,16 +13,16 @@ describe('width class', () => {
 
 describe('emPx', () => {
 	test('wide follows the clamp', () => {
-		expect(emPxFor(1440, 0, 1, 57)).toBeCloseTo(20.784, 2);
-		expect(emPxFor(1180, 0, 1, 57)).toBeCloseTo((1180 - 64) / 57, 2);
-		expect(emPxFor(3000, 0, 1, 57)).toBeCloseTo(21, 5);
+		expect(emPxFor(1440, 0, 1, 57)).toBeCloseTo(20, 2);
+		expect(emPxFor(1180, 0, 1, 57)).toBeCloseTo(Math.min(14.5 + 0.004 * 1180, (1180 - 64) / 57), 2);
+		expect(emPxFor(3000, 0, 1, 57)).toBeCloseTo(20, 5);
 	});
 	test('scale multiplies until the document no longer fits', () => {
 		expect(emPxFor(1440, 0, 1.4, 57)).toBeCloseTo((1440 - 64) / 57, 5);
-		expect(emPxFor(1440, 0, 1.1, 57)).toBeCloseTo(20.784 * 1.1, 2);
+		expect(emPxFor(1440, 0, 1.1, 57)).toBeCloseTo(22, 2);
 	});
 	test('mid fits between gutters', () => {
-		expect(emPxFor(820, 1, 1, 34)).toBeCloseTo(Math.min(15.6 + 0.0036 * 820, (820 - 64) / 34), 1);
+		expect(emPxFor(820, 1, 1, 34)).toBeCloseTo(Math.min(14.5 + 0.004 * 820, (820 - 64) / 34), 1);
 		expect(emPxFor(720, 1, 1.4, 34)).toBeCloseTo((720 - 64) / 34, 5);
 	});
 	test('narrow fills the viewport minus 40 and never grows', () => {

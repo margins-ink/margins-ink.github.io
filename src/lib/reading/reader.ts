@@ -103,7 +103,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let enterState = new Uint8Array(0); // 0 waiting, 1 animating, 2 done
 	let enterStart = new Float64Array(0);
 	let enterBlocks: number[] = [];
-	let plaqueBlocks: number[] = []; // blocks with BlockFlag.plaque: the only blocks that float (parallax)
 	let foldBlockIdx = -1;
 	let codeBlocks: number[] = [];
 	const codeDx = new Map<number, number>();
@@ -123,7 +122,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let hoverBlockSent = -1;
 	let focusLinkIdx = -1;
 	let washBlock = -1, washT0 = 0;
-	let tocOpen = false, aaOpen = false;
+	let aaOpen = false;
 	let popover: { ref: number; link: number } | null = null;
 	let popTimer: ReturnType<typeof setTimeout> | undefined;
 	let lightbox: { block: number; imageId: number; w: number; h: number; caption: string; em: { x0: number; y0: number; x1: number; y1: number } } | null = null;
@@ -221,7 +220,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		scrollSt?.dispose();
 		scrollSt = null;
 		sel = null; gesture = null; popover = null; lightbox = null; findHits = []; findCur = -1;
-		find.open = false; tocOpen = false; aaOpen = false; focusLinkIdx = -1;
+		find.open = false; aaOpen = false; focusLinkIdx = -1;
 		clearTimeout(exTimer); exDirty.clear(); exCursor = null; routed = null; router.clearFocus();
 		stopFilm();
 	}
@@ -285,11 +284,9 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 
 		codeBlocks = [];
 		enterBlocks = [];
-		plaqueBlocks = [];
 		model.blocks.forEach((b, i) => {
 			if (b.kind === BlockKind.code) codeBlocks.push(i);
-			if (b.kind === BlockKind.exhibit || b.kind === BlockKind.image || b.kind === BlockKind.pullquote || b.kind === BlockKind.label || b.flags & BlockFlag.plaque) enterBlocks.push(i);
-			if (b.flags & BlockFlag.plaque) plaqueBlocks.push(i);
+			if (b.kind === BlockKind.exhibit || b.kind === BlockKind.image || b.kind === BlockKind.pullquote || b.kind === BlockKind.label) enterBlocks.push(i);
 		});
 		enterState = new Uint8Array(model.blocks.length);
 		enterStart = new Float64Array(model.blocks.length);
@@ -463,7 +460,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		const parts = chromeMetaParts();
 		const y = st[RD.scrollY];
 		const docPx = st[RD.docHeightEm] * emPx;
-		const heads = parts.heads;
 		const codeInfos: CodeBlockInfo[] = [];
 		for (const i of codeBlocks) {
 			if (i < st[RD.visFirst] - 1 || i > st[RD.visFirst] + st[RD.visCount]) continue;
@@ -484,13 +480,12 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			view: { w: viewW, h: viewH }, colLeft: col,
 			meta: {
 				title, closeKind: fromWorld ? 'back' : 'close', wordsBrief: art?.meta.wordsBrief ?? 0, wordsFull: art?.meta.wordsFull ?? 0,
-				sections: parts.sections, headings: heads.map((h) => ({ level: h.level, text: h.text, id: h.id, y: h.y })),
+				sections: parts.sections,
 				refs: (art?.meta.refs ?? []).map((r) => ({ title: r.title, url: r.url }))
 			},
 			scrollY: y, docPx, progress: st[RD.progress], section: secIdx,
 			foldExpanded,
 			aa: { open: aaOpen, step: Math.max(0, scaleSteps.findIndex((s) => s === scale)), steps: scaleSteps.length, hasFold: m.foldH > 0, alwaysFull: false },
-			tocOpen,
 			popover: popover && popAnchor ? { ref: popover.ref, anchor: popAnchor } : null,
 			lightbox: lbSrc,
 			find,
@@ -642,19 +637,11 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		const [k, p, q] = a.split(':');
 		switch (k) {
 			case 'close': closeOrBack(); break;
-			case 'toggleAa': aaOpen = !aaOpen; if (aaOpen) tocOpen = tocOpen && cls === 0; break;
+			case 'toggleAa': aaOpen = !aaOpen; break;
 			case 'aa':
 				if (p === 'step') setScale(scaleSteps[Math.max(0, Math.min(scaleSteps.length - 1, Number(q)))]);
 				else if (p === 'full') setFold(!foldExpanded);
 				else aaOpen = false;
-				break;
-			case 'toc':
-				if (p === 'toggle') { tocOpen = !tocOpen; if (tocOpen) aaOpen = false; }
-				else if (p === 'close') tocOpen = false;
-				else {
-					const h = chromeMetaParts().heads[Number(p)];
-					if (h) { scrollSt?.scrollToBlock(h.block, true); if (cls !== 0) tocOpen = false; }
-				}
 				break;
 			case 'cite': if (p === 'open') { const r = art?.meta.refs[Number(q)]; if (r?.url) window.open(r.url, '_blank', 'noopener,noreferrer'); } break;
 			case 'lb': closeLightbox(); break;
@@ -810,7 +797,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 				canvasEl?.setPointerCapture(e.pointerId);
 			}
 		} else { sel = null; gesture = null; }
-		if (aaOpen || tocOpen) { /* outside clicks are handled by chrome dismiss hits */ }
 		needDraw = true;
 	}
 
@@ -1087,7 +1073,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		}
 		if (e.key === 'Escape') {
 			e.preventDefault();
-			if (closeLightbox() || closePopover() || (aaOpen && (aaOpen = false, true)) || (tocOpen && (tocOpen = false, true))) { needDraw = true; return; }
+			if (closeLightbox() || closePopover() || (aaOpen && (aaOpen = false, true))) { needDraw = true; return; }
 			if (!selEmpty(sel)) { sel = null; gesture = null; needDraw = true; return; }
 			closeOrBack();
 			return;
@@ -1109,7 +1095,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		if (k === 'j') { scrollSt?.jump(1); e.preventDefault(); return; }
 		if (k === 'k') { scrollSt?.jump(-1); e.preventDefault(); return; }
 		if (k === 'e') { setFold(!foldExpanded); e.preventDefault(); return; }
-		if (k === 't') { act('toc:toggle'); e.preventDefault(); return; }
 		const code = ({ Space: 1, PageDown: 2, PageUp: 3, Home: 4, End: 5, ArrowDown: 6, ArrowUp: 7 } as Record<string, number>)[e.code];
 		if (code && reading.scroll.key(code, e.shiftKey)) e.preventDefault();
 	}
@@ -1232,15 +1217,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		evalTimelineChannels(m, rd.exhibit, st[RD.exVisFirst], st[RD.exVisCount], chans);
 
 		const animating = updateEnter(now, y, fclip || m.foldY + m.foldH);
-		if (!reduced) {
-			// plaque parallax: wall plaques and labels float up to 7 px against the scroll (the only moving type; text blocks never move)
-			for (const i of plaqueBlocks) {
-				const r = viewRectOfBlock(i);
-				if (r.y > viewH || r.y + r.h < 0) continue;
-				const c = Math.max(-1, Math.min(1, (r.y + r.h / 2 - (barPx + viewH) / 2) / viewH));
-				blockDy.set(i, (blockDy.get(i) ?? 0) - c * PARALLAX_PX);
-			}
-		}
 		const scrolling = st[RD.scrollMode] !== SCROLL_MODE.idle;
 		const washing = washBlock >= 0 && now - washT0 < 1200;
 		if (!washing) washBlock = -1;

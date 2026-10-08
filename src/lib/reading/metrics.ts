@@ -31,7 +31,7 @@ export function snapScale(s: number): number {
  */
 export function emPxFor(viewW: number, widthClass: number, scale: number, docWidthEm: number, colW: number = docWidthEm): number {
 	if (widthClass === 2) return (Math.min(scale, 1) * (viewW - NARROW_MARGIN_PX)) / colW;
-	const base = Math.min(21, Math.max(17, 15.6 + 0.0036 * viewW)) * scale;
+	const base = Math.min(20, Math.max(17.5, 14.5 + 0.004 * viewW)) * scale;
 	const fit = (viewW - 2 * GUTTER_PX[widthClass]) / docWidthEm;
 	return Math.min(base, fit);
 }
