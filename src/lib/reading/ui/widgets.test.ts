@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { Shaped, UiFont } from './types';
 import { buildChrome, caretIndexAt, createChromeAnim, editField, type ChromeDeps, type ChromeOut } from './widgets';
 import { hitById, hitChrome, fractionIn, thumbScrollY } from './hit';
-import { BAR_H, TIP, intersects, layoutCite, layoutCodeCorner, layoutLinkTip, layoutCodeTip, CTIP, widthClassOf, type ChromeInput, type ChromeState, type Rect } from './layout';
+import { BAR_H, TIP, intersects, layoutCite, layoutLinkTip, layoutCodeTip, CTIP, widthClassOf, type ChromeInput, type ChromeState, type Rect } from './layout';
 
 // stub shaper: fixed advances so widths are exact and independent of lane U1
 const shapeUi = (text: string, font: UiFont, size: number): Shaped => {
@@ -28,9 +28,8 @@ function state(w: number, h: number, over: Partial<ChromeState> = {}): ChromeSta
 		aa: { open: false, step: 1, steps: 5, hasFold: true, alwaysFull: false },
 		popover: null, lightbox: null,
 		find: { open: false, query: '', caret: 0, count: 0, index: 0 },
-		copyFlash: {}, toasts: [],
-		codeBlocks: [{ block: 3, rect: { x: w * 0.1, y: 200, w: w * 0.8, h: 160 }, lang: 'rust' }],
-		hoverCode: 3, focusCode: -1, hoverLink: null, focusLink: null,
+		toasts: [],
+		hoverLink: null, focusLink: null,
 		scrollbar: { opacity: 1, width: 6, widthVel: 0, idleMs: 0, lastScrollY: 0, hover: false },
 		anim: createChromeAnim(), ...over
 	};
@@ -58,7 +57,7 @@ function everything(w: number, h: number): ChromeState {
 		aa: { open: true, step: 2, steps: 5, hasFold: true, alwaysFull: true },
 		popover: { ref: 0, anchor: { x: w * 0.4, y: 300, w: 20, h: 18 } },
 		find: { open: true, query: 'needle', caret: 6, count: 12, index: 3 },
-		toasts: [{ id: 1, msg: 'Copied', atMs: 9_800 }], copyFlash: { 3: 9_900 }
+		toasts: [{ id: 1, msg: 'Copied', atMs: 9_800 }]
 	});
 }
 
@@ -185,36 +184,13 @@ describe('hit testing and layering', () => {
 	test('actions named for the root', () => {
 		const o = settle(everything(900, 800));
 		const clicks = new Set(o.hits.map((h) => h.onClick).filter(Boolean));
-		for (const a of ['close', 'toggleAa', 'aa:step:0', 'aa:full', 'cite:open:0', 'copy:3', 'find:next', 'find:prev', 'find:close', 'find:field', 'sb:thumb']) {
+		for (const a of ['close', 'toggleAa', 'aa:step:0', 'aa:full', 'cite:open:0', 'find:next', 'find:prev', 'find:close', 'find:field', 'sb:thumb']) {
 			expect(clicks.has(a)).toBe(true);
 		}
 	});
 });
 
-describe('code copy corner, citation placement', () => {
-	test('corner is reserved in the top-right and holds the button and language label', () => {
-		const b = { block: 1, rect: { x: 100, y: 100, w: 600, h: 200 }, lang: 'rust' };
-		const c = layoutCodeCorner(b, false, m);
-		expect(c.corner.x + c.corner.w).toBeLessThanOrEqual(700 + 1e-6);
-		expect(c.corner.y).toBeGreaterThanOrEqual(100);
-		for (const r of [c.button, { x: c.lang.x, y: c.button.y, w: m('rust', 'mono', 11), h: c.button.h }]) {
-			expect(r.x).toBeGreaterThanOrEqual(c.corner.x - 1e-6);
-			expect(r.x + r.w).toBeLessThanOrEqual(c.corner.x + c.corner.w + 1e-6);
-		}
-		expect(intersects({ x: c.lang.x, y: c.button.y, w: m('rust', 'mono', 11), h: c.button.h }, c.button)).toBe(false);
-	});
-
-	test('copy button appears on hover or focus only, and the flash shows Copied', () => {
-		const idleS = state(900, 800, { hoverCode: -1 });
-		expect(settle(idleS).hits.some((h) => h.id === 'copy:3')).toBe(false);
-		expect(settle(state(900, 800, { hoverCode: -1, focusCode: 3 })).hits.some((h) => h.id === 'copy:3')).toBe(true);
-		const flash = settle(state(900, 800, { hoverCode: -1, copyFlash: { 3: 9_900 } }));
-		const btn = flash.hits.find((h) => h.id === 'copy:3')!;
-		expect(btn).toBeDefined();
-		const word = flash.uiText.filter((g) => g.y > btn.y && g.y < btn.y + btn.h && g.x >= btn.x && g.x <= btn.x + btn.w).map((g) => String.fromCodePoint(g.glyphId)).join('');
-		expect(word).toBe('Copied');
-	});
-
+describe('citation placement', () => {
 	test('citation popover sits below the cite and flips above near the bottom', () => {
 		const s = state(900, 800);
 		const ref = s.meta.refs[0];

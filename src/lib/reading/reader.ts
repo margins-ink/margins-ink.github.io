@@ -17,7 +17,7 @@ import { attachScroll, pointerWord } from './input';
 import { createExhibitDrawer, createRouter, evalTimelineChannels, exhibitId, exhibitSource, keyMods, loadExhibits, mappingOf, routeKey, toLocal, xkeyOf, type RouteResult } from './exhibit';
 import { fromBlob, keepExhibitFragment, parseExhibitFragment, setExhibitFragment, toBlob } from './exhibit-fragment';
 import { THEME, SYNTAX_ORDER } from './theme';
-import { codeText, imageAlt } from './modeltext';
+import { imageAlt } from './modeltext';
 import { hitTest, caretAt, type Hit, type ViewOpts } from './hit';
 import { joinRows, shapeRows, sweepWidth, PULSE_MS, SELECTION_RGB, type Row } from './selshape';
 import { press, dragTo, selectAll, selectionRects, copyText, selEmpty, selLo, selHi, type Gesture, type Sel } from './select';
@@ -27,7 +27,7 @@ import { DUR } from './ui/motion';
 import { hitChrome } from './ui/hit';
 import { linkTipContent } from './linktip';
 import { codeTipOf, codeTipInfo, codeTokenAt, type CodeToken } from './codetip';
-import type { ChromeState, ChromeInput, HitRect, KeyEvent, Rect, FindState, CodeBlockInfo, ToastInfo } from './ui/layout';
+import type { ChromeState, ChromeInput, HitRect, KeyEvent, Rect, FindState, ToastInfo } from './ui/layout';
 import { newScrollbar, scrollbarFrame, scrollbarDragStart, scrollbarDragTo, scrollbarTrackClick } from './ui/scrollbar';
 import { loadUiTables, setUiTables, shapeUi } from './ui/text';
 import type { ScrollbarInput, UiGlyph } from './ui/types';
@@ -160,7 +160,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let findCur = -1;
 	const toasts: ToastInfo[] = [];
 	let toastId = 0;
-	const copyFlash: Record<number, number> = {};
 	/** the copy acknowledgment in progress (ix copy-flash): the selection it covers and when it started */
 	let flash: { t0: number; lo: number; hi: number } | null = null;
 	let pendingKeys: KeyEvent[] = [];
@@ -492,14 +491,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		const parts = chromeMetaParts();
 		const y = st[RD.scrollY];
 		const docPx = st[RD.docHeightEm] * emPx;
-		const codeInfos: CodeBlockInfo[] = [];
-		for (const i of codeBlocks) {
-			if (i < st[RD.visFirst] - 1 || i > st[RD.visFirst] + st[RD.visCount]) continue;
-			const r = viewRectOfBlock(i);
-			if (r.y + r.h < 0 || r.y > viewH) continue;
-			codeInfos.push({ block: i, rect: r, lang: codeLang(i) });
-		}
-		const hoverCode = hoverHit && hoverHit.kind === 'code' ? hoverHit.block : -1;
 		const lbSrc = lightbox ? { w: lightbox.w, h: lightbox.h, caption: lightbox.caption } : null;
 		const popAnchor = popover ? linkViewRects(popover.link)[0] : null;
 		const secIdx = (() => { let a = -1; const probe = y + viewH * 0.3; parts.sections.forEach((s, i) => { if (s.y <= probe) a = i; }); return a; })();
@@ -534,9 +525,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			codeWash: codeRect, codeTip: codeRect && codeTipInfo_ ? { anchor: codeRect, kind: codeTipInfo_.kind, label: codeTipInfo_.label, token: codeTipInfo_.token, body: codeTipInfo_.body, tint: toRgb(theme.syntax[SYNTAX_ORDER[codeTipInfo_.colour - 20] ?? 'variable']) } : null,
 			lightbox: lbSrc,
 			find,
-			copyFlash, toasts,
-			codeBlocks: codeInfos,
-			hoverCode, focusCode: -1,
+			toasts,
 			hoverLink, focusLink: focusLinkR,
 			scrollbar: sbState.v,
 			ticks: parts.sections.map((s) => s.y),
@@ -547,7 +536,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	const chromeAnim = createChromeAnim();
 
 	/** the model carries no code language */
-	const codeLang = (_i: number): string => '';
 
 	// ---- actions (chrome clicks, keyboard-driven) ----
 
@@ -569,10 +557,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			ta.remove();
 			return ok;
 		} catch { return false; }
-	}
-
-	function codeSource(i: number): string {
-		return codeText(model!, i);
 	}
 
 	function copySelection() {
@@ -691,11 +675,6 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 				break;
 			case 'cite': if (p === 'open') { const r = art?.meta.refs[Number(q)]; if (r?.url) window.open(r.url, '_blank', 'noopener,noreferrer'); } break;
 			case 'lb': closeLightbox(); break;
-			case 'copy': {
-				const b = Number(p);
-				void copyToClipboard(codeSource(b)).then((ok) => { copyFlash[b] = performance.now(); toast(ok ? 'Copied' : 'Copy failed'); });
-				break;
-			}
 			case 'find':
 				if (p === 'close') closeFind();
 				else if (p === 'next') stepFind(1);

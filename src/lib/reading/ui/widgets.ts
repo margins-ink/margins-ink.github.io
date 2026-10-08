@@ -4,7 +4,7 @@
 //
 // Actions the root dispatches (HitRect.onClick, and `actions` for keyboard-driven ones):
 //   close, toggleAa, aa:step:<i>, aa:full, aa:close,
-//   cite:open:<ref>, lb:close, copy:<block>,
+//   cite:open:<ref>, lb:close,
 //   find:field (click: caret via `caretIndexAt`), find:prev, find:next, find:close, find:query (text changed), sb:track, sb:thumb (capture); exhibits draw and route their own controls (exhibit.ts)
 import type { Overlay } from '../page-api';
 import type { ScrollbarFrame, ScrollbarInput, ScrollbarState, Shaped, UiFont, UiGlyph } from './types';
@@ -12,7 +12,7 @@ import { hitChrome } from './hit';
 import { KIND_ICONS } from './kindicon';
 import { DUR, ease } from './motion';
 import {
-	BAR_H, BTN, TIP, createChromeAnim, ellipsize, layoutAa, layoutBar, layoutCite, layoutCodeCorner, layoutFind, layoutLinkTip, layoutCodeTip, CTIP, SURFACE, raised,
+	BAR_H, BTN, TIP, createChromeAnim, ellipsize, layoutAa, layoutBar, layoutCite, layoutFind, layoutLinkTip, layoutCodeTip, CTIP, SURFACE, raised,
 	layoutLightbox, layoutToast, scrollbarHit,
 	type ChromeInput, type ChromeState, type HitRect, type KeyEvent, type Measure, type Rect, type RGB
 } from './layout';
@@ -244,26 +244,6 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 			if (s.hoverLink) out.box({ x: r.x, y: r.y + r.h - 1.5, w: r.w, h: 1.5 }, 0.75, th.accent, a.linkT, hdr);
 		}
 		if (s.focusLink) for (const r of a.linkRects) out.ring(r, 2, 2, th.accent, 0.95 * a.linkT, hdr);
-	}
-
-	// ---- code copy buttons and language labels ----
-	for (const b of s.codeBlocks) {
-		if (b.rect.y + b.rect.h < BAR_H || b.rect.y > s.view.h) continue;
-		const flashAge = b.block in s.copyFlash ? s.nowMs - s.copyFlash[b.block] : Infinity;
-		const flashing = flashAge >= 0 && flashAge < 1200;
-		const want = s.hoverCode === b.block || s.focusCode === b.block || s.touch || flashing || hoverId === `copy:${b.block}`;
-		const t = (a.codeT[b.block] = track('code:' + b.block, want ? 1 : 0, DUR.fast));
-		if (flashing) animating = true;
-		if (t <= 0.004) { delete a.codeT[b.block]; continue; }
-		const c = layoutCodeCorner(b, flashing, m);
-		const id = `copy:${b.block}`;
-		const hv = heat(id);
-		const ov = out.box(c.button, 6, th.popover, 0.92 * t);
-		out.box(c.button, 6, th.ink, (0.08 * hv + (pressed && hoverId === id ? 0.06 : 0)) * t);
-		if (flashing) out.ring(c.button, 1.5, 1.5, th.accent, 0.9 * (1 - flashAge / 1200) * t, hdr);
-		out.text(c.lang.text, c.lang.x, c.lang.y, 'mono', 11, th.ink3, t);
-		out.text(c.label, c.button.x + c.button.w / 2, c.button.y + c.button.h / 2, 'sans', 12, flashing ? th.accent : th.ink2, t, { align: 'c' });
-		if (t > 0.5) out.hit(id, c.button, 'pointer', ov, id);
 	}
 
 	// ---- Aa outside-click catcher sits under the bar so the Aa button still toggles ----

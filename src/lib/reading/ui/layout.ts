@@ -47,7 +47,6 @@ export interface ChromeMeta {
 }
 
 /** a code block (viewport-space rect = already scrolled, may extend off screen) */
-export interface CodeBlockInfo { block: number; rect: Rect; lang: string }
 
 export interface ChromeAnim {
 	aaT: number; popT: number; lbT: number; findT: number; linkT: number;
@@ -95,7 +94,7 @@ export interface ChromeState {
 	/** accent peak above 1 on extended-range canvases (hover underline, focus ring); 1 = SDR */
 	hdrGain: number;
 	nowMs: number;
-	/** touch pointer: copy buttons are always visible */
+	/** touch pointer */
 	touch: boolean;
 	view: { w: number; h: number };
 	/** CSS px of the left edge of the reading column */
@@ -114,10 +113,7 @@ export interface ChromeState {
 	codeWash?: Rect | null; codeTip?: CodeTip | null;
 	lightbox: { w: number; h: number; caption: string } | null;
 	find: FindState;
-	copyFlash: Record<number, number>;
 	toasts: ToastInfo[];
-	codeBlocks: CodeBlockInfo[];
-	hoverCode: number; focusCode: number;
 	/** viewport-space line rects of the hovered / keyboard-focused link */
 	hoverLink: Rect[] | null; focusLink: Rect[] | null;
 	scrollbar: ScrollbarState;
@@ -369,23 +365,6 @@ export function layoutLightbox(s: ChromeState, lb: { w: number; h: number; capti
 		scrim: { x: 0, y: 0, w: vw, h: vh }, image: { x, y, w, h },
 		caption: { lines: capLines, x: vw / 2, y: y + h + 24 }, close: { x: vw - 8 - 40, y: 4, w: 40, h: 40 }
 	};
-}
-
-// ---- code copy ----
-
-export interface CodeCornerLayout { corner: Rect; lang: { x: number; y: number; text: string }; button: Rect; label: string }
-
-/** the reserved top-right corner of a code block: language label then the copy button; typesetting must keep text out of it */
-export function layoutCodeCorner(b: CodeBlockInfo, copied: boolean, m: Measure): CodeCornerLayout {
-	const label = copied ? 'Copied' : 'Copy';
-	const bw = m('Copied', 'sans', 12) + 20;
-	const bh = 24;
-	const lw = b.lang ? m(b.lang, 'mono', 11) : 0;
-	const gap = lw ? 8 : 0;
-	const cw = bw + gap + lw + 12;
-	const button = { x: b.rect.x + b.rect.w - 8 - bw, y: b.rect.y + 8, w: bw, h: bh };
-	const corner = { x: b.rect.x + b.rect.w - 8 - cw + 6, y: b.rect.y + 4, w: cw + 2, h: bh + 8 };
-	return { corner, lang: { x: button.x - gap - lw, y: button.y + bh / 2, text: b.lang }, button, label };
 }
 
 // ---- find bar ----
