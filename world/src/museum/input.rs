@@ -1,5 +1,5 @@
 //! Generic input: pointer routing by descending Layer with capture, hover and pressed; keyboard focus over the Control parts.
-use super::{draw::*, kind_tape::Why, model::*, snapshot, Ex, Family};
+use super::{icons, draw::*, kind_tape::Why, model::*, snapshot, Ex, Family};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Target {
@@ -365,13 +365,13 @@ impl Ex {
         let hov = |t: Target| if self.ui.hover == Some(t) { F_HOVER } else { 0 } | if self.ui.pressed == Some(t) { F_PRESSED } else { 0 };
         match &self.fam {
             Family::Tape(s) => {
-                dl.rrect([0.0, 0.0, fw, fh], 0.5, RULE, 0);
+                dl.rrect([0.0, 0.0, fw, fh], 0.5, LINE_T, 0);
                 dl.rrect([0.04, 0.04, fw - 0.08, fh - 0.08], 0.46, PANEL, 0);
                 s.draw(&self.def, &self.ui, dl);
                 dl.label(1.0, fh - 0.5, 0.75, fw - 2.0, &self.def.caption, INK3, 0);
             }
             Family::Machine(d) => {
-                dl.rrect([0.0, 0.0, fw, fh], 0.5, RULE, 0);
+                dl.rrect([0.0, 0.0, fw, fh], 0.5, LINE_T, 0);
                 dl.rrect([0.04, 0.04, fw - 0.08, fh - 0.08], 0.46, PANEL, 0);
                 d.draw(&self.def, &self.ui, dl);
             }
@@ -396,6 +396,28 @@ impl Ex {
                         _ => false,
                     };
                     let flags = hov(t) | if active { F_SELECTED } else { 0 };
+                    if !p.icon.is_empty() {
+                        // an icon control: the primary (Run) is a solid ink disc, the others are ghost buttons that brighten on hover
+                        let (cx, cy) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+                        let name = match p.icon.split_once('/') {
+                            Some((rest, act)) => if active { act } else { rest },
+                            None => p.icon.as_str(),
+                        };
+                        let off = hov(t) != 0;
+                        let spent = matches!(&self.fam, Family::Machine(d) if d.halted.is_some()) && p.verb == Some(Verb::Step);
+                        if p.verb == Some(Verb::Run) {
+                            let d = r[2].min(r[3]) * if off { 1.06 } else { 1.0 };
+                            dl.rrect([cx - d / 2.0, cy - d / 2.0, d, d], d / 2.0, ACCENT, 0);
+                            icons::draw(dl, name, cx + if name == "play" { 0.04 } else { 0.0 }, cy, d * 0.52, 0.0, ACCENT_INK, 1.0);
+                        } else {
+                            let d = r[2].min(r[3]);
+                            if off {
+                                dl.rrect([cx - d / 2.0, cy - d / 2.0, d, d], d / 2.0, if flags & F_PRESSED != 0 { RULE } else { NODE_HI }, 0);
+                            }
+                            icons::draw(dl, name, cx, cy, d * 0.5, 0.0, if spent { INK4 } else if off { INK } else { INK3 }, 1.0);
+                        }
+                        continue;
+                    }
                     let fill = if active { ACCENT_TINT } else if flags & (F_HOVER | F_PRESSED) != 0 { NODE_HI } else { NODE };
                     dl.rrect(r, r[3] / 2.0, fill, flags);
                     let text = if active && matches!(p.verb, Some(Verb::Run) | Some(Verb::Toggle)) && !p.label_alt.is_empty() { &p.label_alt } else { &p.label };

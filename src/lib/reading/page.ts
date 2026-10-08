@@ -19,7 +19,7 @@ import { CHAN_BASE, CHAN_FLOATS, DATA_BASE, FRAME_VEC4, MAGIC_PAGE, MH, PAGE_WGS
 
 const MAX_LAYER = 2048;
 const MAX_FIGS = 1024;
-const MAX_OVERLAYS = 2048; // chrome (~512) plus two exhibits at 400 items
+const MAX_OVERLAYS = 4096; // chrome (~512) plus two exhibits at 400 items, plus file icons (up to ~100 triangles each)
 const OVERLAY_FLOATS = 12;
 const MAX_UI_GLYPHS = 8192;
 const UI_FLOATS = 12;

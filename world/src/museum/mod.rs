@@ -8,6 +8,7 @@
 //! Frame protocol: `reading::register` is called by the loader for every exhibit block; the host then calls `exhibit_load(ex, ..)` with
 //! the script text. Everything an exhibit shows is read back through `pack` (a flat draw list) and the state rows (`XS` in abi.ts).
 pub mod draw;
+pub mod icons;
 pub mod input;
 pub mod kind_common;
 pub mod kind_graph;

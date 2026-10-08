@@ -51,6 +51,10 @@ pub trait Core {
     fn animating(&self) -> bool {
         false
     }
+    /// A family that draws its own header (progress, hint) returns true and the driver skips the mono status line.
+    fn head(&self, _def: &ExDef, _run: &Run, _dl: &mut DrawList) -> bool {
+        false
+    }
     fn status(&self, def: &ExDef, run: &Run) -> String;
     /// Family payload (no `|` needed, but allowed: it is the tail of the envelope).
     fn save(&self) -> String;
@@ -196,8 +200,10 @@ impl Driver {
     }
 
     pub fn draw(&self, def: &ExDef, ui: &Ui, dl: &mut DrawList) {
-        if let Some(s) = def.part(PartKind::StatusLine) {
-            dl.label(s.place[0], s.place[1] + 0.9, 0.72, s.place[2], &self.core.status(def, &self.run()), INK2, F_MONO);
+        if !self.core.head(def, &self.run(), dl) {
+            if let Some(s) = def.part(PartKind::StatusLine) {
+                dl.label(s.place[0], s.place[1] + 0.9, 0.72, s.place[2], &self.core.status(def, &self.run()), INK2, F_MONO);
+            }
         }
         self.core.draw(def, ui, dl);
     }

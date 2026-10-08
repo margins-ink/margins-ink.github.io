@@ -443,7 +443,7 @@ function graphSuite(name: string, src: string, hitWord: string, builtWord: strin
 			expect(w.key(32)).toBe(true);
 			expect(w.row(0).running).toBe(1);
 		});
-		test('draw list: within 400 items and inside the frame in every state', () => {
+		test('draw list: within 1200 items and inside the frame in every state', () => {
 			const { w, ps } = load();
 			const rnd = mulberry32(8);
 			const sources = ns.filter((n) => n.tag === 0);
@@ -451,7 +451,7 @@ function graphSuite(name: string, src: string, hitWord: string, builtWord: strin
 				if (rnd() < 0.5) edit(w, sources[Math.floor(rnd() * sources.length)].id); else press(w, ps.b_step);
 				w.tick(2);
 				const d = w.pack(0);
-				expect(d.n).toBeLessThanOrEqual(400);
+				expect(d.n).toBeLessThanOrEqual(1200);
 				for (let i = 0; i < d.n; i++) {
 					const o = i * XD.stride;
 					expect([...d.items.slice(o, o + 8)].every(Number.isFinite)).toBe(true);
@@ -663,7 +663,7 @@ describe('grid: Dijkstra and A*', () => {
 		run(w, ps);
 		expect(summary(w)).not.toBe(`Dijkstra   expanded ${a.expanded}   path ${a.path}`);
 	});
-	test('keyboard: A toggles the algorithm, S steps; the draw list stays within 400 items', () => {
+	test('keyboard: A toggles the algorithm, S steps; the draw list stays within 1200 items', () => {
 		const w = boot();
 		w.load(0, PATH);
 		w.x.exhibit_focus(0);
@@ -672,7 +672,7 @@ describe('grid: Dijkstra and A*', () => {
 		expect(w.key('s'.charCodeAt(0))).toBe(true);
 		w.tick(2);
 		expect(w.row(0).steps).toBe(1);
-		expect(w.pack(0).n).toBeLessThanOrEqual(400);
+		expect(w.pack(0).n).toBeLessThanOrEqual(1200);
 		expect(w.key(XKEY.escape)).toBe(true);
 	});
 });
@@ -697,7 +697,7 @@ describe('in the room world', () => {
 		w.tick(5);
 		expect(w.row(0).loaded).toBe(1);
 	});
-	test('inspect: each script describes itself, frames inside 36 x 22 and items within 400', () => {
+	test('inspect: each script describes itself, frames inside 36 x 22 and items within 1200', () => {
 		const w = boot();
 		for (const [src, kind] of [[LAMBDA, 'rewrite'], [MERKLE, 'graph'], [IFD, 'graph'], [PATH, 'grid']] as const) {
 			const r = w.inspect(src);
@@ -706,7 +706,7 @@ describe('in the room world', () => {
 			expect(j.kind).toBe(kind);
 			expect(j.frame.w).toBeLessThanOrEqual(36);
 			expect(j.frame.h).toBeLessThanOrEqual(22);
-			expect(j.items).toBeLessThanOrEqual(400);
+			expect(j.items).toBeLessThanOrEqual(1200);
 			expect(j.presets.length).toBeGreaterThan(0);
 			console.log(kind, j.title, 'items', j.items);
 		}

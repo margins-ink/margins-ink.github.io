@@ -4,71 +4,83 @@
 workspace : Preset {
   Title: {"six-unit workspace"}
   build_rs : Source {
+    Icon: {"rust"}
     Label: {"build.rs"}
     Content: {"fn main emit schema"}
-    Place: {1.5, 4.3, 6.5, 1.9}
+    Place: {1, 4.3, 6.9, 1.8}
   }
   schema : Source {
+    Icon: {"toml"}
     Label: {"schema.toml"}
     Content: {"version = 1"}
-    Place: {1.5, 6.9, 6.5, 1.9}
+    Place: {1, 6.85, 6.9, 1.8}
   }
   derive_rs : Source {
+    Icon: {"rust"}
     Label: {"derive.rs"}
     Content: {"proc_macro derive"}
-    Place: {1.5, 9.5, 6.5, 1.9}
+    Place: {1, 9.4, 6.9, 1.8}
   }
   serde_rs : Source {
+    Icon: {"rust"}
     Label: {"serde.rs"}
     Content: {"pub trait Serialize"}
-    Place: {1.5, 12.1, 6.5, 1.9}
+    Place: {1, 11.95, 6.9, 1.8}
   }
   itoa_rs : Source {
+    Icon: {"rust"}
     Label: {"itoa.rs"}
     Content: {"pub fn write"}
-    Place: {1.5, 14.7, 6.5, 1.9}
+    Place: {1, 14.5, 6.9, 1.8}
   }
   main_rs : Source {
+    Icon: {"rust"}
     Label: {"main.rs"}
     Content: {"fn main run"}
-    Place: {1.5, 17.3, 6.5, 1.9}
+    Place: {1, 17.05, 6.9, 1.8}
   }
   build_script : Action {
+    Icon: {"terminal"}
     Label: {"build-script"}
     Content: {"rustc build_script_build"}
-    Place: {9.8, 4.3, 6.5, 1.9}
+    Place: {10, 4.3, 6.9, 1.8}
     (Reads, build_rs)
   }
   derive_proc : Action {
+    Icon: {"bolt"}
     Label: {"derive-proc"}
     Content: {"rustc serde_derive proc-macro"}
-    Place: {9.8, 9.5, 6.5, 1.9}
+    Place: {10, 9.4, 6.9, 1.8}
     (Reads, derive_rs)
   }
   itoa_lib : Action {
+    Icon: {"terminal"}
     Label: {"itoa-lib"}
     Content: {"rustc itoa lib"}
-    Place: {9.8, 14.7, 6.5, 1.9}
+    Place: {10, 14.5, 6.9, 1.8}
     (Reads, itoa_rs)
   }
   build_run : Action {
+    Icon: {"play-circle"}
     Label: {"build-run"}
     Content: {"run build_script_build"}
-    Place: {18.1, 6.9, 6.5, 1.9}
+    Place: {19, 6.85, 6.9, 1.8}
     (Reads, build_script)
     (Reads, schema)
   }
   serde_lib : Action {
+    Icon: {"terminal"}
     Label: {"serde-lib"}
     Content: {"rustc serde lib"}
-    Place: {18.1, 12.1, 6.5, 1.9}
+    Place: {19, 11.95, 6.9, 1.8}
     (Reads, derive_proc)
     (Reads, serde_rs)
   }
   app_bin : Action {
+    Icon: {"box"}
     Label: {"app-bin"}
     Content: {"rustc app bin"}
-    Place: {27.6, 12.75, 6.5, 1.9}
+    Place: {28, 12.6, 6.9, 1.8}
     (Reads, serde_lib)
     (Reads, itoa_lib)
     (Reads, build_run)
@@ -84,32 +96,33 @@ graph : GraphMachine {
   Caption: {"Click a source file to edit it, then step through the actions. Click it again to put it back."}
   OnHit: {"cache hit"}
   OnBuilt: {"rebuilt"}
-  Extent: {36, 20.8}
+  Extent: {36, 20.4}
+  Content: {"Click a file to edit it"}
   (Runs, workspace)
 
-  b_step : Button {
-    Place: {1.5, 1.2, 4.4, 1.9}
-    Label: {"Step"}
-    Does: {"step"}
-    Key: {"s"}
-  }
   b_run : Button {
-    Place: {6.3, 1.2, 4.4, 1.9}
+    Place: {29.95, 0.85, 1.8, 1.8}
     Label: {"Run"}
     LabelAlt: {"Pause"}
+    Icon: {"play/pause"}
     Does: {"run"}
     Key: {" "}
   }
+  b_step : Button {
+    Place: {31.9, 1.0, 1.5, 1.5}
+    Label: {"Step"}
+    Icon: {"step"}
+    Does: {"step"}
+    Key: {"s"}
+  }
   b_reset : Button {
-    Place: {11.1, 1.2, 4.4, 1.9}
+    Place: {33.5, 1.0, 1.5, 1.5}
     Label: {"Reset"}
+    Icon: {"reset"}
     Does: {"reset"}
     Key: {"r"}
   }
-  status : StatusLine {
-    Place: {16.6, 1.8, 18.5, 1.2}
-  }
   view : View {
-    Place: {0.5, 3.8, 35, 16.5}
+    Place: {0.5, 3.4, 35, 16.2}
   }
 }

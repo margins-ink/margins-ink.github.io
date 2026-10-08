@@ -9,7 +9,7 @@ macro_rules! text_component {
         pub struct $name { pub text: String }
     )*};
 }
-text_component!(Title, Claim, Describe, Alt, Caption, Label, LabelAlt, Glyph, Lambda, Content, Board, OnHit, OnBuilt);
+text_component!(Title, Claim, Describe, Alt, Caption, Label, LabelAlt, Icon, Glyph, Lambda, Content, Board, OnHit, OnBuilt);
 
 #[derive(Component, Clone, Copy, Default, Debug)]
 #[flecs(meta)]
@@ -125,6 +125,7 @@ pub fn register(w: &World) {
     w.component_named::<Caption>("Caption");
     w.component_named::<Label>("Label");
     w.component_named::<LabelAlt>("LabelAlt");
+    w.component_named::<Icon>("Icon");
     w.component_named::<Glyph>("Glyph");
     w.component_named::<Lambda>("Lambda");
     w.component_named::<Content>("Content");
@@ -214,6 +215,8 @@ pub struct Part {
     pub layer: u32,
     pub label: String,
     pub label_alt: String,
+    /// icon name (icons.rs); `a/b` is `a` at rest and `b` while the control is active
+    pub icon: String,
     pub verb: Option<Verb>,
     pub key: u32,
     pub loads: String,
@@ -498,6 +501,7 @@ fn read_part(c: EntityView, voc: &Voc, frame: [f32; 2], proto: PartKind) -> Resu
         layer: c.try_cloned::<&Layer>().map_or(1, |l| l.n),
         label: txt!(c, Label),
         label_alt: txt!(c, LabelAlt),
+        icon: txt!(c, Icon),
         verb,
         key,
         loads: c.try_cloned::<&Loads>().map(|l| l.id).unwrap_or_default(),

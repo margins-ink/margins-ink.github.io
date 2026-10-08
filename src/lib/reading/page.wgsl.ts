@@ -906,6 +906,12 @@ struct OOut {
     lo = min(r.xy, e) - m;
     hi = max(r.xy, e) + m;
   }
+  if (kind == 8u) {
+    // triangle (file icons): corners (r.x, r.y), (r.z, r.w), (k.x, k.w)
+    let p2 = vec2f(k.x, k.w);
+    lo = min(min(r.xy, r.zw), p2) - vec2f(1.5);
+    hi = max(max(r.xy, r.zw), p2) + vec2f(1.5);
+  }
   o.pos = pg_clip(mix(lo, hi, c));
   o.oi = ii;
   return o;
@@ -954,6 +960,17 @@ fn pg_seg_sd(p: vec2f, a: vec2f, b: vec2f) -> f32 {
   } else if (kind == 4u) {
     // ring: rounded-rect outline inside the box (k.x corner radius, k.w stroke)
     sd = abs(pg_rrect_sd(css, r.xy, r.xy + r.zw, k.x) + 0.5 * k.w) - 0.5 * k.w;
+  } else if (kind == 8u) {
+    // filled triangle, grown 0.4 device px so the shared edges of an icon's triangles leave no seam (coverage of two abutting edges sums above 1)
+    let p0 = r.xy; let p1 = r.zw; let p2 = vec2f(k.x, k.w);
+    let e0 = p1 - p0; let e1 = p2 - p1; let e2 = p0 - p2;
+    let v0 = css - p0; let v1 = css - p1; let v2 = css - p2;
+    let q0 = v0 - e0 * saturate(dot(v0, e0) / max(dot(e0, e0), 1e-12));
+    let q1 = v1 - e1 * saturate(dot(v1, e1) / max(dot(e1, e1), 1e-12));
+    let q2 = v2 - e2 * saturate(dot(v2, e2) / max(dot(e2, e2), 1e-12));
+    let s = sign(e0.x * e2.y - e0.y * e2.x);
+    let dd = min(min(vec2f(dot(q0, q0), s * (v0.x * e0.y - v0.y * e0.x)), vec2f(dot(q1, q1), s * (v1.x * e1.y - v1.y * e1.x))), vec2f(dot(q2, q2), s * (v2.x * e2.y - v2.y * e2.x)));
+    sd = -sqrt(dd.x) * sign(dd.y) - 0.4 / fu.v0.z;
   } else if (kind == 7u) {
     // spot: soft elliptical light pool inscribed in the box (alpha falls off as (1 - d^2)^2 from the centre), no edge
     let q = (css - (r.xy + 0.5 * r.zw)) / max(0.5 * r.zw, vec2f(1.0));

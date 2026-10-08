@@ -2,7 +2,7 @@
 #![allow(dead_code)] // the full shape, tone and flag table of abi.ts, whether or not an exhibit uses each yet
 
 pub const STRIDE: usize = 8;
-pub const MAX_ITEMS: usize = 400;
+pub const MAX_ITEMS: usize = 1200;
 
 pub const RRECT: f32 = 0.0;
 pub const CIRCLE: f32 = 1.0;
@@ -12,6 +12,8 @@ pub const RING: f32 = 4.0;
 pub const DOT: f32 = 5.0;
 pub const LABEL: f32 = 6.0;
 pub const HATCH: f32 = 7.0;
+/// a file-type icon (icons_gen.rs): the box is the square, aux the index in FILE_ICONS, F_SELECTED draws it in full colour (else slightly muted)
+pub const ICON: f32 = 8.0;
 
 pub const PANEL: f32 = 0.0;
 pub const INK: f32 = 1.0;
@@ -28,6 +30,8 @@ pub const NODE: f32 = 11.0;
 pub const NODE_HI: f32 = 12.0;
 pub const EDGE: f32 = 13.0;
 pub const ACCENT_INK: f32 = 14.0;
+pub const LINE_T: f32 = 15.0;
+pub const INK4: f32 = 16.0;
 
 pub const F_HOVER: u32 = 1;
 pub const F_PRESSED: u32 = 2;

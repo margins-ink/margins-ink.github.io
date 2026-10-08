@@ -513,7 +513,7 @@ describe('interaction', () => {
 });
 
 describe('draw list', () => {
-	test('at most 400 items, all inside the frame, tones and shapes in range, labels interned', () => {
+	test('at most 1200 items, all inside the frame, tones and shapes in range, labels interned', () => {
 		const rnd = mulberry32(5);
 		const w = boot();
 		w.load(0, TURING);
@@ -522,13 +522,13 @@ describe('draw list', () => {
 			if (rnd() < 0.5) w.click(0, 3.5, 10 + 1.3 + (k % 8) * 1.1 + 0.5); else clickPart(w, 0, p.b_step);
 			w.tick(1 + Math.floor(rnd() * 20));
 			const d = w.pack(0);
-			expect(d.n).toBeLessThanOrEqual(400);
+			expect(d.n).toBeLessThanOrEqual(1200);
 			for (let i = 0; i < d.n; i++) {
 				const it = d.items.slice(i * XD.stride, (i + 1) * XD.stride);
 				expect(it.every(Number.isFinite)).toBe(true);
 				expect(it[XD.shape]).toBeGreaterThanOrEqual(0);
 				expect(it[XD.shape]).toBeLessThanOrEqual(7);
-				expect(it[XD.tone]).toBeLessThanOrEqual(14);
+				expect(it[XD.tone]).toBeLessThanOrEqual(16);
 				if ([XSHAPE.rrect, XSHAPE.ring, XSHAPE.dot, XSHAPE.circle].includes(it[XD.shape] as 0 | 1 | 4 | 5)) {
 					expect(it[XD.x]).toBeGreaterThanOrEqual(-0.2);
 					expect(it[XD.y]).toBeGreaterThanOrEqual(-0.2);

@@ -3,9 +3,10 @@
 // dependencies, so exhibit-draw.test.ts runs it without a GPU, a DOM or the wasm. reader.ts owns the DOM events and calls these.
 import { BlockKind, ExhibitKind, stringAt, type ReadingModel } from '../magazine/format';
 import { evalKeys, figureTime } from '../magazine/chan';
+import { FILE_ICONS } from './icons.gen';
 import { TONE_NAMES, XCURSOR, XFLAG, XKEY, XPOINTER, XRESULT, XS, XSHAPE, XD, type ExhibitApi, type ToneName } from './abi';
 import type { ExhibitDraw, Overlay } from './page-api';
-import { over, quant, THEME } from './theme';
+import { THEME } from './theme';
 import type { Shaped, UiFont, UiGlyph } from './ui/types';
 import { shapeUi, truncateUi } from './ui/text';
 
@@ -13,10 +14,6 @@ import { shapeUi, truncateUi } from './ui/text';
 
 type Rgba = readonly [number, number, number, number];
 const rgba = (c: readonly number[], a = 1): Rgba => [c[0], c[1], c[2], a];
-
-/** Neutral steps drawn with the exhibits: ink mixed (linear light, opaque) over the card. Pills sit at NODE, hover at NODE_HI, graph edges at EDGE. */
-export const MIX = { node: 0.04, nodeHi: 0.075, edge: 0.14 } as const;
-const mix = (a: number) => rgba(quant(over(THEME.text.primary, THEME.surface.card, a)));
 
 /** Tone name -> THEME slot (straight sRGB 0..1 like Overlay). The numeric tone of an item is the index in TONE_NAMES. */
 export const TONES = {
@@ -31,10 +28,12 @@ export const TONES = {
 	accentTint: rgba(THEME.accentTint),
 	panelHi: rgba(THEME.surface.popover),
 	accentDim: rgba(THEME.accent, 0.45),
-	node: mix(MIX.node),
-	nodeHi: mix(MIX.nodeHi),
-	edge: mix(MIX.edge),
-	accentInk: rgba(THEME.accentInk)
+	node: rgba(THEME.surface.popover),
+	nodeHi: rgba(THEME.hairline.card),
+	edge: rgba(THEME.ink4),
+	accentInk: rgba(THEME.accentInk),
+	line: rgba(THEME.hairline.ground),
+	ink4: rgba(THEME.ink4)
 } as const satisfies Record<ToneName, Rgba>;
 
 /** The colour of tone id `tone` (unknown ids draw as ink) */
@@ -61,8 +60,10 @@ export function exhibitClip(rect: { x: number; y: number; w: number; h: number }
 // ---- draw list -> page-pass primitives -------------------------------------------------------------------------------------
 
 /** Overlay shape kinds of the page shader (page.wgsl.ts fs_ovl) */
-export const OVL_SHAPE = { rrect: 0, circle: 1, line: 2, arrow: 3, ring: 4, hatch: 6, spot: 7 } as const;
-export const MAX_EXHIBIT_ITEMS = 400;
+export const OVL_SHAPE = { rrect: 0, circle: 1, line: 2, arrow: 3, ring: 4, hatch: 6, spot: 7, tri: 8 } as const;
+export const MAX_EXHIBIT_ITEMS = 1200;
+/** saturation of a file icon at rest (full colour when its node is lit or hovered) */
+export const ICON_IDLE_SAT = 0.85;
 /** hatch pitch (em) when an item gives none */
 const HATCH_PITCH_EM = 0.35;
 
@@ -134,6 +135,18 @@ export function convertItems(items: Float32Array, count: number, str: (i: number
 			case XSHAPE.line: pushOvl(pools, out.overlays, px, py, pw, ph, 0, c, a, OVL_SHAPE.line, Math.max(1, aux * m.k)); break;
 			case XSHAPE.arrow: pushOvl(pools, out.overlays, px, py, pw, ph, 0, c, a, OVL_SHAPE.arrow, Math.max(1, aux * m.k)); break;
 			case XSHAPE.hatch: pushOvl(pools, out.overlays, px, py, pw, ph, 0, c, a, OVL_SHAPE.hatch, Math.max(2, (aux > 0 ? aux : HATCH_PITCH_EM) * m.k)); break;
+			case XSHAPE.icon: {
+				// a file-type icon: aux = index in FILE_ICONS, drawn as filled triangles in the set's own colours; idle is 85% saturated, lit (selected) full
+				const ic = FILE_ICONS[aux | 0];
+				if (!ic) break;
+				const sat = flags & XFLAG.selected ? 1 : ICON_IDLE_SAT;
+				for (let t = 0; t < ic.ci.length; t++) {
+					const col = ic.colours[ic.ci[t]], q = ic.tris, b = t * 6, lum = 0.299 * col[0] + 0.587 * col[1] + 0.114 * col[2];
+					const tc: Rgba = [lum + (col[0] - lum) * sat, lum + (col[1] - lum) * sat, lum + (col[2] - lum) * sat, 1];
+					pushOvl(pools, out.overlays, px + q[b] * pw, py + q[b + 1] * ph, px + q[b + 2] * pw, py + q[b + 3] * ph, px + q[b + 4] * pw, tc, a, OVL_SHAPE.tri, py + q[b + 5] * ph);
+				}
+				break;
+			}
 			case XSHAPE.label: {
 				const sizePx = h * m.k;
 				if (!(sizePx > 0.5)) break;

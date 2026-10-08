@@ -3,16 +3,15 @@
 //! inputs in node order, so an edit changes exactly the nodes downstream of it. A step settles the next derived node in dependency
 //! order: its hash already in the store is a hit (reused), a new one is stored (built). The store keeps every hash ever settled, so
 //! editing a file back is all hits. Names (`Label`, `LabelAlt`) are not part of any hash: a rename changes no hash.
-use super::{draw::*, input::{Hit, Target, Ui}, kind_common::*, kind_tape::Why, model::*};
+use super::{draw::*, icons, input::{Hit, Target, Ui}, kind_common::*, kind_tape::Why, model::*};
 use flecs_ecs::prelude::*;
 
 pub const MAX_NODES: usize = 24;
 
-const NODE_R: f32 = 0.95;
-const PAD: f32 = 0.85;
-const KEY_W: f32 = 1.55;
-const KEY_GAP: f32 = 2.05;
-const ENTRY_STEP: f32 = 0.42;
+/// Node metrics are in units of `f = node height / 1.8`, so a taller node (the models exhibit) scales its icon, text and padding with it.
+const PAD: f32 = 0.5;
+const ICON: f32 = 0.62;
+const ENTRY_STEP: f32 = 0.3;
 /// seconds between consecutive dependency levels of the edit wave, and its total length
 const LEVEL_STEP: f32 = 0.38;
 const EDIT_SPAN: f32 = 2.2;
@@ -31,7 +30,7 @@ fn route(from: (f32, f32), gap_x: f32, to: (f32, f32)) -> Vec<(f32, f32)> {
         v.push((xs, from.1));
     }
     let d = xe - xs;
-    const N: usize = 14;
+    const N: usize = 10;
     for k in 1..=N {
         let t = k as f32 / N as f32;
         let m = 1.0 - t;
@@ -41,6 +40,22 @@ fn route(from: (f32, f32), gap_x: f32, to: (f32, f32)) -> Vec<(f32, f32)> {
     }
     v.push((to.0 + 0.05, to.1));
     v
+}
+
+/// The point at arc fraction `frac` of a polyline.
+fn point_at(pts: &[(f32, f32)], frac: f32) -> (f32, f32) {
+    let len = |a: (f32, f32), b: (f32, f32)| ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt();
+    let total: f32 = pts.windows(2).map(|w| len(w[0], w[1])).sum();
+    let mut left = total * frac.clamp(0.0, 1.0);
+    for w in pts.windows(2) {
+        let l = len(w[0], w[1]);
+        if left <= l && l > 1e-6 {
+            let f = left / l;
+            return (w[0].0 + (w[1].0 - w[0].0) * f, w[0].1 + (w[1].1 - w[0].1) * f);
+        }
+        left -= l;
+    }
+    *pts.last().unwrap()
 }
 
 /// The first `frac` of a polyline's length as round-capped segments; the full path ends in an arrowhead.
@@ -76,6 +91,8 @@ pub struct GNode {
     pub label: String,
     /// the name after a rename (empty: not renamable)
     pub alt: String,
+    /// icon name of icons.rs (empty: none)
+    pub icon: String,
     /// 0 source, 1 action, 2 tree
     pub tag: u8,
     pub body: String,
@@ -95,6 +112,8 @@ pub struct GPreset {
     pub order: Vec<usize>,
     pub hit: String,
     pub built: String,
+    /// the quiet line shown while nothing has been edited (the root's `Content`)
+    pub hint: String,
 }
 
 pub fn fnv(mut h: u32, bytes: &[u8]) -> u32 {
@@ -129,6 +148,7 @@ pub fn read(w: &World, voc: &Voc, scope: EntityView, frame: [f32; 2]) -> Result<
     let root = children(scope).into_iter().find(|c| is_a(*c, voc.graph_machine)).ok_or("no GraphMachine")?;
     let hit = root.try_cloned::<&OnHit>().map(|t| t.text).filter(|t| !t.is_empty()).unwrap_or_else(|| "hit".into());
     let built = root.try_cloned::<&OnBuilt>().map(|t| t.text).filter(|t| !t.is_empty()).unwrap_or_else(|| "built".into());
+    let hint = root.try_cloned::<&Content>().map(|t| t.text).unwrap_or_default();
     let mut presets = Vec::new();
     for pe in children(scope) {
         if !is_a(pe, voc.preset) {
@@ -159,6 +179,7 @@ pub fn read(w: &World, voc: &Voc, scope: EntityView, frame: [f32; 2]) -> Result<
                 id: c.name(),
                 label: c.try_cloned::<&Label>().map(|t| t.text).filter(|t| !t.is_empty()).unwrap_or_else(|| c.name()),
                 alt: c.try_cloned::<&LabelAlt>().map(|t| t.text).unwrap_or_default(),
+                icon: c.try_cloned::<&Icon>().map(|t| t.text).unwrap_or_default(),
                 tag,
                 body: c.try_cloned::<&Content>().map(|t| t.text).unwrap_or_default(),
                 place: p,
@@ -206,7 +227,7 @@ pub fn read(w: &World, voc: &Voc, scope: EntityView, frame: [f32; 2]) -> Result<
             }
         }
         let order = topo.iter().copied().filter(|&i| nodes[i].tag != 0).collect();
-        presets.push(GPreset { id: pe.name(), title: pe.try_cloned::<&Title>().map(|t| t.text).unwrap_or_default(), nodes, topo, order, hit: hit.clone(), built: built.clone() });
+        presets.push(GPreset { id: pe.name(), title: pe.try_cloned::<&Title>().map(|t| t.text).unwrap_or_default(), nodes, topo, order, hit: hit.clone(), built: built.clone(), hint: hint.clone() });
     }
     Ok(presets)
 }
@@ -376,6 +397,33 @@ impl Core for Graph {
         self.edit_age < EDIT_SPAN || self.age.iter().any(|&a| a < SETTLE_SPAN)
     }
 
+    fn head(&self, def: &ExDef, run: &Run, dl: &mut DrawList) -> bool {
+        // only a figure with an icon toolbar gets the quiet header; the others keep the mono status line
+        let Some(ctl) = def.parts.iter().find(|p| p.kind == PartKind::Button && !p.icon.is_empty() && p.verb == Some(Verb::Run)) else { return false };
+        let Some(p) = self.p(def) else { return true };
+        let cy = ctl.place[1] + ctl.place[3] / 2.0;
+        let left = def.parts.iter().filter(|q| q.kind == PartKind::Button && !q.icon.is_empty()).map(|q| q.place[0]).fold(f32::MAX, f32::min);
+        let n = p.order.len();
+        const GAP: f32 = 0.74;
+        let right = left - 0.9;
+        for k in 0..n {
+            let (x, d) = (right - (n - 1 - k) as f32 * GAP, 0.34);
+            let settled = k < self.cursor;
+            if settled {
+                dl.dot(x, cy, d, ACCENT);
+            } else if k == self.cursor && run.halted.is_none() {
+                dl.dot(x, cy, d, INK3);
+                dl.dot(x, cy, d - 0.12, PANEL);
+            } else {
+                dl.dot(x, cy, d, INK4);
+            }
+        }
+        let idle = self.cursor == 0 && (0..p.nodes.len()).all(|i| self.cur[i] == self.orig[i]);
+        let text = if run.halted.is_some() { self.status(def, run) } else if idle { p.hint.clone() } else { String::new() };
+        dl.label(1.0, cy + 0.17, 0.46, (right - 1.0 - n as f32 * GAP).max(4.0), &text, INK3, 0);
+        true
+    }
+
     fn draw(&self, def: &ExDef, ui: &Ui, dl: &mut DrawList) {
         let Some(p) = self.p(def) else { return };
         let n = p.nodes.len();
@@ -392,7 +440,7 @@ impl Core for Graph {
             let xs = p.nodes.iter().enumerate().filter(|&(k, m)| k != i && m.place[0] + m.place[2] <= node.place[0] + 0.01).map(|(_, m)| m.place[0] + m.place[2]).fold(0.0, f32::max);
             for (rank, &f) in ins.iter().enumerate() {
                 let a = p.nodes[f].place;
-                let spread = (rank as f32 - (ins.len() as f32 - 1.0) / 2.0) * ENTRY_STEP;
+                let spread = (rank as f32 - (ins.len() as f32 - 1.0) / 2.0) * ENTRY_STEP * node.place[3] / 1.8;
                 routes.push((f, i, route((a[0] + a[2], a[1] + a[3] / 2.0), xs, (node.place[0], node.place[1] + node.place[3] / 2.0 + spread))));
             }
         }
@@ -405,54 +453,82 @@ impl Core for Graph {
                 if t > 0.0 {
                     polyline(dl, pts, ease(t), ACCENT);
                 }
+                // a pulse travels into a node as it rebuilds
+                let a = self.age[*i];
+                if t >= 1.0 && self.st[*i] == 2 && a < SETTLE_SPAN {
+                    let (px, py) = point_at(pts, ease(a / SETTLE_SPAN));
+                    dl.dot(px, py, 0.3, ACCENT);
+                }
             }
         }
         let next = p.order.get(self.cursor).copied();
         for (i, node) in p.nodes.iter().enumerate() {
-            let [x, y, w, _] = node.place;
+            let [x, y, w, h] = node.place;
+            let f = h / 1.8;
             let t = Target::Item(i, 0);
             let hover = ui.hover == Some(t) || ui.pressed == Some(t);
             let src = node.tag == 0;
             let stale = !src && self.stale(i);
-            dl.rrect(node.place, NODE_R, if hover { NODE_HI } else { NODE }, 0);
-            // fill animation: rebuilt nodes fill amber after their step; an edited source tints
-            let settle = ease((self.age[i] / SETTLE_SPAN).min(1.0));
             let built = self.st[i] == 2;
+            let hit = self.st[i] == 1;
+            let settle = ease((self.age[i] / SETTLE_SPAN).min(1.0));
             let edit_t = ease(((self.edit_age - if level[i] == 0 { 0.0 } else { LEVEL_STEP * level[i] as f32 }) / 0.35).clamp(0.0, 1.0));
-            let fill = if built { settle } else { 0.0 };
-            if built {
-                dl.rrect_a(node.place, NODE_R, ACCENT, fill);
-            } else if src && changed[i] {
-                dl.rrect_a(node.place, NODE_R, ACCENT_TINT, edit_t);
+            // a soft pop as a node rebuilds: 1.0 to 1.03 and back
+            let pop = if built && self.age[i] < SETTLE_SPAN { 1.0 + 0.03 * (std::f32::consts::PI * self.age[i] / SETTLE_SPAN).sin() } else { 1.0 };
+            let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+            let (sx, sy, sw, sh) = (cx - w * pop / 2.0, cy - h * pop / 2.0, w * pop, h * pop);
+            let r = 0.35 * f * pop;
+            let line = 0.035;
+            // 1px border: the line colour, an ink overlay for emphasis, then the fill inset by the border
+            dl.rrect([sx, sy, sw, sh], r, LINE_T, 0);
+            let emph = if built { settle } else if src && changed[i] { edit_t } else { 0.0 };
+            dl.rrect_a([sx, sy, sw, sh], r, ACCENT, emph);
+            if next == Some(i) && stale {
+                dl.rrect_a([sx, sy, sw, sh], r, ACCENT_DIM, 1.0);
             }
-            let ink_amber = built && fill > 0.5;
+            dl.rrect([sx + line, sy + line, sw - 2.0 * line, sh - 2.0 * line], r - line, if hover { NODE_HI } else { NODE }, 0);
+            let lit = built || (src && changed[i] && edit_t > 0.5);
+            let ink = if lit || hover { ACCENT } else { INK3 };
+            let ex = |dx: f32| cx + (dx - w / 2.0) * pop;
+            let pad = PAD * f;
+            if !node.icon.is_empty() {
+                icons::draw(dl, &node.icon, ex(pad + ICON * f / 2.0), cy, ICON * f * pop, 0.0, ink, 1.0);
+            }
+            let name_dx = if node.icon.is_empty() { pad } else { pad + ICON * f + 0.32 * f };
             let name = if self.ren[i] && !node.alt.is_empty() { &node.alt } else { &node.label };
-            let (kx, ky) = (x + PAD, y + 1.5);
-            dl.label(x + PAD, y + 0.84, 0.7, w - 2.0 * PAD, name, if ink_amber { ACCENT_INK } else { INK }, 0);
-            let key_ink = if ink_amber { ACCENT_INK } else { INK2 };
+            let kw = 1.05 * f;
+            let name_w = (w - name_dx - pad - kw * 2.2).max(1.0);
+            dl.label(ex(name_dx), cy + 0.19 * f * pop, 0.54 * f * pop, name_w * pop, name, INK, 0);
+            // the key sits on the right; a stale key shows the old one struck beside it
+            let (kr, ky, ks) = (ex(w - pad), cy + 0.14 * f * pop, 0.38 * f * pop);
+            let key_gap = kw + 0.22 * f;
             let cur = short(self.cur[i]);
             let moving = !stale && self.age[i] < SETTLE_SPAN && self.from[i] != self.cur[i];
             if moving {
-                // a settled node: the new key slides in over the struck old one
                 let e = ease((self.age[i] / SETTLE_SPAN).min(1.0));
-                dl.label(kx + (1.0 - e) * KEY_GAP, ky, 0.62, 0.0, &cur, key_ink, F_MONO);
+                dl.label(kr - (1.0 - e) * key_gap * pop, ky, ks, 0.0, &cur, if lit { ACCENT } else { INK3 }, F_MONO | ALIGN_RIGHT);
             } else if stale || (src && changed[i]) {
                 let old = if stale { self.shown[i] } else { self.orig[i] };
                 let e = if stale { ease(((self.edit_age - LEVEL_STEP * level[i] as f32) / 0.35).clamp(0.0, 1.0)) } else { edit_t };
-                dl.label(kx, ky, 0.62, 0.0, &short(old), if e > 0.0 { INK3 } else { INK2 }, F_MONO);
-                dl.line_a(kx - 0.05, ky - 0.2, KEY_W * e + 0.1, 0.0, 0.05, INK3, e);
-                dl.label_a(kx + KEY_GAP, ky, 0.62, 0.0, &cur, ACCENT, F_MONO, e);
+                let or = kr - e * key_gap * pop;
+                dl.label(or, ky, ks, 0.0, &short(old), INK3, F_MONO | ALIGN_RIGHT);
+                dl.line_a(or - kw * pop - 0.04, ky - 0.13 * f * pop, (kw + 0.08) * pop * e, 0.0, 0.04, INK3, e);
+                dl.label_a(kr, ky, ks, 0.0, &cur, ACCENT, F_MONO | ALIGN_RIGHT, e);
             } else {
-                dl.label(kx, ky, 0.62, 0.0, &cur, key_ink, F_MONO);
+                dl.label(kr, ky, ks, 0.0, &cur, ink, F_MONO | ALIGN_RIGHT);
             }
-            if self.st[i] == 1 {
-                let a = ease((self.age[i] / SETTLE_SPAN).min(1.0));
-                let (cx, cy) = (x + w - 1.35, y + 1.18);
-                dl.line_a(cx - 0.3, cy + 0.02, 0.22, 0.24, 0.07, INK2, a);
-                dl.line_a(cx - 0.08, cy + 0.26, 0.4, -0.5, 0.07, INK2, a);
-            }
-            if next == Some(i) && !built && self.st[i] == 0 && stale {
-                dl.dot(x + w - 1.0, y + 1.0, 0.3, ACCENT);
+            // state badge on the top right corner: spinning arrows while it rebuilds, then a check
+            if built || hit {
+                let (bx, by, bd) = (ex(w - 0.1 * f), cy - (h / 2.0 - 0.05 * f) * pop, 0.74 * f * pop);
+                let spin = built && self.age[i] < SETTLE_SPAN;
+                let (fill, glyph) = if built { (ACCENT, ACCENT_INK) } else { (GROUND, INK2) };
+                dl.dot(bx, by, bd + 0.07, if built { ACCENT } else { RULE });
+                dl.dot(bx, by, bd - 0.0, fill);
+                if hit {
+                    dl.dot(bx, by, bd - 0.07, GROUND);
+                }
+                let name = if spin { "refresh" } else { "check" };
+                icons::draw(dl, name, bx, by, bd * 0.62, if spin { settle * 360.0 } else { 0.0 }, glyph, 1.0);
             }
         }
     }
