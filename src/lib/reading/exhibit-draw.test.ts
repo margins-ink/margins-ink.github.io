@@ -2,13 +2,14 @@ import { describe, expect, test } from 'bun:test';
 import { ExhibitKind, sampleReading, type ReadingModel } from '../magazine/format';
 import { TONE_NAMES, XD, XFLAG, XKEY, XPOINTER, XRESULT, XS, XSHAPE, type ExhibitApi } from './abi';
 import {
+	MIX,
 	DRAG_THRESHOLD, MAX_EXHIBIT_ITEMS, OVL_SHAPE, RING_STROKE_EM, TONES, cachedText, convertItems, createExhibitDrawer, createRouter, cursorOf, evalTimelineChannels, exhibitClip, exhibitId,
 	exhibitSource, keyMods, loadExhibits, mappingOf, newPools, routeKey, toLocal, toneColour, xkeyOf, type PtrEvent, type RouterDeps, type TextDeps
 } from './exhibit';
 import { applyExhibitReload } from './exhibit-hot';
 import { fromBlob, keepExhibitFragment, parseExhibitFragment, setExhibitFragment, stripExhibitFragment, toBlob } from './exhibit-fragment';
 import { createScrollState, type ScrollEnv } from './scrollstate';
-import { THEME } from './theme';
+import { over, quant, THEME } from './theme';
 import type { Overlay } from './page-api';
 import type { UiGlyph } from './ui/types';
 
@@ -35,7 +36,8 @@ describe('tones', () => {
 		expect(Object.keys(TONES).sort()).toEqual([...TONE_NAMES].sort());
 		const slot: Record<string, readonly number[]> = {
 			panel: THEME.surface.card, ink: THEME.text.primary, ink2: THEME.text.secondary, ink3: THEME.text.tertiary, accent: THEME.accent, accent2: THEME.accent2,
-			rule: THEME.hairline.card, ground: THEME.surface.ground, accentTint: THEME.accentTint, panelHi: THEME.surface.popover, accentDim: THEME.accent
+			rule: THEME.hairline.card, ground: THEME.surface.ground, accentTint: THEME.accentTint, panelHi: THEME.surface.popover, accentDim: THEME.accent, accentInk: THEME.accentInk,
+			node: quant(over(THEME.text.primary, THEME.surface.card, MIX.node)), nodeHi: quant(over(THEME.text.primary, THEME.surface.card, MIX.nodeHi)), edge: quant(over(THEME.text.primary, THEME.surface.card, MIX.edge))
 		};
 		TONE_NAMES.forEach((name, id) => {
 			const c = toneColour(id);

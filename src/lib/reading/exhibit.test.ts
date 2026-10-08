@@ -528,7 +528,7 @@ describe('draw list', () => {
 				expect(it.every(Number.isFinite)).toBe(true);
 				expect(it[XD.shape]).toBeGreaterThanOrEqual(0);
 				expect(it[XD.shape]).toBeLessThanOrEqual(7);
-				expect(it[XD.tone]).toBeLessThanOrEqual(10);
+				expect(it[XD.tone]).toBeLessThanOrEqual(14);
 				if ([XSHAPE.rrect, XSHAPE.ring, XSHAPE.dot, XSHAPE.circle].includes(it[XD.shape] as 0 | 1 | 4 | 5)) {
 					expect(it[XD.x]).toBeGreaterThanOrEqual(-0.2);
 					expect(it[XD.y]).toBeGreaterThanOrEqual(-0.2);

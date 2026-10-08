@@ -202,3 +202,11 @@ Traps from the RDR4 / exhibit build side (scripts/magazine/exhibit.ts, docs/MUSE
 - Debug recipe: build with `CARGO_TARGET_DIR=/Volumes/Projects/tmp/film/target-dbg`, run a node harness against the debug wasm for a real trace. Native `cargo test` does not compile; tests run the wasm under `bun test`.
 - `film_pack` returns a 64 float meta row and a draw buffer longer than `count`: hash only the live part (`count*8`, `8+8*mounts`), stale tails differ between engines.
 - Headless e2e: `play()` on the voice element is refused without a gesture; the film must fall back to the wall clock (`voice.paused`), else the clock sits at the resume position forever.
+
+## IFD graph figure redo (2026-10-07)
+
+- Curves: the host has no bezier shape; `kind_graph.rs` samples a cubic into round-capped `line` items (opaque tones only, translucent segments darken at the joins) and ends with one `arrow`. Long edges run level at the source's y and take one S in the gap before the target, so lay nodes out in layers and keep each long edge's row empty in the columns it crosses.
+- New tones (abi.ts `TONE_NAMES`, exhibit.ts `TONES`, Rust draw.rs ids 11..14): `node`, `nodeHi`, `edge` are ink mixed over `surface.card` (`MIX`), `accentInk` is the dark text on amber. Read from THEME at run time; the Rust ids must stay in TONE_NAMES order (test: exhibit-draw.test.ts).
+- Animation lives in the Core (`anim(dt)`, `animating()`), is driven by the fixed tick, is never saved or hashed, and must not change which label strings exist: `exhibit-machines.test.ts` compares `labels()` before and after a snapshot restore, so a crossfade that emits a second label (or a faded item skipped at alpha 0) fails it. Per-item alpha is flag bits 16..23 (0 = opaque, minimum 1/255).
+- The card draws its own faint border as two rrects (RULE then PANEL inset 0.04 em): a `ring` item has a fixed 0.08 em stroke. The machine family no longer draws the caption inside the card (the reader prints it under the block); the tape family still does.
+- HEAD may not build (film WIP `layout` module missing): build the wasm from a `git worktree add --detach` with `world/src/film/{mod,model}.rs` checked out from a good commit, symlink `world/.toolchain` and `node_modules`, copy the world.wasm back. A pure height cap of 22 em applies to exhibit Extents (lint).

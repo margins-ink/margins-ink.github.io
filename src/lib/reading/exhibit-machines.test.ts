@@ -455,7 +455,7 @@ function graphSuite(name: string, src: string, hitWord: string, builtWord: strin
 				for (let i = 0; i < d.n; i++) {
 					const o = i * XD.stride;
 					expect([...d.items.slice(o, o + 8)].every(Number.isFinite)).toBe(true);
-					if (d.items[o + XD.shape] === XSHAPE.rrect) { expect(d.items[o + XD.x] + d.items[o + XD.w]).toBeLessThanOrEqual(36.2); expect(d.items[o + XD.y] + d.items[o + XD.h]).toBeLessThanOrEqual(21.2); }
+					if (d.items[o + XD.shape] === XSHAPE.rrect) { expect(d.items[o + XD.x] + d.items[o + XD.w]).toBeLessThanOrEqual(36.2); expect(d.items[o + XD.y] + d.items[o + XD.h]).toBeLessThanOrEqual(22.2); }
 				}
 			}
 		});

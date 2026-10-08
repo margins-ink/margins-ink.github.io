@@ -5,7 +5,7 @@ import { BlockKind, ExhibitKind, stringAt, type ReadingModel } from '../magazine
 import { evalKeys, figureTime } from '../magazine/chan';
 import { TONE_NAMES, XCURSOR, XFLAG, XKEY, XPOINTER, XRESULT, XS, XSHAPE, XD, type ExhibitApi, type ToneName } from './abi';
 import type { ExhibitDraw, Overlay } from './page-api';
-import { THEME } from './theme';
+import { over, quant, THEME } from './theme';
 import type { Shaped, UiFont, UiGlyph } from './ui/types';
 import { shapeUi, truncateUi } from './ui/text';
 
@@ -13,6 +13,10 @@ import { shapeUi, truncateUi } from './ui/text';
 
 type Rgba = readonly [number, number, number, number];
 const rgba = (c: readonly number[], a = 1): Rgba => [c[0], c[1], c[2], a];
+
+/** Neutral steps drawn with the exhibits: ink mixed (linear light, opaque) over the card. Pills sit at NODE, hover at NODE_HI, graph edges at EDGE. */
+export const MIX = { node: 0.04, nodeHi: 0.075, edge: 0.14 } as const;
+const mix = (a: number) => rgba(quant(over(THEME.text.primary, THEME.surface.card, a)));
 
 /** Tone name -> THEME slot (straight sRGB 0..1 like Overlay). The numeric tone of an item is the index in TONE_NAMES. */
 export const TONES = {
@@ -26,7 +30,11 @@ export const TONES = {
 	ground: rgba(THEME.surface.ground),
 	accentTint: rgba(THEME.accentTint),
 	panelHi: rgba(THEME.surface.popover),
-	accentDim: rgba(THEME.accent, 0.45)
+	accentDim: rgba(THEME.accent, 0.45),
+	node: mix(MIX.node),
+	nodeHi: mix(MIX.nodeHi),
+	edge: mix(MIX.edge),
+	accentInk: rgba(THEME.accentInk)
 } as const satisfies Record<ToneName, Rgba>;
 
 /** The colour of tone id `tone` (unknown ids draw as ink) */
@@ -105,7 +113,7 @@ function pushOvl(p: Pools, out: Overlay[], x: number, y: number, w: number, h: n
  * h = size em, w = max width em or 0, aux = string index, alignment in flags bits 8..9). Flags bits 16..23 are the item's own alpha (0 = opaque).
  */
 /** stroke of a ring item, em (its aux is the corner radius) */
-export const RING_STROKE_EM = 0.12;
+export const RING_STROKE_EM = 0.08;
 export function convertItems(items: Float32Array, count: number, str: (i: number) => string, m: Mapping, alpha: number, text: TextDeps, pools: Pools, out: { overlays: Overlay[]; uiText: UiGlyph[] }): void {
 	const n = Math.min(count, MAX_EXHIBIT_ITEMS, Math.floor(items.length / XD.stride));
 	for (let i = 0; i < n; i++) {

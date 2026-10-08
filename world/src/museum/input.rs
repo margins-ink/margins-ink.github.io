@@ -365,14 +365,15 @@ impl Ex {
         let hov = |t: Target| if self.ui.hover == Some(t) { F_HOVER } else { 0 } | if self.ui.pressed == Some(t) { F_PRESSED } else { 0 };
         match &self.fam {
             Family::Tape(s) => {
-                dl.rrect([0.0, 0.0, fw, fh], 0.8, PANEL, 0);
+                dl.rrect([0.0, 0.0, fw, fh], 0.5, RULE, 0);
+                dl.rrect([0.04, 0.04, fw - 0.08, fh - 0.08], 0.46, PANEL, 0);
                 s.draw(&self.def, &self.ui, dl);
                 dl.label(1.0, fh - 0.5, 0.75, fw - 2.0, &self.def.caption, INK3, 0);
             }
             Family::Machine(d) => {
-                dl.rrect([0.0, 0.0, fw, fh], 0.8, PANEL, 0);
+                dl.rrect([0.0, 0.0, fw, fh], 0.5, RULE, 0);
+                dl.rrect([0.04, 0.04, fw - 0.08, fh - 0.08], 0.46, PANEL, 0);
                 d.draw(&self.def, &self.ui, dl);
-                dl.label(1.0, fh - 0.5, 0.75, fw - 2.0, &self.def.caption, INK3, 0);
             }
             Family::Timeline(t) => {
                 if !t.interactive() {
@@ -395,9 +396,10 @@ impl Ex {
                         _ => false,
                     };
                     let flags = hov(t) | if active { F_SELECTED } else { 0 };
-                    dl.rrect(r, 0.5, PANEL_HI, flags);
+                    let fill = if active { ACCENT_TINT } else if flags & (F_HOVER | F_PRESSED) != 0 { NODE_HI } else { NODE };
+                    dl.rrect(r, r[3] / 2.0, fill, flags);
                     let text = if active && matches!(p.verb, Some(Verb::Run) | Some(Verb::Toggle)) && !p.label_alt.is_empty() { &p.label_alt } else { &p.label };
-                    dl.label(r[0] + r[2] / 2.0, r[1] + r[3] / 2.0 + 0.3, 0.85, r[2] - 0.3, text, if active { ACCENT } else { INK }, ALIGN_CENTRE);
+                    dl.label(r[0] + r[2] / 2.0, r[1] + r[3] / 2.0 + 0.27, 0.78, r[2] - 0.3, text, if active { ACCENT } else { INK }, ALIGN_CENTRE);
                 }
                 PartKind::Slider => {
                     let f = self.bound_frac(p);
@@ -423,7 +425,7 @@ impl Ex {
         if self.ui.focus {
             if let Some(p) = self.ui.sel.and_then(|i| self.def.parts.get(i)) {
                 let r = p.place;
-                dl.ring([r[0] - 0.15, r[1] - 0.15, r[2] + 0.3, r[3] + 0.3], 0.6, 0.12, ACCENT);
+                dl.ring([r[0] - 0.15, r[1] - 0.15, r[2] + 0.3, r[3] + 0.3], r[3] / 2.0 + 0.15, 0.12, ACCENT);
             }
         }
     }

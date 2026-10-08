@@ -24,6 +24,10 @@ pub const GROUND: f32 = 7.0;
 pub const ACCENT_TINT: f32 = 8.0;
 pub const PANEL_HI: f32 = 9.0;
 pub const ACCENT_DIM: f32 = 10.0;
+pub const NODE: f32 = 11.0;
+pub const NODE_HI: f32 = 12.0;
+pub const EDGE: f32 = 13.0;
+pub const ACCENT_INK: f32 = 14.0;
 
 pub const F_HOVER: u32 = 1;
 pub const F_PRESSED: u32 = 2;
@@ -77,6 +81,27 @@ impl DrawList {
     }
     pub fn line(&mut self, x: f32, y: f32, dx: f32, dy: f32, stroke: f32, tone: f32) {
         self.push([x, y, dx, dy, LINE, tone, 0.0, stroke]);
+    }
+    /// Per-item alpha lives in flag bits 16..23 (0 = opaque, so a faded item is at least 1/255).
+    pub fn alpha_flag(a: f32) -> u32 {
+        if a >= 1.0 {
+            0
+        } else {
+            ((a.max(0.0) * 255.0).round().max(1.0) as u32) << 16
+        }
+    }
+    pub fn rrect_a(&mut self, r: [f32; 4], radius: f32, tone: f32, a: f32) {
+        if a > 0.0 {
+            self.rrect(r, radius, tone, Self::alpha_flag(a));
+        }
+    }
+    pub fn line_a(&mut self, x: f32, y: f32, dx: f32, dy: f32, stroke: f32, tone: f32, a: f32) {
+        if a > 0.0 {
+            self.push([x, y, dx, dy, LINE, tone, Self::alpha_flag(a) as f32, stroke]);
+        }
+    }
+    pub fn label_a(&mut self, x: f32, y: f32, size: f32, max_w: f32, text: &str, tone: f32, flags: u32, a: f32) {
+        self.push_label(x, y, size, max_w, text, tone, flags | Self::alpha_flag(a));
     }
     pub fn dot(&mut self, x: f32, y: f32, d: f32, tone: f32) {
         self.push([x - d / 2.0, y - d / 2.0, d, d, DOT, tone, 0.0, 0.0]);

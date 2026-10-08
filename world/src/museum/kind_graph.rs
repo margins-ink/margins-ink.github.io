@@ -8,6 +8,68 @@ use flecs_ecs::prelude::*;
 
 pub const MAX_NODES: usize = 24;
 
+const NODE_R: f32 = 0.95;
+const PAD: f32 = 0.85;
+const KEY_W: f32 = 1.55;
+const KEY_GAP: f32 = 2.05;
+const ENTRY_STEP: f32 = 0.42;
+/// seconds between consecutive dependency levels of the edit wave, and its total length
+const LEVEL_STEP: f32 = 0.38;
+const EDIT_SPAN: f32 = 2.2;
+const SETTLE_SPAN: f32 = 0.4;
+
+fn ease(t: f32) -> f32 {
+    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
+}
+
+/// A dependency edge: leaves the source's right side, runs level to the gap before the target, then one smooth cubic S into the target's left side.
+fn route(from: (f32, f32), gap_x: f32, to: (f32, f32)) -> Vec<(f32, f32)> {
+    let xe = to.0 - 0.45;
+    let xs = gap_x.clamp(from.0, xe - 0.5);
+    let mut v = vec![from];
+    if xs > from.0 + 0.01 {
+        v.push((xs, from.1));
+    }
+    let d = xe - xs;
+    const N: usize = 14;
+    for k in 1..=N {
+        let t = k as f32 / N as f32;
+        let m = 1.0 - t;
+        let x = m * m * m * xs + 3.0 * m * m * t * (xs + d / 2.0) + 3.0 * m * t * t * (xe - d / 2.0) + t * t * t * xe;
+        let y = (m * m * m + 3.0 * m * m * t) * from.1 + (3.0 * m * t * t + t * t * t) * to.1;
+        v.push((x, y));
+    }
+    v.push((to.0 + 0.05, to.1));
+    v
+}
+
+/// The first `frac` of a polyline's length as round-capped segments; the full path ends in an arrowhead.
+fn polyline(dl: &mut DrawList, pts: &[(f32, f32)], frac: f32, tone: f32) {
+    const STROKE: f32 = 0.05;
+    let len = |a: (f32, f32), b: (f32, f32)| ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt();
+    let total: f32 = pts.windows(2).map(|w| len(w[0], w[1])).sum();
+    let mut left = total * frac.clamp(0.0, 1.0);
+    let last = pts.len() - 2;
+    for (k, w) in pts.windows(2).enumerate() {
+        let l = len(w[0], w[1]);
+        if l <= 1e-4 {
+            continue;
+        }
+        let take = left.min(l);
+        if take <= 0.0 {
+            break;
+        }
+        let f = take / l;
+        let (dx, dy) = ((w[1].0 - w[0].0) * f, (w[1].1 - w[0].1) * f);
+        if k == last && frac >= 1.0 {
+            dl.arrow(w[0].0, w[0].1, dx, dy, STROKE, tone);
+        } else {
+            dl.line(w[0].0, w[0].1, dx, dy, STROKE, tone);
+        }
+        left -= take;
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct GNode {
     pub id: String,
@@ -162,11 +224,18 @@ pub struct Graph {
     cursor: usize,
     /// a click renames instead of editing
     rename: bool,
+    /// the keys at load (what "changed" is measured against)
+    orig: Vec<u32>,
+    /// the key a node showed before its last step
+    from: Vec<u32>,
+    /// seconds since each node last settled, and since the last edit (animation only: never saved, never hashed)
+    age: Vec<f32>,
+    edit_age: f32,
 }
 
 impl Graph {
     pub fn new(def: &ExDef) -> Graph {
-        let mut g = Graph { preset: 0, ver: Vec::new(), ren: Vec::new(), cur: Vec::new(), shown: Vec::new(), store: Vec::new(), st: Vec::new(), cursor: 0, rename: false };
+        let mut g = Graph { preset: 0, ver: Vec::new(), ren: Vec::new(), cur: Vec::new(), shown: Vec::new(), store: Vec::new(), st: Vec::new(), cursor: 0, rename: false, orig: Vec::new(), from: Vec::new(), age: Vec::new(), edit_age: 9.0 };
         g.load(def, 0);
         g
     }
@@ -200,6 +269,13 @@ impl Graph {
         self.cursor = 0;
     }
 
+    /// No animation in flight (load, restore).
+    fn settled(&mut self) {
+        self.from = self.cur.clone();
+        self.age = vec![9.0; self.cur.len()];
+        self.edit_age = 9.0;
+    }
+
     fn stale(&self, i: usize) -> bool {
         self.cur[i] != self.shown[i]
     }
@@ -223,6 +299,8 @@ impl Core for Graph {
         self.rename = false;
         self.recompute(&p);
         self.shown = self.cur.clone();
+        self.orig = self.cur.clone();
+        self.settled();
         let cur = self.cur.clone();
         for h in cur {
             self.store_add(h);
@@ -235,6 +313,8 @@ impl Core for Graph {
         let len = p.order.len();
         let k = self.cur[n];
         self.st[n] = if self.store_add(k) { 2 } else { 1 };
+        self.from[n] = self.shown[n];
+        self.age[n] = 0.0;
         self.shown[n] = k;
         self.cursor += 1;
         Out { moved: true, halt: (self.cursor == len).then_some(Why::Accept) }
@@ -270,6 +350,7 @@ impl Core for Graph {
         let h = self.cur[n];
         self.store_add(h);
         self.new_round();
+        self.edit_age = 0.0;
         Act::Edit
     }
 
@@ -284,53 +365,95 @@ impl Core for Graph {
         }
     }
 
+    fn anim(&mut self, dt: f32) {
+        self.edit_age = (self.edit_age + dt).min(9.0);
+        for a in self.age.iter_mut() {
+            *a = (*a + dt).min(9.0);
+        }
+    }
+
+    fn animating(&self) -> bool {
+        self.edit_age < EDIT_SPAN || self.age.iter().any(|&a| a < SETTLE_SPAN)
+    }
+
     fn draw(&self, def: &ExDef, ui: &Ui, dl: &mut DrawList) {
         let Some(p) = self.p(def) else { return };
-        let next = p.order.get(self.cursor).copied();
-        for (i, n) in p.nodes.iter().enumerate() {
-            let [x, y, _, h] = n.place;
-            for &f in &n.ins {
+        let n = p.nodes.len();
+        let mut level = vec![0usize; n];
+        for &i in &p.topo {
+            level[i] = p.nodes[i].ins.iter().map(|&f| level[f] + 1).max().unwrap_or(0);
+        }
+        let changed: Vec<bool> = (0..n).map(|i| self.cur[i] != self.orig[i]).collect();
+        // every edge as a routed polyline; entry points on the target's left side are spread by the source's height
+        let mut routes: Vec<(usize, usize, Vec<(f32, f32)>)> = Vec::new();
+        for (i, node) in p.nodes.iter().enumerate() {
+            let mut ins = node.ins.clone();
+            ins.sort_by(|&a, &b| p.nodes[a].place[1].total_cmp(&p.nodes[b].place[1]).then(a.cmp(&b)));
+            let xs = p.nodes.iter().enumerate().filter(|&(k, m)| k != i && m.place[0] + m.place[2] <= node.place[0] + 0.01).map(|(_, m)| m.place[0] + m.place[2]).fold(0.0, f32::max);
+            for (rank, &f) in ins.iter().enumerate() {
                 let a = p.nodes[f].place;
-                let (x0, y0) = (a[0] + a[2], a[1] + a[3] / 2.0);
-                let (x1, y1) = (x - 0.15, y + h / 2.0);
-                dl.arrow(x0, y0, x1 - x0, y1 - y0, 0.09, if self.st[i] == 2 && self.st[f] != 1 { ACCENT_DIM } else { INK3 });
+                let spread = (rank as f32 - (ins.len() as f32 - 1.0) / 2.0) * ENTRY_STEP;
+                routes.push((f, i, route((a[0] + a[2], a[1] + a[3] / 2.0), xs, (node.place[0], node.place[1] + node.place[3] / 2.0 + spread))));
             }
         }
-        for (i, n) in p.nodes.iter().enumerate() {
-            let [x, y, w, h] = n.place;
-            let t = Target::Item(i, 0);
-            let hov = if ui.hover == Some(t) { F_HOVER } else { 0 } | if ui.pressed == Some(t) { F_PRESSED } else { 0 };
-            let built = self.st[i] == 2;
-            let hit = self.st[i] == 1;
-            let stale = n.tag != 0 && self.stale(i);
-            dl.rrect(n.place, 0.4, if built { ACCENT_TINT } else { PANEL_HI }, hov | if n.tag == 0 && self.ver[i] { F_SELECTED } else { 0 });
-            if hit {
-                dl.ring(n.place, 0.4, 0.1, ACCENT2);
-            } else if built {
-                dl.ring(n.place, 0.4, 0.1, ACCENT);
-            } else if next == Some(i) {
-                dl.ring(n.place, 0.4, 0.1, ACCENT);
-            } else if stale {
-                dl.ring(n.place, 0.4, 0.07, ACCENT_DIM);
+        for (_, _, pts) in &routes {
+            polyline(dl, pts, 1.0, EDGE);
+        }
+        for (f, i, pts) in &routes {
+            if changed[*f] && changed[*i] {
+                let t = ((self.edit_age - LEVEL_STEP * level[*f] as f32 - 0.05) / 0.3).clamp(0.0, 1.0);
+                if t > 0.0 {
+                    polyline(dl, pts, ease(t), ACCENT);
+                }
             }
-            let name = if self.ren[i] && !n.alt.is_empty() { &n.alt } else { &n.label };
-            dl.label(x + 0.5, y + h * 0.42, 0.7, if stale { w - 3.4 } else { w - 1.0 }, name, INK, 0);
-            let (word, tone) = if hit {
-                (p.hit.as_str(), ACCENT2)
-            } else if built {
-                (p.built.as_str(), ACCENT)
-            } else if stale {
-                (if self.store.binary_search(&self.cur[i]).is_ok() { p.hit.as_str() } else { p.built.as_str() }, INK3)
-            } else if n.tag == 0 && self.ver[i] {
-                ("edited", ACCENT)
+        }
+        let next = p.order.get(self.cursor).copied();
+        for (i, node) in p.nodes.iter().enumerate() {
+            let [x, y, w, _] = node.place;
+            let t = Target::Item(i, 0);
+            let hover = ui.hover == Some(t) || ui.pressed == Some(t);
+            let src = node.tag == 0;
+            let stale = !src && self.stale(i);
+            dl.rrect(node.place, NODE_R, if hover { NODE_HI } else { NODE }, 0);
+            // fill animation: rebuilt nodes fill amber after their step; an edited source tints
+            let settle = ease((self.age[i] / SETTLE_SPAN).min(1.0));
+            let built = self.st[i] == 2;
+            let edit_t = ease(((self.edit_age - if level[i] == 0 { 0.0 } else { LEVEL_STEP * level[i] as f32 }) / 0.35).clamp(0.0, 1.0));
+            let fill = if built { settle } else { 0.0 };
+            if built {
+                dl.rrect_a(node.place, NODE_R, ACCENT, fill);
+            } else if src && changed[i] {
+                dl.rrect_a(node.place, NODE_R, ACCENT_TINT, edit_t);
+            }
+            let ink_amber = built && fill > 0.5;
+            let name = if self.ren[i] && !node.alt.is_empty() { &node.alt } else { &node.label };
+            let (kx, ky) = (x + PAD, y + 1.5);
+            dl.label(x + PAD, y + 0.84, 0.7, w - 2.0 * PAD, name, if ink_amber { ACCENT_INK } else { INK }, 0);
+            let key_ink = if ink_amber { ACCENT_INK } else { INK2 };
+            let cur = short(self.cur[i]);
+            let moving = !stale && self.age[i] < SETTLE_SPAN && self.from[i] != self.cur[i];
+            if moving {
+                // a settled node: the new key slides in over the struck old one
+                let e = ease((self.age[i] / SETTLE_SPAN).min(1.0));
+                dl.label(kx + (1.0 - e) * KEY_GAP, ky, 0.62, 0.0, &cur, key_ink, F_MONO);
+            } else if stale || (src && changed[i]) {
+                let old = if stale { self.shown[i] } else { self.orig[i] };
+                let e = if stale { ease(((self.edit_age - LEVEL_STEP * level[i] as f32) / 0.35).clamp(0.0, 1.0)) } else { edit_t };
+                dl.label(kx, ky, 0.62, 0.0, &short(old), if e > 0.0 { INK3 } else { INK2 }, F_MONO);
+                dl.line_a(kx - 0.05, ky - 0.2, KEY_W * e + 0.1, 0.0, 0.05, INK3, e);
+                dl.label_a(kx + KEY_GAP, ky, 0.62, 0.0, &cur, ACCENT, F_MONO, e);
             } else {
-                ("", INK3)
-            };
-            // a settled word (cache hit, rebuilt, edited) sits on the short hash row; the prediction of a stale node sits beside its name (its hash row is the long `old -> new` form)
-            let word_y = if stale { y + h * 0.42 } else { y + h - 0.3 };
-            dl.label(x + w - 0.4, word_y, 0.6, 3.0, word, tone, ALIGN_RIGHT);
-            let hash = if stale { format!("{} → {}", short(self.shown[i]), short(self.cur[i])) } else { short(self.cur[i]) };
-            dl.label(x + 0.5, y + h - 0.3, 0.75, w - 1.0, &hash, if stale { INK3 } else if built { ACCENT } else { INK2 }, F_MONO);
+                dl.label(kx, ky, 0.62, 0.0, &cur, key_ink, F_MONO);
+            }
+            if self.st[i] == 1 {
+                let a = ease((self.age[i] / SETTLE_SPAN).min(1.0));
+                let (cx, cy) = (x + w - 1.35, y + 1.18);
+                dl.line_a(cx - 0.3, cy + 0.02, 0.22, 0.24, 0.07, INK2, a);
+                dl.line_a(cx - 0.08, cy + 0.26, 0.4, -0.5, 0.07, INK2, a);
+            }
+            if next == Some(i) && !built && self.st[i] == 0 && stale {
+                dl.dot(x + w - 1.0, y + 1.0, 0.3, ACCENT);
+            }
         }
     }
 
@@ -391,6 +514,12 @@ impl Core for Graph {
         self.shown = shown;
         self.store = store;
         self.recompute(&p);
+        let ver = std::mem::replace(&mut self.ver, vec![false; n]);
+        self.recompute(&p);
+        self.orig = self.cur.clone();
+        self.ver = ver;
+        self.recompute(&p);
+        self.settled();
         true
     }
 }

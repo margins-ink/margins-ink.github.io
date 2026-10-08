@@ -192,7 +192,7 @@ export const XD = {
 } as const;
 export const XSHAPE = { rrect: 0, circle: 1, line: 2, arrow: 3, ring: 4, dot: 5, label: 6, hatch: 7 } as const;
 /** Tones resolve to THEME slots in the reader; scripts name them as strings (`"panel"`). Order is the numeric id. */
-export const TONE_NAMES = ['panel', 'ink', 'ink2', 'ink3', 'accent', 'accent2', 'rule', 'ground', 'accentTint', 'panelHi', 'accentDim'] as const;
+export const TONE_NAMES = ['panel', 'ink', 'ink2', 'ink3', 'accent', 'accent2', 'rule', 'ground', 'accentTint', 'panelHi', 'accentDim', 'node', 'nodeHi', 'edge', 'accentInk'] as const;
 export type ToneName = (typeof TONE_NAMES)[number];
 /** XD.flags bits; the label alignment is `(flags >> 8) & 3`: 0 left, 1 centre, 2 right. */
 export const XFLAG = { hover: 1, pressed: 2, selected: 4, pending: 8, dim: 16, mono: 32, bold: 64 } as const;
