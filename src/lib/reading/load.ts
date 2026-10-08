@@ -8,7 +8,7 @@ interface IndexImage { id: number; tiers: { w: number; h: number; url: string }[
 interface IndexBin { file: string; bytes?: number; brotli?: number }
 interface IndexArticle {
 	slug: string; title: string; dek?: string; date?: string; hidden?: boolean;
-	fullWords?: number; briefWords?: number; wordsFull?: number; wordsBrief?: number; opensFull?: boolean; wdth?: number; wght?: number; refs?: { id: string; title: string; url: string }[];
+	fullWords?: number; briefWords?: number; wordsFull?: number; wordsBrief?: number; opensFull?: boolean; wdth?: number; wght?: number; refs?: { id: string; title: string; url: string }[]; links?: Record<string, { t: string; d: string }>;
 	bins: Partial<Record<(typeof CLASS_NAMES)[number], IndexBin>>;
 }
 export interface MagazineIndex { version: number; fonts: string; articles: IndexArticle[]; images: IndexImage[] }

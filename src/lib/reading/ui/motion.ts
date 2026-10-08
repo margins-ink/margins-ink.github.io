@@ -12,8 +12,8 @@ export const DUR = {
 	fast: 150,
 	/** ix SearchPalette `pop`: popovers and cards opening */
 	pop: 200,
-	/** ix syntax-tip-in (90 ms) and the hover wash fade */
-	tip: 90,
+	/** ix HoverWord .tip: opacity and 4 px slide, 150 ms. (The hover wash fade is `wash`.) */
+	tip: 150,
 	wash: 110,
 	/** hover-intent pauses before showing (ms): link card, code tip */
 	linkIntent: 150,

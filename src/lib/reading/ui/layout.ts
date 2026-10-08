@@ -1,5 +1,6 @@
 // Geometry of the GPU chrome (lane U2): state/input types and the pure layout of every widget at the three width classes.
 // No drawing here: widgets.ts turns these rects into overlays, glyphs and hit rects. All px are CSS px of the canvas.
+import type { TokenKind } from '../codetip';
 import type { Overlay } from '../page-api';
 import type { ScrollbarState, UiFont } from './types';
 
@@ -75,7 +76,7 @@ export function createChromeAnim(): ChromeAnim {
 }
 
 /** The code explanation tip (ix .syntax-tip): small mono box near the token. */
-export interface CodeTip { anchor: Rect; text: string }
+export interface CodeTip { anchor: Rect; kind: TokenKind; label: string; token: string; body: string; /** colour of the icon chip: the token's own syntax colour */ tint: RGB }
 
 /** What the link preview card shows (the root resolves it; chrome only lays out and draws). Empty `title` = lookup failed: host and URL only. */
 export interface LinkTip { anchor: Rect; host: string; url: string; title: string; description: string }
@@ -307,28 +308,45 @@ export function layoutLinkTip(view: { w: number; h: number }, tip: LinkTip, m: M
 
 // ---- code explanation tip ----
 
-export const CTIP = { size: 12.5, lh: 18, padX: 10, padY: 6, maxCh: 46, margin: 8, gap: 6, radius: 6 } as const;
-export interface CodeTipLayout { card: Rect; below: boolean; origin: { x: number; y: number }; lines: { x: number; y: number; text: string }[] }
+/** the raised surface shared by the code tip and the link card (ix HoverWord .tip: bg 82% over white 18%, 12 px radius, 1 px white hairline, 0 12 32 shadow) */
+export const SURFACE = { radius: 12, mix: 0.18 } as const;
+export const raised = (ground: RGB): RGB => [ground[0] * (1 - SURFACE.mix) + SURFACE.mix, ground[1] * (1 - SURFACE.mix) + SURFACE.mix, ground[2] * (1 - SURFACE.mix) + SURFACE.mix];
 
-/** Pure layout (ix syntax-tips.ts showTip): width up to 46ch (and the viewport less 16 px), centred on the token, clamped 8 px from the sides, above the token unless there is no room (then below). */
+export const CTIP = { body: 14, lh: 19.6, padX: 14, padY: 10, maxW: 280, margin: 8, gap: 8, chip: 20, chipGap: 8, tokSize: 12.5, tokPad: 7, labelSize: 12, headGap: 8, rise: 4 } as const;
+export interface CodeTipLayout {
+	card: Rect; below: boolean;
+	icon: Rect; tokenChip: Rect; token: { x: number; y: number; text: string }; label: { x: number; y: number; text: string } | null;
+	lines: { x: number; y: number; text: string }[];
+}
+
+/** Pure layout (ix HoverWord tip): up to 280 px wide (viewport less 16), header row (icon chip, token in a mono chip, kind label) then the sans explanation, centred on the token, clamped 8 px from the sides, above unless there is no room. */
 export function layoutCodeTip(view: { w: number; h: number }, tip: CodeTip, m: Measure): CodeTipLayout {
-	const ch = m('0', 'mono', CTIP.size);
-	const maxW = Math.min(CTIP.maxCh * ch + 2 * CTIP.padX, view.w - 2 * CTIP.margin);
+	const maxW = Math.min(CTIP.maxW, view.w - 2 * CTIP.margin);
 	const iw = maxW - 2 * CTIP.padX;
-	const lines = wrapLines(tip.text, 'mono', CTIP.size, iw, 8, m);
-	const textW = Math.max(...lines.map((t) => m(t, 'mono', CTIP.size)), 0);
-	const w = Math.min(maxW, textW + 2 * CTIP.padX);
-	const h = lines.length * CTIP.lh + 2 * CTIP.padY;
+	const lines = wrapLines(tip.body, 'sans', CTIP.body, iw, 10, m);
+	const tokW = m(tip.token, 'mono', CTIP.tokSize) + 2 * CTIP.tokPad;
+	const labW = m(tip.label, 'sans', CTIP.labelSize);
+	const headW = CTIP.chip + CTIP.chipGap + tokW + CTIP.chipGap + labW;
+	const textW = Math.max(...lines.map((t) => m(t, 'sans', CTIP.body)), 0);
+	const w = Math.min(maxW, Math.max(headW, textW, 0) + 2 * CTIP.padX);
+	const h = 2 * CTIP.padY + CTIP.chip + (lines.length ? CTIP.headGap + lines.length * CTIP.lh : 0);
 	const a = tip.anchor;
 	const x = Math.max(CTIP.margin, Math.min(view.w - CTIP.margin - w, a.x + a.w / 2 - w / 2));
 	let y = a.y - CTIP.gap - h;
 	let below = false;
 	if (y < BAR_H + CTIP.margin) { y = a.y + a.h + CTIP.gap; below = true; }
 	if (y + h > view.h - CTIP.margin) y = Math.max(BAR_H + CTIP.margin, view.h - CTIP.margin - h);
-	const card = { x, y, w, h };
+	const ix = x + CTIP.padX, iy = y + CTIP.padY;
+	const icon = { x: ix, y: iy, w: CTIP.chip, h: CTIP.chip };
+	const maxTok = Math.max(24, w - 2 * CTIP.padX - CTIP.chip - CTIP.chipGap);
+	const tokText = ellipsize(tip.token, 'mono', CTIP.tokSize, maxTok - 2 * CTIP.tokPad, m);
+	const tokenChip = { x: ix + CTIP.chip + CTIP.chipGap, y: iy, w: Math.min(tokW, maxTok), h: CTIP.chip };
+	const labX = tokenChip.x + tokenChip.w + CTIP.chipGap;
+	const label = labX + labW <= x + w - CTIP.padX + 0.5 ? { x: labX, y: iy + CTIP.chip / 2, text: tip.label } : null;
+	const by = iy + CTIP.chip + CTIP.headGap;
 	return {
-		card, below, origin: { x: Math.max(x + 8, Math.min(x + w - 8, a.x + a.w / 2)), y: below ? y : y + h },
-		lines: lines.map((t, i) => ({ x: x + CTIP.padX, y: y + CTIP.padY + i * CTIP.lh + CTIP.lh / 2, text: t }))
+		card: { x, y, w, h }, below, icon, tokenChip, token: { x: tokenChip.x + CTIP.tokPad, y: iy + CTIP.chip / 2, text: tokText }, label,
+		lines: lines.map((t, i) => ({ x: ix, y: by + i * CTIP.lh + CTIP.lh / 2, text: t }))
 	};
 }
 

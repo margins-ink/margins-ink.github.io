@@ -9,9 +9,10 @@
 import type { Overlay } from '../page-api';
 import type { ScrollbarFrame, ScrollbarInput, ScrollbarState, Shaped, UiFont, UiGlyph } from './types';
 import { hitChrome } from './hit';
+import { KIND_ICONS } from './kindicon';
 import { DUR, ease } from './motion';
 import {
-	BAR_H, BTN, TIP, createChromeAnim, ellipsize, layoutAa, layoutBar, layoutCite, layoutCodeCorner, layoutFind, layoutLinkTip, layoutCodeTip, CTIP,
+	BAR_H, BTN, TIP, createChromeAnim, ellipsize, layoutAa, layoutBar, layoutCite, layoutCodeCorner, layoutFind, layoutLinkTip, layoutCodeTip, CTIP, SURFACE, raised,
 	layoutLightbox, layoutToast, scrollbarHit,
 	type ChromeInput, type ChromeState, type HitRect, type KeyEvent, type Measure, type Rect, type RGB
 } from './layout';
@@ -102,6 +103,19 @@ class Out {
 		if (hdr && hdr !== 1) o.hdr = hdr;
 		this.overlays.push(o);
 		return this.overlays.length - 1;
+	}
+	/** a stroked line (round caps), a filled dot or a rounded-rect outline: the pieces of a vector icon */
+	stroke(x1: number, y1: number, x2: number, y2: number, w: number, c: RGB, a: number) {
+		if (a < 0.004) return;
+		this.overlays.push({ x: x1, y: y1, w: x2 - x1, h: y2 - y1, radius: 0, r: c[0], g: c[1], b: c[2], a: Math.min(1, a), shape: 2, width: w });
+	}
+	dot(cx: number, cy: number, r: number, c: RGB, a: number) {
+		if (a < 0.004) return;
+		this.overlays.push({ x: cx - r, y: cy - r, w: 2 * r, h: 2 * r, radius: 0, r: c[0], g: c[1], b: c[2], a: Math.min(1, a), shape: 1 });
+	}
+	outline(r: Rect, radius: number, w: number, c: RGB, a: number) {
+		if (a < 0.004) return;
+		this.overlays.push({ x: r.x, y: r.y, w: r.w, h: r.h, radius, r: c[0], g: c[1], b: c[2], a: Math.min(1, a), shape: 4, width: w });
 	}
 	/** a 4-bar ring around r (outset o, thickness t) */
 	ring(r: Rect, o: number, t: number, c: RGB, a: number, hdr?: number) {
@@ -195,7 +209,7 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 	if (s.codeWash) a.lastWash = s.codeWash;
 	a.washT = track('wash', s.codeWash ? 1 : 0, DUR.wash);
 	if (s.codeTip) a.lastCTip = s.codeTip;
-	a.cTipT = track('ctip', s.codeTip ? 1 : 0, s.codeTip ? DUR.tip : DUR.tip);
+	a.cTipT = track('ctip', s.codeTip ? 1 : 0, DUR.tip);
 	if (s.popover) a.lastPop = s.popover;
 	if (s.lightbox) a.lastLb = s.lightbox;
 	a.aaT = track('aa', s.aa.open ? 1 : 0, s.aa.open ? DUR.pop : DUR.fast);
@@ -312,7 +326,7 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 		const c = R(L.card);
 		for (const [grow, dy, al] of [[14, 10, 0.1], [8, 6, 0.14], [3, 2, 0.2]] as const) out.box({ x: c.x - grow, y: c.y - grow + dy, w: c.w + 2 * grow, h: c.h + 2 * grow }, 12 + grow, [0, 0, 0], al * t);
 		out.box({ x: c.x - 1, y: c.y - 1, w: c.w + 2, h: c.h + 2 }, 13, th.ink, 0.12 * t);
-		out.box(c, 12, th.card, t);
+		out.box(c, 12, raised(th.ground), t);
 		const circ = R(L.circle);
 		out.box(circ, circ.w / 2, th.ink, 0.1 * t);
 		out.text(L.letter, circ.x + circ.w / 2, circ.y + circ.h / 2, 'sans', 12 * k, th.ink, t, { align: 'c' });
@@ -328,13 +342,26 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 		const t = a.cTipT;
 		const live = s.codeTip ?? a.lastCTip;
 		const L = layoutCodeTip(s.view, { ...a.lastCTip, anchor: live.anchor }, m);
-		const k = 0.98 + 0.02 * t;
-		const ox = L.origin.x, oy = L.origin.y;
-		const X = (x: number) => ox + (x - ox) * k, Y = (y: number) => oy + (y - oy) * k;
-		const c = { x: X(L.card.x), y: Y(L.card.y), w: L.card.w * k, h: L.card.h * k };
-		out.box({ x: c.x - 1, y: c.y - 1, w: c.w + 2, h: c.h + 2 }, CTIP.radius + 1, th.ink, 0.12 * t);
-		out.box(c, CTIP.radius, th.card, t);
-		for (const ln of L.lines) out.text(ln.text, X(ln.x), Y(ln.y), 'mono', CTIP.size * k, th.ink2, t);
+		const tip = a.lastCTip;
+		// ix HoverWord: opacity and a 4 px slide toward rest (from the anchor's side), 150 ms
+		const dy = (L.below ? -1 : 1) * CTIP.rise * (1 - t);
+		const R = (r: Rect): Rect => ({ x: r.x, y: r.y + dy, w: r.w, h: r.h });
+		const c = R(L.card);
+		for (const [grow, sy, al] of [[14, 10, 0.1], [8, 6, 0.14], [3, 2, 0.2]] as const) out.box({ x: c.x - grow, y: c.y - grow + sy, w: c.w + 2 * grow, h: c.h + 2 * grow }, SURFACE.radius + grow, [0, 0, 0], al * t);
+		out.box({ x: c.x - 1, y: c.y - 1, w: c.w + 2, h: c.h + 2 }, SURFACE.radius + 1, th.ink, 0.12 * t);
+		out.box(c, SURFACE.radius, raised(th.ground), t);
+		const ic = R(L.icon);
+		out.box(ic, 6, tip.tint, 0.22 * t);
+		const u = (px: number, py: number): [number, number] => [ic.x + px * ic.w, ic.y + py * ic.h];
+		for (const p of KIND_ICONS[tip.kind]) {
+			if (p.t === 'line') { const [x1, y1] = u(p.x1, p.y1), [x2, y2] = u(p.x2, p.y2); out.stroke(x1, y1, x2, y2, 1.5, tip.tint, t); }
+			else if (p.t === 'dot') { const [x, y] = u(p.x, p.y); out.dot(x, y, p.r * ic.w, tip.tint, t); }
+			else { const [x, y] = u(p.x, p.y); out.outline({ x, y, w: p.w * ic.w, h: p.h * ic.h }, p.r * ic.w, 1.5, tip.tint, t); }
+		}
+		out.box(R(L.tokenChip), 6, th.ink, 0.1 * t);
+		out.text(L.token.text, L.token.x, L.token.y + dy, 'mono', CTIP.tokSize, th.ink, t);
+		if (L.label) out.text(L.label.text, L.label.x, L.label.y + dy, 'sans', CTIP.labelSize, th.ink3, t);
+		for (const ln of L.lines) out.text(ln.text, ln.x, ln.y + dy, 'sans', CTIP.body, th.ink, t);
 	}
 
 	// ---- Aa popover ----

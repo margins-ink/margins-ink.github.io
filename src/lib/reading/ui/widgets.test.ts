@@ -383,7 +383,7 @@ describe('link preview card', () => {
 
 describe('code explanation tip', () => {
 	const view = { w: 1000, h: 800 };
-	const tip = (anchor: Rect, text = 'a short explanation.') => ({ anchor, text });
+	const tip = (anchor: Rect, body = 'a short explanation.', token = 'let') => ({ anchor, kind: 'keyword' as const, label: 'keyword', token, body, tint: [1, 0.4, 0.4] as [number, number, number] });
 	test('above the token, centred, clamped 8 px from the sides', () => {
 		const a = layoutCodeTip(view, tip({ x: 480, y: 400, w: 40, h: 18 }), m);
 		expect(a.below).toBe(false);
@@ -393,16 +393,20 @@ describe('code explanation tip', () => {
 		const r = layoutCodeTip(view, tip({ x: 990, y: 400, w: 8, h: 18 }), m);
 		expect(r.card.x + r.card.w).toBe(view.w - CTIP.margin);
 	});
-	test('flips below near the top bar and wraps to 46ch', () => {
+	test('flips below near the top bar, wraps in sans to 280 px with a header row', () => {
 		const long = 'word '.repeat(60).trim();
 		const b = layoutCodeTip(view, tip({ x: 480, y: 60, w: 40, h: 18 }, long), m);
 		expect(b.below).toBe(true);
 		expect(b.card.y).toBeGreaterThanOrEqual(78 + CTIP.gap - 1e-6);
-		expect(b.card.w).toBeLessThanOrEqual(CTIP.maxCh * m('0', 'mono', CTIP.size) + 2 * CTIP.padX + 1e-6);
+		expect(b.card.w).toBeLessThanOrEqual(CTIP.maxW + 1e-6);
+		expect(b.icon.w).toBe(CTIP.chip);
+		expect(b.tokenChip.x).toBeGreaterThan(b.icon.x + b.icon.w);
+		expect(b.lines[0].y).toBeGreaterThan(b.icon.y + b.icon.h);
+		expect(b.label).not.toBeNull();
 		expect(b.lines.length).toBeGreaterThan(1);
 		expect(layoutCodeTip({ w: 300, h: 700 }, tip({ x: 100, y: 400, w: 40, h: 18 }, long), m).card.w).toBeLessThanOrEqual(284);
 	});
-	test('wash fades in over 110 ms and the tip over 90 ms, with the ix ease; hides again', () => {
+	test('wash fades in over 110 ms and the tip over 150 ms, with the ix ease; hides again', () => {
 		const s = state(1000, 800, { reduced: false, codeWash: { x: 400, y: 300, w: 60, h: 20 }, codeTip: tip({ x: 400, y: 300, w: 60, h: 20 }) });
 		const wash = (o: ChromeOut) => o.overlays.find((v) => v.w === 60 && v.h === 20 && v.radius === 3);
 		const first = frame(s, idle, 16);
@@ -416,6 +420,6 @@ describe('code explanation tip', () => {
 		s.codeWash = null; s.codeTip = null;
 		for (let i = 0; i < 12; i++) o = frame(s, idle, 16);
 		expect(wash(o)).toBeUndefined();
-		expect(o.overlays.length).toBe(shown - 3); // wash, hairline and card are gone
+		expect(o.overlays.length).toBeLessThan(shown - 3); // wash, shadow, hairline, card, chips and icon strokes are gone
 	});
 });

@@ -60,3 +60,16 @@ describe('code tips', () => {
 		expect(codeTipOf(t)).toBeNull();
 	});
 });
+
+describe('tip header', () => {
+	test('kind from the exact word, else the palette family; body has no role prefix or backticks', async () => {
+		const { kindOf, tipBody, KIND_LABEL } = await import('./codetip');
+		expect(kindOf('let', '', 0)).toBe('keyword');
+		expect(kindOf('readFile', 'builtins.readFile', 0)).toBe('builtin');
+		expect(kindOf('runCommand', 'pkgs.runCommand', 0)).toBe('function');
+		expect(kindOf('$out', '', 0)).toBe('variable');
+		expect(KIND_LABEL.builtin).toBe('built-in');
+		expect(tipBody(ROLES.keyword)).toBe('a fixed word of the language. the parser keys on it to know what follows.');
+		expect(tipBody('shorthand: `inherit schema;` means `schema = schema;`.')).toBe('shorthand: inherit schema; means schema = schema;.');
+	});
+});

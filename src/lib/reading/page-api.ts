@@ -7,7 +7,7 @@ import type { UiGlyph } from './ui/types';
 /** A rounded rectangle in CSS pixels of the canvas, premultiplied on output. rgba are straight, 0..1; hdr multiplies rgb above 1 on an extended-range canvas. */
 export interface Overlay {
 	x: number; y: number; w: number; h: number; radius: number; r: number; g: number; b: number; a: number; hdr?: number;
-	/** shape kind: 0 rounded rect (default), 1 circle (the box's inscribed), 2 line, 3 arrow, 4 ring, 6 hatch, 7 spot (soft light pool inscribed in the box), 8 triangle (corners (x, y), (w, h) absolute px, (radius, width); file icons). line and arrow: (x, y) start and (w, h) delta in px. */
+	/** shape kind: 0 rounded rect (default), 1 circle (the box's inscribed), 2 line, 3 arrow, 4 ring, 6 hatch, 7 spot (soft light pool inscribed in the box), 9 selection row (rrect whose `width` bits 1 2 4 8 name the square corners tl tr br bl), 10 its light sweep (width = bits + 16 * phase * 1000), 8 triangle (corners (x, y), (w, h) absolute px, (radius, width); file icons). line and arrow: (x, y) start and (w, h) delta in px. */
 	shape?: number;
 	/** px: stroke width of line, arrow and ring; stripe pitch of hatch */
 	width?: number;
@@ -56,6 +56,8 @@ export interface PageFrame {
 	/** per-block horizontal scroll in CSS px (positive = content moved left), sparse; only BlockKind.code blocks use it: their items are shifted by -dx and
 	 *  scissored to the block box, except the panel background (the first RectKind.codeBg rect item of the block), which stays put */
 	blockDx?: Map<number, number>;
+	/** copy flash: glyph items [first, end) scale by `scale` about (cx, cy) document em as one rigid body (the pulse of the copied text) */
+	flash?: { first: number; end: number; cx: number; cy: number; scale: number };
 	/** UI rectangles (progress rail, focus ring, hover frame, copy flash, selection plates), drawn over the page */
 	overlays: Overlay[];
 	/** exhibits on screen: scissored to `clip`, drawn after the page art and before the chrome `overlays` (their items share the overlay and UI buffers after the chrome ones) */

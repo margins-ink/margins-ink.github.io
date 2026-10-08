@@ -133,3 +133,50 @@ export function codeTokenAt(m: ReadingModel, li: number, j: number, x: number): 
 
 /** tip for a token: none for inline code and for unknown colours */
 export const codeTipOf = (t: CodeToken): string | null => (t.inline ? null : tipText(t.text, t.dotted, t.colour));
+
+// ---- the tip's header: what kind of token it is (IntelliJ-style chip) ----
+
+export type TokenKind = 'function' | 'keyword' | 'string' | 'number' | 'variable' | 'comment' | 'operator' | 'type' | 'attribute' | 'builtin' | 'punct';
+
+export const KIND_LABEL: Record<TokenKind, string> = {
+	function: 'function', keyword: 'keyword', string: 'string', number: 'number', variable: 'variable', comment: 'comment',
+	operator: 'operator', type: 'type', attribute: 'attribute', builtin: 'built-in', punct: 'punctuation'
+};
+
+/** exact words whose kind the colour family cannot tell (shell commands are built-ins of the machine, not of the language) */
+const WORD_KIND: Record<string, TokenKind> = {
+	let: 'keyword', in: 'keyword', inherit: 'keyword', builtins: 'builtin', 'builtins.readFile': 'builtin', 'builtins.fromJSON': 'builtin',
+	runCommand: 'function', buildPackage: 'function', $out: 'variable', '&&': 'operator',
+	ix: 'builtin', mkdir: 'builtin', cd: 'builtin', git: 'builtin', curl: 'builtin', sh: 'builtin'
+};
+
+/** the token's kind: an exact word first, else its palette slot (split by text like `roleOf`) */
+export function kindOf(token: string, dotted: string, colour: number): TokenKind {
+	const dw = dotted && token === dotted.slice(dotted.lastIndexOf('.') + 1) ? WORD_KIND[dotted] : undefined;
+	const w = dw ?? WORD_KIND[token];
+	if (w) return w;
+	switch (slotName(colour)) {
+		case 'keyword': return 'keyword';
+		case 'function': return 'function';
+		case 'string': return 'string';
+		case 'comment': return 'comment';
+		case 'type': case 'constant': case 'property': return /^[A-Z]/.test(token) ? 'type' : /^(true|false|null)$/.test(token) ? 'keyword' : 'builtin';
+		case 'number': case 'attribute': return /^[\d_.xXa-fA-F]+$/.test(token) && /\d/.test(token) ? 'number' : 'attribute';
+		case 'operator': case 'variable': return /^[A-Za-z_$]/.test(token) ? 'variable' : /^[{}()[\],;:.]+$/.test(token) ? 'punct' : 'operator';
+		default: return 'variable';
+	}
+}
+
+export interface CodeTipInfo { kind: TokenKind; label: string; token: string; body: string; /** palette slot of the token (the chip takes its colour) */ colour: number }
+
+/** the sans body of a tip: the role prefix ("keyword: ") is the header's job and backticks are mono markup, neither is shown */
+export const tipBody = (text: string): string => (Object.values(ROLES).includes(text) ? text.replace(/^[a-z][a-z ()/]*: /, '') : text).replace(/`/g, '');
+
+/** header and body for a token; null for inline code and when nothing is known */
+export function codeTipInfo(t: CodeToken): CodeTipInfo | null {
+	const text = codeTipOf(t);
+	if (text === null) return null;
+	const kind = kindOf(t.text, t.dotted, t.colour);
+	const dotted = t.dotted && t.text === t.dotted.slice(t.dotted.lastIndexOf('.') + 1) && WORDS[t.dotted] ? t.dotted : t.text;
+	return { kind, label: KIND_LABEL[kind], token: dotted, body: tipBody(text), colour: t.colour };
+}

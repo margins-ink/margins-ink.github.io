@@ -442,3 +442,9 @@ Motion (ui/motion.ts, from ix site.css `--ease: cubic-bezier(0.2, 0.7, 0.2, 1)`,
 | code token wash | 110 | 110 |
 | code tip (0.98 to 1) | 90 | 90 |
 | hover intent before showing | link 150, code 250 | |
+
+## 2026-10-07 pass 6: copy acknowledgment and the code tip as ix's tooltip
+
+Copy: Cmd/Ctrl+C on a selection plays ix's copy flash (packages/web/src/lib/site/copy-flash.ts), ported in `selshape.ts` (pure: `joinRows`, `rowRadii`, `pulse`, `shapeRows`; tests in `selshape.test.ts`). The resting drag selection and the flash are one shape: rows joined gap-free (a paragraph break stays a separate shape), corners facing a neighbouring row square, radius 4, colour rgb(10 132 255 / 0.30) (the OS selection blue, the one exception to the monochrome palette). On copy the shape and the copied glyphs grow 2.5% about the selection centre on the ix pulse curve over 300 ms and a white light sweeps left to right (opacity sin(pi * phase) * 0.12, rows entering 40 ms apart over 110 ms), then the resting shape remains (`keep`). ix's `keep` mode skips the row stagger of the shape itself (the selection is already on screen), so only the light is staggered. Reduced motion: no flash. The overlay shapes 9 (row with per-corner square mask) and 10 (its light) are in `page.wgsl.ts`; glyph items [v4.z, v4.w) scale about (v5.xy) by v5.z in `vs_text`/`fs_text` (`PageFrame.flash`), so the glyphs are scaled by the page pass itself, not redrawn. Known edge: a horizontally scrolled code block scales about the unscrolled centre (off by the scroll, at most 2.5% of it).
+
+Tip: the code token tip is HoverWord's surface: ground 82% over white, 12 px radius, 1 px white hairline at 12%, 0 12 32 shadow, sans 14 / 1.4, padding 10 14, max 280, opacity and a 4 px slide over 150 ms. Header row: icon chip (token's own syntax colour at 22%, vector icon per kind from `ui/kindicon.ts`), the token in a mono chip, the kind label; body in sans. The link card uses the same surface (`raised`).

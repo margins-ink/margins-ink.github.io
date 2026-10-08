@@ -686,8 +686,8 @@ ${PAGE_EVAL_WGSL}
 //   v1 = (css x of doc x = 0, css y of doc y = 0 at this frame (scroll applied), fold clip y em, fold fade em)
 //   v2 = (em per device px, canvas 1 = 8 bit | 2 = extended float16 (both gamma encoded; 2 skips the dither), hdr cap, time)
 //   v3 = ground rect (x0 y0 x1 y1 css px)
-//   v4 = (ground corner radius css px, ground alpha, unused, unused)
-//   v5 = unused
+//   v4 = (ground corner radius css px, ground alpha, copy-flash first glyph, copy-flash end glyph (exclusive))
+//   v5 = (copy-flash centre x em, centre y em, copy-flash scale (0 = 1), unused): glyphs [v4.z, v4.w) scale rigidly about the centre
 struct FrameU { v0: vec4f, v1: vec4f, v2: vec4f, v3: vec4f, v4: vec4f, v5: vec4f };
 // per draw, dynamic offset: first item of the run, block opacity, block dy and dx in css px (dx > 0 moves the content left)
 struct SegU { first: u32, pad0: u32, alpha: f32, dy: f32, dx: f32, pad1: f32, pad2: f32, pad3: f32 };
@@ -720,6 +720,11 @@ struct TOut {
   @location(0) @interpolate(flat) it: vec2u,
   @location(1) @interpolate(flat) ad: vec3f,
 };
+
+// the copy flash: glyph items [v4.z, v4.w) are scaled by v5.z about (v5.xy) (document em), as one rigid body with the selection shape
+fn mg_flashed(ix: u32) -> bool {
+  return fu.v5.z > 0.0 && fu.v5.z != 1.0 && f32(ix) >= fu.v4.z && f32(ix) < fu.v4.w;
+}
 
 @vertex fn vs_text(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> TOut {
   var o: TOut;
@@ -754,6 +759,10 @@ struct TOut {
   } else {
     ok = false;
   }
+  if (ty == 0u && mg_flashed(ix)) {
+    lo = fu.v5.xy + (lo - fu.v5.xy) * fu.v5.z;
+    hi = fu.v5.xy + (hi - fu.v5.xy) * fu.v5.z;
+  }
   let c = vec2f(f32(vi & 1u), f32(vi >> 1u));
   o.pos = select(vec4f(-2.0, -2.0, 0.0, 1.0), pg_clip(pg_px(mix(lo, hi, c), sg.dy, sg.dx)), ok);
   o.it = vec2u(ty, ix);
@@ -774,7 +783,10 @@ fn mg_snap(ix: u32, dydx: vec2f) -> vec2f {
   let p = pg_doc(in.pos.xy, in.ad.y, in.ad.z);
   let fw = fu.v2.x;
   var c = vec4f(0.0);
-  if (in.it.x == 0u) { c = mg_glyph(in.it.y, p - mg_snap(in.it.y, in.ad.yz) * fw, fw); }
+  if (in.it.x == 0u) {
+    if (mg_flashed(in.it.y)) { c = mg_glyph(in.it.y, fu.v5.xy + (p - fu.v5.xy) / fu.v5.z, fw / fu.v5.z); }
+    else { c = mg_glyph(in.it.y, p - mg_snap(in.it.y, in.ad.yz) * fw, fw); }
+  }
   else if (in.it.x == 1u) { c = mg_rect(in.it.y, p, fw); }
   else { c = mg_image(in.it.y, p, fw); }
   let a = c.a * in.ad.x * pg_fold(p.y);
@@ -977,6 +989,21 @@ fn pg_seg_sd(p: vec2f, a: vec2f, b: vec2f) -> f32 {
     let d = saturate(1.0 - dot(q, q));
     sd = -1.0;
     amul = d * d;
+  } else if (kind == 9u || kind == 10u) {
+    // selection shape row (9) and its sweeping light (10): rounded rect (k.x radius) whose corners facing a neighbouring row are square
+    // (bits of k.w & 15: 1 top-left, 2 top-right, 4 bottom-right, 8 bottom-left); the light's k.w also holds 16 * phase * 1000
+    let wi = u32(k.w);
+    let mask = wi & 15u;
+    let right = css.x > r.x + 0.5 * r.z;
+    let low = css.y > r.y + 0.5 * r.w;
+    let bit = select(select(1u, 8u, low), select(2u, 4u, low), right);
+    sd = pg_rrect_sd(css, r.xy, r.xy + r.zw, select(k.x, 0.0, (mask & bit) != 0u));
+    if (kind == 10u) {
+      let phase = f32(wi >> 4u) / 1000.0;
+      let band = max(12.0, r.z * 0.26);
+      let centre = -band + (r.z + 2.0 * band) * phase;
+      amul = saturate(1.0 - abs(css.x - r.x - centre) / band);
+    }
   } else {
     sd = pg_rrect_sd(css, r.xy, r.xy + r.zw, select(k.x, 0.5 * min(r.z, r.w), kind == 1u));
     if (kind == 6u) {

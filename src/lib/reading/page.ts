@@ -137,8 +137,8 @@ export function packFrame(f: PageFrame, canvasW: number, extended: boolean, hdrC
 		f.originX, f.originY - f.scrollPx, f.foldClipEm, f.foldFadeEm,
 		1 / (f.emPx * s), extended ? 2 : 1, hdrCap, f.time,
 		f.ground.x0, f.ground.y0, f.ground.x1, f.ground.y1,
-		f.ground.radius, f.groundA, 0, 0,
-		0, 0, 0, 0
+		f.ground.radius, f.groundA, f.flash?.first ?? 0, f.flash?.end ?? 0,
+		f.flash?.cx ?? 0, f.flash?.cy ?? 0, f.flash?.scale ?? 0, 0
 	]);
 	return out;
 }

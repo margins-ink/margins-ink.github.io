@@ -16,16 +16,17 @@ import { createScrollState, layoutToDocY, readHistoryState, type SavedState, typ
 import { attachScroll, pointerWord } from './input';
 import { createExhibitDrawer, createRouter, evalTimelineChannels, exhibitId, exhibitSource, keyMods, loadExhibits, mappingOf, routeKey, toLocal, xkeyOf, type RouteResult } from './exhibit';
 import { fromBlob, keepExhibitFragment, parseExhibitFragment, setExhibitFragment, toBlob } from './exhibit-fragment';
-import { THEME } from './theme';
+import { THEME, SYNTAX_ORDER } from './theme';
 import { codeText, imageAlt } from './modeltext';
 import { hitTest, caretAt, type Hit, type ViewOpts } from './hit';
+import { joinRows, shapeRows, sweepWidth, PULSE_MS, SELECTION_RGB, type Row } from './selshape';
 import { press, dragTo, selectAll, selectionRects, copyText, selEmpty, selLo, selHi, type Gesture, type Sel } from './select';
 import { findInModel, nextHit, prevHit, hitFrom, rangesToRects, type FindHit } from './find';
 import { buildChrome, createChromeAnim } from './ui/widgets';
 import { DUR } from './ui/motion';
 import { hitChrome } from './ui/hit';
 import { linkTipContent } from './linktip';
-import { codeTipOf, codeTokenAt, type CodeToken } from './codetip';
+import { codeTipOf, codeTipInfo, codeTokenAt, type CodeToken } from './codetip';
 import type { ChromeState, ChromeInput, HitRect, KeyEvent, Rect, FindState, CodeBlockInfo, ToastInfo } from './ui/layout';
 import { newScrollbar, scrollbarFrame, scrollbarDragStart, scrollbarDragTo, scrollbarTrackClick } from './ui/scrollbar';
 import { loadUiTables, setUiTables, shapeUi } from './ui/text';
@@ -160,6 +161,8 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	const toasts: ToastInfo[] = [];
 	let toastId = 0;
 	const copyFlash: Record<number, number> = {};
+	/** the copy acknowledgment in progress (ix copy-flash): the selection it covers and when it started */
+	let flash: { t0: number; lo: number; hi: number } | null = null;
 	let pendingKeys: KeyEvent[] = [];
 	let lastChromeHits: HitRect[] = [];
 	let chromeCursor = '';
@@ -185,12 +188,13 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	const filmOut: FilmOut = { overlays, uiText: [] as UiGlyph[], exhibits: [], cursor: null, animating: false };
 	const swallowed = (e: Event): boolean => routed !== null && routed.e === e && routed.r.swallow;
 
-	const ov = (x: number, y: number, w: number, h: number, radius: number, r: number, g: number, b: number, a: number, hdr?: number): void => {
+	const ov = (x: number, y: number, w: number, h: number, radius: number, r: number, g: number, b: number, a: number, hdr?: number): Overlay => {
 		let o = pool[poolN];
 		if (!o) pool[poolN] = o = { x: 0, y: 0, w: 0, h: 0, radius: 0, r: 0, g: 0, b: 0, a: 0 };
 		poolN++;
 		o.x = x; o.y = y; o.w = w; o.h = h; o.radius = radius; o.r = r; o.g = g; o.b = b; o.a = a; o.hdr = hdr;
 		overlays.push(o);
+		return o;
 	};
 
 	// ---- geometry ----
@@ -511,7 +515,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			const y0 = layoutYPx(t.base - 0.95 * t.size), y1 = layoutYPx(t.base + 0.3 * t.size);
 			return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 		})();
-		const codeTipText = codeTok && codeTipOn ? codeTipOf(codeTok) : null;
+		const codeTipInfo_ = codeTok && codeTipOn ? codeTipInfo(codeTok) : null;
 		const col = originX + m.docX0 * emPx;
 		const state: ChromeState = {
 			theme: { ground: toRgb(theme.surface.ground), surface: toRgb(theme.surface.code), card: toRgb(theme.surface.card), popover: toRgb(theme.surface.popover), ink: toRgb(theme.text.primary), ink2: toRgb(theme.text.secondary), ink3: toRgb(theme.text.tertiary), ink4: toRgb(theme.ink4), accent: toRgb(theme.accent) },
@@ -527,7 +531,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			aa: { open: aaOpen, step: Math.max(0, scaleSteps.findIndex((s) => s === scale)), steps: scaleSteps.length, hasFold: m.foldH > 0, alwaysFull: false },
 			popover: popover && popAnchor ? { ref: popover.ref, anchor: popAnchor } : null,
 			linkTip: tipContent && tipRect ? { anchor: tipRect, ...tipContent } : null,
-			codeWash: codeRect, codeTip: codeRect && codeTipText ? { anchor: codeRect, text: codeTipText } : null,
+			codeWash: codeRect, codeTip: codeRect && codeTipInfo_ ? { anchor: codeRect, kind: codeTipInfo_.kind, label: codeTipInfo_.label, token: codeTipInfo_.token, body: codeTipInfo_.body, tint: toRgb(theme.syntax[SYNTAX_ORDER[codeTipInfo_.colour - 20] ?? 'variable']) } : null,
 			lightbox: lbSrc,
 			find,
 			copyFlash, toasts,
@@ -574,6 +578,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	function copySelection() {
 		if (!model || selEmpty(sel)) return false;
 		const text = copyText(model, sel!, { clipEm: clipEm() });
+		if (!reduced) { flash = { t0: performance.now(), lo: selLo(sel!), hi: selHi(sel!) }; needDraw = true; }
 		void copyToClipboard(text).then((ok) => toast(ok ? 'Copied' : 'Copy failed'));
 		return true;
 	}
@@ -1271,7 +1276,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		const scrolling = st[RD.scrollMode] !== SCROLL_MODE.idle;
 		const washing = washBlock >= 0 && now - washT0 < 1200;
 		if (!washing) washBlock = -1;
-		const dirty = st[RD.dirty] !== 0 || animating || needDraw || firstDraw || lastY !== y || scrolling || chromeAnimating || washing || toasts.length > 0;
+		const dirty = st[RD.dirty] !== 0 || animating || needDraw || firstDraw || lastY !== y || scrolling || chromeAnimating || washing || flash !== null || toasts.length > 0;
 		lastY = y;
 		if (!dirty) { counters.skipped++; return; }
 
@@ -1287,7 +1292,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		f.foldClipEm = fclip; f.hdrGain = hdrGain;
 		f.groundA = mode === 'only' ? 1 : 0.92;
 		f.ground.x0 = 0; f.ground.y0 = 0; f.ground.x1 = viewW; f.ground.y1 = viewH; f.ground.radius = 0;
-		f.clip = undefined; f.only = undefined; f.exhibits = undefined;
+		f.clip = undefined; f.only = undefined; f.exhibits = undefined; f.flash = undefined;
 		f.time = now / 1000; f.dirty = true;
 		for (const b of codeBlocks) { const dx = codeDx.get(b); if (dx) blockDx.set(b, dx * emPx); }
 
@@ -1295,16 +1300,35 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		const g = hdrGain > 1 ? hdrGain : undefined;
 		const vo = viewOpts();
 
-		// selection plates
+		// selection shape: one continuous rounded shape (rows joined, corners facing a neighbour square), at rest and during the copy flash
 		if (sel && !selEmpty(sel)) {
-			const sc = theme.selection;
+			const frags: Row[] = [];
+			let g0 = Infinity, g1 = -1;
+			const lo = selLo(sel), hi = selHi(sel);
 			for (const r of selectionRects(m, sel, vo)) {
 				const x0 = docXPx(r.x0), y0 = r.y0 * emPx - y, x1 = docXPx(r.x1), y1 = r.y1 * emPx - y;
 				if (y1 < 0 || y0 > viewH) continue;
-				ov(x0, y0, x1 - x0, y1 - y0, 2, ar, ag, ab, 0.30);
-				void sc;
+				frags.push({ left: x0, top: y0, right: x1, bottom: y1 });
+				const L = m.lines[r.line];
+				for (let gi = L.firstGlyph; gi < L.firstGlyph + L.glyphCount; gi++) {
+					const co = m.glyphs[gi].charOffset;
+					if (co >= lo && co < hi) { g0 = Math.min(g0, gi); g1 = Math.max(g1, gi); }
+				}
 			}
-		}
+			const rowH = frags.length ? frags[0].bottom - frags[0].top : 0;
+			const rows = joinRows(frags, rowH * 0.35, dpr);
+			const ms = flash && flash.lo === lo && flash.hi === hi ? now - flash.t0 : -1;
+			if (flash && (ms < 0 || ms >= PULSE_MS || reduced)) flash = null;
+			const shape = shapeRows(rows, ms, reduced);
+			for (const s of shape.rows) {
+				const o = ov(s.x, s.y, s.w, s.h, s.radius, SELECTION_RGB[0], SELECTION_RGB[1], SELECTION_RGB[2], s.alpha);
+				o.shape = s.sweep ? 10 : 9;
+				o.width = s.sweep ? sweepWidth(s.mask, s.phase) : s.mask;
+			}
+			if (shape.scale !== 1 && g1 >= 0) {
+				f.flash = { first: g0, end: g1 + 1, cx: (shape.bounds.cx - originX) / emPx, cy: (shape.bounds.cy + y) / emPx, scale: shape.scale };
+			}
+		} else flash = null;
 		// find plates
 		if (find.open && findHits.length) {
 			const vis = findHits.map((h, i) => ({ h, i })).filter(({ h }) => !h.inFold || foldExpanded);
@@ -1363,7 +1387,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		counters.draws++;
 		rd.ackDirty();
 		firstDraw = false;
-		needDraw = animating || chromeAnimating || washing;
+		needDraw = animating || chromeAnimating || washing || flash !== null;
 	}
 
 	// ---- mount ----
