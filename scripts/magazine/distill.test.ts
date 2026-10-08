@@ -5,8 +5,6 @@ import {
 	checkDistill, countWords, lintDistill, normalise, parseDistill, parsePost, postSha, reviewGate, DistillError, type DistillBlock
 } from './distill';
 
-const IFD = path.resolve(import.meta.dir, '../../src/routes/(site)/thoughts/ifd/+page.svx');
-const ifdSource = () => fs.readFileSync(IFD, 'utf8');
 
 const BODY = `
 # Title here
@@ -159,33 +157,5 @@ describe('review gate', () => {
 		const edited = checkDistill(src.replace('SHA', sha).replace('body', 'body changed'), 'x', 'production');
 		expect(edited.gate.length).toBe(1);
 		expect(edited.ok).toBe(false);
-	});
-});
-
-describe('the real ifd post', () => {
-	test('block parses, every string is verbatim, counts hold', () => {
-		const r = checkDistill(ifdSource(), IFD, 'preview');
-		expect(r.errors).toEqual([]);
-		// 115 words without diagram labels (the doc hand-counted 116): warn below 150, pass above 100
-		expect(r.words).toBe(115);
-		expect(r.warnings.map((w) => w.path)).toEqual(['words']);
-	});
-	test('production refuses it until Andrew reviews', () => {
-		const r = checkDistill(ifdSource(), IFD, 'production');
-		expect(r.ok).toBe(false);
-		expect(r.errors.map((e) => e.path)).toEqual(['review']);
-	});
-	test('planted bug on the real post: altering one caption word fails', () => {
-		const bad = ifdSource().replace('waits for the build, resumes.', 'waits for the build, resumes quickly.');
-		expect(bad).not.toBe(ifdSource());
-		// the replace also hits the post body copy of that sentence; plant in the frontmatter only
-		const [head, ...rest] = ifdSource().split('\n---\n');
-		const planted = [head.replace('calls out to the daemon', 'calls out to the scheduler'), ...rest].join('\n---\n');
-		const r = checkDistill(planted, IFD, 'preview');
-		expect(r.errors.map((e) => e.path)).toEqual(['captions[0]']);
-	});
-	test('review pins the body: adding the block does not change post_sha', () => {
-		const body = ifdSource().split('\n---\n').slice(1).join('\n---\n');
-		expect(parsePost(ifdSource()).body.trim()).toBe(body.trim());
 	});
 });

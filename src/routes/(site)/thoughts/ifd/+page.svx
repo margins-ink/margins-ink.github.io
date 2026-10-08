@@ -3,23 +3,6 @@ title: "IFD is fine"
 dek: "The case against import-from-derivation is a case against CppNix's evaluator, not against the idea."
 date: 2026-05-13
 username: andrewgazelka
-distill:
-  headline: "IFD is fine"
-  definition: "Import From Derivation: during evaluation, the Nix language asks for a path whose bytes depend on a derivation's output."
-  deck: "The case against import-from-derivation is a case against CppNix's evaluator, not against the idea."
-  figures: [eval-timeline, eval-graph]
-  quote:
-    text: 'The IFD ban was a polite way to say "the reference evaluator cannot handle this yet." The phrasing outlived the constraint.'
-    from: "The frame is the evaluator"
-  captions:
-    - fig: eval-timeline
-      text: "When a thunk demands the contents of `${drv}/foo`, the evaluator stops, calls out to the daemon, waits for the build, resumes."
-    - fig: eval-graph
-      text: "Eval and build are nodes in one graph. The graph grows as eval discovers more of it. A thunk that needs a build emits a request and yields."
-    - fig: eval-graph
-      text: "A thunk nobody forces is a derivation nobody builds."
-  synth: []
-  # review: { by: andrewgazelka, at: <date>, post_sha: <bun scripts/magazine/distill.ts sha ifd> } is written by Andrew at review
 ---
 
 <script lang="ts" context="module">
@@ -27,25 +10,9 @@ distill:
 	export { IconMdiSwapHorizontal as icon };
 </script>
 
-<script lang="ts">
-	import { useRefs, Cite, References } from '$lib/components/refs';
-	useRefs([
-		{ id: 'nix-ifd', title: 'Import From Derivation, Nix Reference Manual', url: 'https://nix.dev/manual/nix/2.34/language/import-from-derivation' },
-		{ id: 'flake-check-pr', title: "PR #5253: Don't allow IFD in flakes in some commands (Eelco Dolstra)", url: 'https://github.com/NixOS/nix/pull/5253' },
-		{ id: 'jade-blocking', title: 'Stopping evaluation from blocking in Nix (jade.fyi)', url: 'https://jade.fyi/blog/nix-evaluation-blocking/' },
-		{ id: 'snix-announce', title: 'Announcing Snix (2025-03-16)', url: 'https://snix.dev/blog/announcing-snix/' },
-		{ id: 'tvix-rewriting', title: 'Tvix: We are rewriting Nix (TVL blog)', url: 'https://tvl.fyi/blog/rewriting-nix' },
-		{ id: 'devenv-tvix', title: 'devenv is switching its Nix implementation to Tvix', url: 'https://devenv.sh/blog/2024/10/22/devenv-is-switching-its-nix-implementation-to-tvix/' },
-		{ id: 'bsalc', title: 'Mokhov, Mitchell, Peyton Jones, Build Systems a la Carte (ICFP 2018)', url: 'https://www.microsoft.com/en-us/research/uploads/prod/2018/03/build-systems.pdf' },
-		{ id: 'buck2-dynamic', title: 'Dynamic Dependencies, Buck2 documentation', url: 'https://buck2.build/docs/rule_authors/dynamic_dependencies/' },
-		{ id: 'unit-graph', title: 'cargo build --unit-graph, Cargo reference (unstable features)', url: 'https://doc.rust-lang.org/cargo/reference/unstable.html#unit-graph' },
-		{ id: 'build-scripts', title: 'Build scripts, Cargo reference', url: 'https://doc.rust-lang.org/cargo/reference/build-scripts.html' }
-	]);
-</script>
-
 # IFD is fine
 
-Import From Derivation: during evaluation, the Nix language asks for a path whose bytes depend on a derivation's output<Cite id="nix-ifd" />. To produce the next AST node, the evaluator has to build something.
+[Import From Derivation](https://nix.dev/manual/nix/2.34/language/import-from-derivation) means Nix evaluation reads a file that a build has to produce first.
 
 ```nix
 let
@@ -57,163 +24,28 @@ in
   buildPackage { inherit schema; }
 ```
 
-The `readFile` on `schemaJson` is the IFD. Evaluation cannot continue past `schema` until `schemaJson` is realised.
+Evaluation cannot get past `schema` until `schemaJson` is built. The community calls this an anti-pattern, and [`nix flake check`](https://github.com/NixOS/nix/pull/5253) and Hydra reject it.
 
-The community calls this an anti-pattern. [The reference manual](https://nix.dev/manual/nix/2.34/language/import-from-derivation)<Cite id="nix-ifd" /> tells you to avoid it. [`nix flake check` rejects it in pure-eval mode](https://github.com/NixOS/nix/pull/5253)<Cite id="flake-check-pr" />. Hydra rejects it. Every Nix tutorial flags it.
+## The slowness is CppNix, not the idea
 
-The reason given is performance. The conclusion drawn is that the feature itself is broken. The reason holds for one implementation. The conclusion mistakes that implementation's limit for a property of the language.
+CppNix evaluates one thing at a time. When it hits an IFD it stops, waits for the build, and resumes, so everything else waits too. [As jade.fyi puts it](https://jade.fyi/blog/nix-evaluation-blocking/), the evaluator "cannot queue all the derivations that are reachable, rather than stopping and building each in order."
 
-That defends IFD as legal. It does not make IFD the best shape for most builds, and [a later section](#a-graph-you-can-read-before-you-run-it) says which shape is.
+[Snix](https://snix.dev/blog/announcing-snix/), a Rust reimplementation, has no such limit. A thunk that needs a build yields, other work continues, and the thunk resumes when the build lands. The [Tvix design](https://tvl.fyi/blog/rewriting-nix) treats IFD as "a first-class citizen without significant performance cost."
 
-## What "blocking" actually means in CppNix
+## Banning it has a price
 
-The manual is precise: "the Nix language evaluator is sequential, it only finds store paths to read from one at a time"<Cite id="nix-ifd" />. The reference implementation walks the AST recursively. When a thunk demands the contents of `${drv}/foo`, the evaluator stops, calls out to the daemon, waits for the build, resumes.
+Without IFD, everything the build needs must be readable from pure Nix. So tools re-implement other tools: [crane](https://github.com/ipetkov/crane) re-implements part of cargo's resolver, git projects commit precomputed JSON, and generated code gets checked in by hand. A ban on one evaluator's weakness became a ceiling on what Nix can compose.
 
-Forking eval onto threads does not help. Eval state in CppNix is a shared mutable graph with no concurrency model attached to it. When one branch hits IFD, the whole evaluator stalls. [jade.fyi](https://jade.fyi/blog/nix-evaluation-blocking/)<Cite id="jade-blocking" /> diagnoses it bluntly: "it is, in my opinion, a significant design flaw in the Nix evaluator that it cannot queue all the derivations that are reachable, rather than stopping and building each in order."
+## Still, a static graph is better
 
-The downstream consequences are concrete. `nix flake check` cannot enumerate jobs under a time budget. Hydra cannot pipeline evaluation across the queue. IDE integrations time out on flakes that compute anything outside the source tree. The fix that landed was "ban IFD." It worked because most packaging code does not need IFD. It also taught everyone downstream that the feature is the problem.
+IFD is a choice made at runtime: what to build next depends on a result. [Build Systems a la Carte](https://www.microsoft.com/en-us/research/uploads/prod/2018/03/build-systems.pdf) calls that monadic, and shows it costs you minimal rebuilds unless the system remembers its previous graph.
 
-## The cost of doing without it
-
-Cut IFD from your flake and every input shape has to be expressible in pure Nix.
-
-Take Rust. `Cargo.lock` parses in pure Nix as TOML, and [crane](https://github.com/ipetkov/crane) does exactly that. Build scripts, path dependencies, workspace expansions, and feature unification live in cargo's resolver, outside the lockfile. The output of `cargo metadata` is what IFD would hand you. crane reimplements enough of the resolver in Nix to skip the call, and accepts the gap where it cannot.
-
-Take git. There is no derivation-free way to ask `git log` a question from inside Nix. The pure-Nix path is to walk the packed-refs format yourself, re-implement ref resolution, parse pack indices. Most projects bail out and commit a pre-computed JSON file, then drift between that file and the working tree forever.
-
-Take code generation. With IFD: build the generator, read its output, evaluate. Without IFD: run the generator at the shell, commit the result, hope the committed copy stays in sync.
-
-This is the actual tradeoff: degrade composition so the evaluator never has to wait. Every project that wants to do anything fancier than packaging has hit this wall. crane, naersk, dream2nix, flox, the half-dozen `2nix` converters: each one either ships a pre-eval shell script or contorts inside the IFD limitation until the abstraction leaks.
-
-## Snix moves the wall
-
-[Snix](https://snix.dev/blog/announcing-snix/)<Cite id="snix-announce" /> (a Rust reimplementation of Nix, forked from Tvix at OceanSprint in March 2025) takes the evaluator apart at the seam CppNix cannot rebuild. From [the original Tvix design notes](https://tvl.fyi/blog/rewriting-nix)<Cite id="tvix-rewriting" />: "a graph of unfinished Derivations/Builds and their associated store paths... which does not need to be written to disk and can grow during runtime as new Derivations with new output paths are discovered."
-
-Eval and build are nodes in one graph. The graph grows as eval discovers more of it. A thunk that needs a build emits a request and yields. The runtime drives other thunks while the build runs. When the result lands, the thunk resumes.
-
-A flake that produces a hundred derivations whose outputs feed another hundred derivations evaluates as far as it can on pure inputs, fires every build it discovered in parallel, and continues as each one returns. CI gets a streamed worklist instead of a fixed one. The work performed is the same.
-
-Tvix's roadmap names the goal explicitly: make IFD "a first-class citizen without significant performance cost"<Cite id="tvix-rewriting" />. [devenv migrated to Tvix in October 2024](https://devenv.sh/blog/2024/10/22/devenv-is-switching-its-nix-implementation-to-tvix/)<Cite id="devenv-tvix" /> and followed the fork to Snix in 2025. The downstream ecosystem is already running on the evaluator that does not stall.
-
-## Buck2 puts the bind inside the action graph
-
-Build systems have a name for what IFD does. Dependencies that are known before anything runs are applicative; dependencies that are chosen by the value of an earlier result are monadic. The *Build Systems a la Carte* paper<Cite id="bsalc" /> shows the consequence in one function: an applicative task's dependencies can be extracted by running it with a `Const` functor, "no actual computation" needed, while for a monadic task this "cannot be done statically" and the task has to run against concrete values.
-
-Buck2 admits the monadic form and fences it in. Analysis of a rule sees attributes and artifact handles, never artifact contents. The one escape is `ctx.actions.dynamic_output(dynamic, inputs, outputs, f)`<Cite id="buck2-dynamic" />: the rule declares unbound output artifacts, names artifacts that must be built first, and supplies a function `f` that runs afterwards, reads those artifacts (`read_json`, `read_lines`), and binds the declared outputs by calling `ctx.actions`. The docs call this "restricted in their power compared to fully generic dynamic dependencies": `f` can read contents to produce new artifacts and bind ones the rule already returned, so the target graph and the outputs a rule promises stay fixed. What is deferred is which actions produce them and from what.
-
-The docs list who needs it: Distributed ThinLTO, OCaml (where file dependencies "can only be obtained from running `ocamldeps`"), and two Erlang cases. Each is an edge set that lives inside one target and exists only as the output of a scanner.
-
-## A graph you can read before you run it
-
-Cargo shows the other shape. `cargo +nightly build --unit-graph -Z unstable-options` prints Cargo's unit graph as JSON and builds nothing<Cite id="unit-graph" />. A unit is one compiler invocation, with its features, profile, platform and dependencies by index. The output is after feature resolution, which the docs call out: `cargo metadata` "fundamentally cannot represent" per-dependency-kind features, while the unit graph can carry one crate built twice with different features. The interface is unstable, so a scheduler has to pin a cargo nightly.
-
-Here is a six-unit workspace in that shape, written as a spec a scheduler could consume (the field names are mine; the keys are illustrative, not real hashes):
-
-```yaml
-roots: [app-bin]
-units:
-  - id: itoa-lib
-    mode: build
-    deps: []
-    cmd: [rustc, --crate-name, itoa, --crate-type, lib, vendor/itoa/src/lib.rs]
-    inputs: [vendor/itoa/src/lib.rs]
-    outputs: [out/libitoa.rlib]
-    key: sha256:1f3c9a0e
-  - id: serde-derive-proc
-    mode: build
-    platform: host
-    deps: []
-    cmd: [rustc, --crate-name, serde_derive, --crate-type, proc-macro, vendor/serde_derive/src/lib.rs]
-    inputs: [vendor/serde_derive/src/lib.rs]
-    outputs: [out/libserde_derive.dylib]
-    key: sha256:b72d41c8
-  - id: serde-lib
-    mode: build
-    features: [derive, std]
-    deps: [serde-derive-proc]
-    cmd: [rustc, --crate-name, serde, --crate-type, lib, --cfg, 'feature="derive"', --extern, serde_derive=out/libserde_derive.dylib, vendor/serde/src/lib.rs]
-    inputs: [vendor/serde/src/lib.rs, out/libserde_derive.dylib]
-    outputs: [out/libserde.rlib]
-    key: sha256:5e08aa17
-  - id: app-build-script
-    mode: build
-    platform: host
-    deps: []
-    cmd: [rustc, --crate-name, build_script_build, --crate-type, bin, app/build.rs]
-    inputs: [app/build.rs]
-    outputs: [out/build_script_build]
-    key: sha256:94ce6d02
-  - id: app-build-run
-    mode: run-custom-build
-    deps: [app-build-script]
-    cmd: [out/build_script_build]
-    inputs: [out/build_script_build, app/schema.toml]
-    outputs: [out/build-output.txt]
-    key: sha256:c30b7e5f
-  - id: app-bin
-    mode: build
-    deps: [serde-lib, itoa-lib, app-build-run]
-    cmd: [rustc, --crate-name, app, --crate-type, bin, 'args-from=out/build-output.txt', app/src/main.rs]
-    inputs: [app/src/main.rs, out/libserde.rlib, out/libitoa.rlib, out/build-output.txt]
-    outputs: [out/app]
-    key: sha256:e61f2b93
-```
-
-Every edge is visible before any action runs, so a scheduler can partition the graph, price it, ship units to remote workers, and look each `key` up in a cache without evaluating anything. `app-build-run` is the concession: a build script's output feeds the final compile, but it enters as a late-bound argument file on a static edge. The build script reference lists what such output can do: `rustc-cfg`, `rustc-env`, link flags<Cite id="build-scripts" />. None of those is a new crate edge.
-
-Below is the workspace with a four digit key per unit, FNV-1a over the command and the keys of the units it reads, so the numbers are mine and not the sha256 of the spec. A changed input changes the key of every action downstream and nothing else. Edit `schema.toml` and two units rebuild. Edit the `serde_derive` source and three do.
+When a tool can print its whole graph up front, you get all of that for free. [`cargo build --unit-graph`](https://doc.rust-lang.org/cargo/reference/unstable.html#unit-graph) does exactly that. Each unit's key is FNV-1a over its command and the keys of the units it reads, so the numbers are mine and not the sha256 of a real spec. A changed input changes the key of every action downstream and nothing else.
 
 ::exhibit{id="graph" place="wide"}
 
-The same build the dynamic way is a rule that builds the structure while it runs. This is Starlark shaped after the documented signature, not a tested rule:
+[Buck2](https://buck2.build/docs/rule_authors/dynamic_dependencies/) keeps a fenced escape hatch, `dynamic_output`, for edges that only a scanner can find, like OCaml imports. Use the dynamic form there and the static graph everywhere else.
 
-```python
-def rust_unit(ctx):
-    scan = ctx.actions.declare_output("deps.json")
-    ctx.actions.run(["scan-deps", ctx.attrs.src, scan.as_output()])
-    rlib = ctx.actions.declare_output("lib.rlib")
-    def compile(ctx, artifacts, outputs):
-        deps = artifacts[scan].read_json()
-        ctx.actions.run(["rustc"] + ["--extern=" + d for d in deps], outputs[rlib].as_output())
-    ctx.actions.dynamic_output([scan], [], [rlib], compile)
-```
+## The ban was a workaround
 
-Nothing in that rule says what `rustc` will depend on until `scan-deps` has run and been read. Nix's `readFile` on a derivation is the same bind, placed in the evaluator instead of the action graph.
-
-My position: take the static graph whenever a tool can emit it, and spend the dynamic form only on edges that live inside a unit. The paper's tables give the price of the monadic form. Make, with static dependencies, is minimal; Excel's restarting scheduler for dynamic ones is not; Shake gets minimality back by persisting the previous dependency graph between builds<Cite id="bsalc" />. A static graph needs none of that machinery, and it can be diffed, hashed, and reviewed as a file. The evaluator-blocking problem the rest of this post is about is the cost of the same choice made in an interpreter. Snix makes that cost cheap, and it stays cheaper to never incur it.
-
-This also corrects the title's reach. The ban is a statement about CppNix. The better design is a statement about build graphs, and it holds under Snix too.
-
-## Edge cases for the static graph
-
-**Build scripts and proc macros add dependencies.** A build script's documented outputs change flags, cfgs, environment and link inputs of the compile that follows it<Cite id="build-scripts" />, and the unit graph represents the run as its own `run-custom-build` unit<Cite id="unit-graph" />. The edge is static and its content is data. The residue is a rustc command line that is only complete after a unit has run, so a cache key for the dependent has to include the script's output. The unit graph page I read does not mention proc macros; a proc-macro crate is one more unit, built for the host, whose output the dependent compile loads. That is my reading, not a quoted claim.
-
-**Feature unification.** The unit graph is computed after it, and the docs say its features "now depend on which command is run and which packages and targets are selected"<Cite id="unit-graph" />. The graph is therefore a function of the invocation. Emit it per invocation and key it on the command line; do not commit one graph and reuse it across `build` and `test`.
-
-**Edges that only a scanner can see.** This is the real break. Module imports in OCaml come from running `ocamldeps`<Cite id="buck2-dynamic" />, and no manifest holds them. Two answers. Keep the unit coarse and make the scan an ordinary static unit, then run a second graph from its output, which is IFD with the staging visible in the file. Or use `dynamic_output` inside that one target. Both are fine. The mistake is applying either to edges a manifest already states.
-
-**Rebuilding something that already has a specific form.** Reimplementing cargo's resolver in another language to avoid asking it (crane's move above, for the lockfile) trades the unit graph's exactness for purity. Asking the tool that owns the structure to export it is cheaper than reconstructing it, and it is the one case where the graph's producer is better placed than your evaluator.
-
-## Edge cases
-
-**Eval triggers builds.** Doesn't that make every evaluation expensive? Laziness already gates this. A thunk nobody forces is a derivation nobody builds. IFD changes *when* the build runs relative to eval. It does not change *what* gets built. The set of derivations the user asked for is the set that runs, regardless of where the eval/build seam sits.
-
-**Determinism.** A common objection is that IFD makes evaluation impure: the resulting value depends on a build that actually ran. Nix builds have content-addressed inputs and deterministic outputs. The same expression against the same store produces the same value. IFD inherits the store's determinism. It does not undermine it.
-
-**Job enumeration.** Hydra wants the full job set before dispatching. With IFD, the set is discovered as eval progresses. That is a scheduler change. Snix's evaluator emits derivations as it finds them, which is what an async dispatcher would want even without IFD. The dispatcher you cannot write against CppNix is the one Snix makes natural.
-
-**Cycles.** Can IFD create a cycle: a derivation whose output is read by the eval that defines it? The store is content-addressed, so the cycle reduces to whether you can compute a hash whose inputs depend on the hash. You cannot. Snix detects the case the same way CppNix does, by tracking the eval frame around each thunk. IFD does not change the answer.
-
-**Reproducibility under unsandboxed builds.** The real risk people gesture at when they say "IFD is impure" is the impurity of the underlying build (network access, host tooling, wall-clock dependence). That risk exists for any derivation. IFD just lets you read the result. If the build is reproducible, IFD is reproducible. If the build is not, the problem was the build.
-
-**`nix flake show`.** A flake using IFD will trigger builds just to enumerate outputs. That is a genuine surprise for a command meant to feel like a directory listing. The honest fix is to mark the intent: `flake show` should refuse to run hidden builds by default, and `flake show --realise` should consent to them. Snix's async evaluator can stream the output set incrementally as builds finish, which is closer to what a fast preview wants in the first place. Either way, the answer is to surface the choice rather than to ban the feature.
-
-## The frame is the evaluator
-
-CppNix is one implementation of a small lazy functional language. The performance model people quote at each other ("IFD blocks the evaluator") describes that implementation's scheduling. Snix schedules differently. The same expression that reads as an anti-pattern under CppNix reads as ordinary composition under Snix.
-
-The same split exists below the evaluator. Buck2's `dynamic_output` holds back an action the way IFD holds back a thunk, and a unit graph holds back nothing because there is nothing left to discover.
-
-The IFD ban was a polite way to say "the reference evaluator cannot handle this yet." The phrasing outlived the constraint.
-
-<References />
+"IFD is an anti-pattern" was a polite way to say the reference evaluator cannot handle it yet. The phrasing outlived the constraint.

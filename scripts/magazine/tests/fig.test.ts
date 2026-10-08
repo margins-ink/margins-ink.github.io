@@ -8,10 +8,8 @@ import { lintFigure } from '../fig/lint';
 
 const { figure, rrect, text, path, track } = dsl;
 const ROOT = resolve(import.meta.dir, '../../..');
-const IFD = `${ROOT}/src/routes/(site)/thoughts/ifd`;
 
 mock.module('$lib/magazine/dsl', () => dsl); // the SvelteKit alias does not exist under bun test
-const figs = (await import(`${IFD}/exhibits/art.ts`)).default as dsl.FigureSet;
 
 const base = (over: Partial<dsl.FigureSpec> = {}) =>
 	figure({
@@ -88,53 +86,6 @@ describe('compileFigure and lintFigure', () => {
 	test('control: describe under 40 chars is rejected by the builder and by lint', () => {
 		const f = compileFigure('t', base());
 		expect(lintFigure({ ...f, describe: 'short' }).join('\n')).toContain('describe');
-	});
-});
-
-describe('ifd figures', () => {
-	const post = readFileSync(`${IFD}/+page.svx`, 'utf8');
-	const body = post.replace(/<Cite[^>]*\/>/g, '').replace(/[*_`]/g, '');
-	const norm = (s: string) => s.replace(/\s+/g, ' ');
-
-	for (const id of ['eval-timeline', 'eval-graph']) {
-		test(`${id}: compiles and lints clean`, () => {
-			const f = compileFigure(id, figs[id]);
-			expect(lintFigure(f)).toEqual([]);
-			expect(f.time.poster).toBeLessThanOrEqual(f.time.duration);
-			expect(f.channels.length).toBeGreaterThan(10);
-		});
-
-		test(`${id}: every drawn word occurs in the post`, () => {
-			const f = compileFigure(id, figs[id]);
-			const words = new Set<string>();
-			for (const it of f.items) if (it.text) words.add(it.text);
-			expect(words.size).toBeGreaterThan(3);
-			for (const w of words) expect(norm(body)).toContain(w);
-		});
-
-		test(`${id}: no digit is drawn (the post states no numbers for this claim)`, () => {
-			const f = compileFigure(id, figs[id]);
-			for (const it of f.items) expect(/\d/.test(it.text ?? '')).toBe(false);
-		});
-	}
-
-	test('control: a planted word that is not in the post is caught by the substring check', () => {
-		expect(norm(body)).not.toContain('45% earlier');
-	});
-
-	test('timeline: Snix ends before CppNix, and the playhead reaches the right edge at poster', () => {
-		const f = compileFigure('eval-timeline', figs['eval-timeline']);
-		const end = (p: string) => Math.max(...f.items.filter((i) => i.id.startsWith(p) && i.kind === 'rrect').map((i) => i.poster.x1));
-		expect(end('s')).toBeLessThan(end('c'));
-		const ph = f.items.find((i) => i.id === 'playhead')!;
-		expect(ph.poster.x1).toBeGreaterThan(34.9);
-	});
-
-	test('graph: poster shows the full graph (every eval node accent, every build filled)', () => {
-		const f = compileFigure('eval-graph', figs['eval-graph']);
-		for (const it of f.items.filter((i) => /^(e\d|b\d)/.test(i.id))) expect(it.opacityAtPoster).toBeGreaterThanOrEqual(0.99);
-		const first = evalKeys(f.channels.find((c) => c.target === 'b0f.scale')!.keys, f.time.poster);
-		expect(first).toBe(1);
 	});
 });
 
