@@ -20,11 +20,15 @@ export interface ChromeTheme {
 	ground: RGB;
 	/** code panel / sheet surface */
 	surface: RGB;
+	/** card surface (ix --bg-3): the link preview card */
+	card: RGB;
 	/** popover / menu / toast surface (the highest elevation) */
 	popover: RGB;
 	ink: RGB;
 	ink2: RGB;
 	ink3: RGB;
+	/** decoration-grade (ix --ink-4) */
+	ink4: RGB;
 	accent: RGB;
 }
 
@@ -52,6 +56,8 @@ export interface ChromeAnim {
 	codeT: Record<number, number>;
 	/** hits of the previous frame (hover is resolved against these, so occlusion by upper layers is honoured) */
 	prevHits: HitRect[];
+	/** link preview card: progress and the last content (kept while it fades out) */
+	tipT: number; lastTip: LinkTip | null;
 	/** last popover (kept while it fades out) */
 	lastPop: { ref: number; anchor: Rect } | null;
 	lastLb: { w: number; h: number; caption: string } | null;
@@ -59,10 +65,13 @@ export interface ChromeAnim {
 
 export function createChromeAnim(): ChromeAnim {
 	return {
-		aaT: 0, popT: 0, lbT: 0, findT: 0, linkT: 0, linkRects: [],
+		aaT: 0, popT: 0, lbT: 0, findT: 0, linkT: 0, linkRects: [], tipT: 0, lastTip: null,
 		hover: {}, codeT: {}, prevHits: [], lastPop: null, lastLb: null
 	};
 }
+
+/** What the link preview card shows (the root resolves it; chrome only lays out and draws). Empty `title` = lookup failed: host and URL only. */
+export interface LinkTip { anchor: Rect; host: string; url: string; title: string; description: string }
 
 export interface FindState {
 	open: boolean; query: string; /** caret as UTF-16 index */ caret: number;
@@ -91,6 +100,8 @@ export interface ChromeState {
 	/** text-size step index into the scale steps and their count */
 	aa: { open: boolean; step: number; steps: number; hasFold: boolean; alwaysFull: boolean };
 	popover: { ref: number; anchor: Rect } | null;
+	/** hovered or keyboard-focused link after its 150 ms delay (null = hidden) */
+	linkTip?: LinkTip | null;
 	lightbox: { w: number; h: number; caption: string } | null;
 	find: FindState;
 	copyFlash: Record<number, number>;
@@ -235,6 +246,54 @@ export function layoutCite(s: ChromeState, ref: RefInfo, anchor: Rect, m: Measur
 		card, titleLines: lines, host: ellipsize(hostOf(ref.url), 'sans', 12, w - 2 * pad - openW - 12, m), hostX: x + pad, hostY: footY + 12,
 		open: { x: x + w - pad - openW, y: footY, w: openW, h: 24 }, below
 	};
+}
+
+// ---- link preview card ----
+
+export const TIP = { maxW: 340, pad: 14, gap: 10, mono: 24, titleSize: 14, titleLh: 20, descSize: 13, descLh: 18, urlSize: 12, urlLh: 16, titleLines: 2, descLines: 3, rise: 6 } as const;
+
+export interface LinkTipLayout {
+	card: Rect; below: boolean;
+	/** point the spring scales about: the card edge nearest the link, at the link's centre (clamped to the card) */
+	origin: { x: number; y: number };
+	circle: Rect; letter: string; host: { x: number; y: number; text: string };
+	titleLines: { x: number; y: number; text: string }[];
+	descLines: { x: number; y: number; text: string }[];
+	url: { x: number; y: number; text: string };
+}
+
+/** Pure layout of the card: width min(340, view - 24), centred on the link then clamped to 12 px from the sides, below the link when it fits else above, clamped under the bar. Title at most 2 lines, description at most 3. */
+export function layoutLinkTip(view: { w: number; h: number }, tip: LinkTip, m: Measure): LinkTipLayout {
+	const w = Math.min(TIP.maxW, view.w - 24);
+	const iw = w - 2 * TIP.pad;
+	const titleL = tip.title ? wrapLines(tip.title, 'sans', TIP.titleSize, iw, TIP.titleLines, m) : [];
+	const descL = tip.description ? wrapLines(tip.description, 'sans', TIP.descSize, iw, TIP.descLines, m) : [];
+	let h = TIP.pad + TIP.mono;
+	if (titleL.length) h += TIP.gap - 2 + titleL.length * TIP.titleLh;
+	if (descL.length) h += (titleL.length ? 4 : TIP.gap - 2) + descL.length * TIP.descLh;
+	h += TIP.gap + TIP.urlLh + TIP.pad;
+	const a = tip.anchor;
+	const x = Math.max(12, Math.min(view.w - w - 12, a.x + a.w / 2 - w / 2));
+	const gap = 8;
+	let below = true;
+	let y = a.y + a.h + gap;
+	if (y + h > view.h - 12) { below = false; y = a.y - gap - h; }
+	if (y < BAR_H + 4) y = Math.max(BAR_H + 4, Math.min(y, view.h - 12 - h));
+	const card = { x, y, w, h };
+	let cy = y + TIP.pad;
+	const circle = { x: x + TIP.pad, y: cy, w: TIP.mono, h: TIP.mono };
+	const letter = (Array.from(tip.host.replace(/^www\./, ''))[0] ?? '?').toUpperCase();
+	const hostText = ellipsize(tip.host, 'sans', 13, iw - TIP.mono - 10, m);
+	const host = { x: circle.x + TIP.mono + 10, y: cy + TIP.mono / 2, text: hostText };
+	cy += TIP.mono;
+	const titleLines: LinkTipLayout['titleLines'] = [];
+	if (titleL.length) { cy += TIP.gap - 2; titleL.forEach((t, i) => titleLines.push({ x: x + TIP.pad, y: cy + i * TIP.titleLh + TIP.titleLh / 2, text: t })); cy += titleL.length * TIP.titleLh; }
+	const descLines: LinkTipLayout['descLines'] = [];
+	if (descL.length) { cy += titleL.length ? 4 : TIP.gap - 2; descL.forEach((t, i) => descLines.push({ x: x + TIP.pad, y: cy + i * TIP.descLh + TIP.descLh / 2, text: t })); cy += descL.length * TIP.descLh; }
+	cy += TIP.gap;
+	const url = { x: x + TIP.pad, y: cy + TIP.urlLh / 2, text: ellipsize(tip.url, 'mono', TIP.urlSize, iw, m) };
+	const origin = { x: Math.max(x + 16, Math.min(x + w - 16, a.x + a.w / 2)), y: below ? y : y + h };
+	return { card, below, origin, circle, letter, host, titleLines, descLines, url };
 }
 
 // ---- lightbox ----

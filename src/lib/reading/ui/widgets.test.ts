@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { Shaped, UiFont } from './types';
 import { buildChrome, caretIndexAt, createChromeAnim, editField, type ChromeDeps, type ChromeOut } from './widgets';
 import { hitById, hitChrome, fractionIn, thumbScrollY } from './hit';
-import { BAR_H, intersects, layoutCite, layoutCodeCorner, widthClassOf, type ChromeInput, type ChromeState, type Rect } from './layout';
+import { BAR_H, TIP, intersects, layoutCite, layoutCodeCorner, layoutLinkTip, widthClassOf, type ChromeInput, type ChromeState, type Rect } from './layout';
 
 // stub shaper: fixed advances so widths are exact and independent of lane U1
 const shapeUi = (text: string, font: UiFont, size: number): Shaped => {
@@ -16,7 +16,7 @@ const m = (t: string, f: UiFont, s: number) => shapeUi(t, f, s).width;
 const col = (r: number, g: number, b: number): [number, number, number] => [r, g, b];
 function state(w: number, h: number, over: Partial<ChromeState> = {}): ChromeState {
 	return {
-		theme: { ground: col(0.05, 0.05, 0.07), surface: col(0.09, 0.09, 0.11), popover: col(0.13, 0.13, 0.16), ink: col(0.93, 0.93, 0.95), ink2: col(0.75, 0.75, 0.8), ink3: col(0.55, 0.55, 0.6), accent: col(0.5, 0.7, 1) },
+		theme: { ground: col(0.05, 0.05, 0.07), surface: col(0.09, 0.09, 0.11), card: col(0.11, 0.11, 0.13), popover: col(0.13, 0.13, 0.16), ink4: col(0.35, 0.35, 0.38), ink: col(0.93, 0.93, 0.95), ink2: col(0.75, 0.75, 0.8), ink3: col(0.55, 0.55, 0.6), accent: col(0.5, 0.7, 1) },
 		reduced: true, hdrGain: 1, nowMs: 10_000, touch: false,
 		view: { w, h }, colLeft: Math.max(0, (w - 680) / 2),
 		meta: {
@@ -317,5 +317,66 @@ describe('animation', () => {
 		expect(alpha(1000)).toBeCloseTo(1, 6);
 		expect(alpha(2050)).toBeLessThan(0.6);
 		expect(alpha(2300)).toBe(0);
+	});
+});
+
+describe('link preview card', () => {
+	const tip = (anchor: Rect, over: Partial<{ host: string; url: string; title: string; description: string }> = {}) => ({
+		anchor, host: 'example.com', url: 'https://example.com/a/very/long/path/that/keeps/going/and/going/and/going/forever.html',
+		title: 'A page title that is long enough to need to wrap over a couple of lines on a small card',
+		description: 'A description that is long enough to wrap over several lines and must be cut off after three of them with an ellipsis at the end of the last one. '.repeat(3), ...over
+	});
+	const view = { w: 1000, h: 800 };
+
+	test('opens below the link and centres on it', () => {
+		const L = layoutLinkTip(view, tip({ x: 480, y: 300, w: 40, h: 20 }), m);
+		expect(L.below).toBe(true);
+		expect(L.card.y).toBeGreaterThan(320);
+		expect(L.card.x + L.card.w / 2).toBeCloseTo(500, 5);
+		expect(L.card.w).toBe(TIP.maxW);
+	});
+	test('flips above when there is no room below, and clamps under the bar', () => {
+		const a = layoutLinkTip(view, tip({ x: 480, y: 700, w: 40, h: 20 }), m);
+		expect(a.below).toBe(false);
+		expect(a.card.y + a.card.h).toBeLessThanOrEqual(700);
+		const b = layoutLinkTip({ w: 1000, h: 330 }, tip({ x: 480, y: 150, w: 40, h: 20 }), m);
+		expect(b.card.y).toBeGreaterThanOrEqual(BAR_H + 4);
+		expect(b.card.y + b.card.h).toBeLessThanOrEqual(330 - 12 + 1e-6);
+	});
+	test('clamps to 12 px from either side and shrinks on a narrow view', () => {
+		expect(layoutLinkTip(view, tip({ x: 2, y: 300, w: 30, h: 20 }), m).card.x).toBe(12);
+		const r = layoutLinkTip(view, tip({ x: 970, y: 300, w: 28, h: 20 }), m);
+		expect(r.card.x + r.card.w).toBe(view.w - 12);
+		const n = layoutLinkTip({ w: 320, h: 700 }, tip({ x: 100, y: 300, w: 40, h: 20 }), m);
+		expect(n.card.w).toBe(296);
+	});
+	test('line limits: title 2, description 3, url one ellipsized line; host and url only when the lookup failed', () => {
+		const L = layoutLinkTip(view, tip({ x: 480, y: 300, w: 40, h: 20 }), m);
+		expect(L.titleLines.length).toBeLessThanOrEqual(2);
+		expect(L.descLines).toHaveLength(3);
+		expect(L.descLines[2].text.endsWith('…')).toBe(true);
+		expect(m(L.url.text, 'mono', TIP.urlSize)).toBeLessThanOrEqual(TIP.maxW - 2 * TIP.pad + 1e-6);
+		const bare = layoutLinkTip(view, tip({ x: 480, y: 300, w: 40, h: 20 }, { title: '', description: '' }), m);
+		expect(bare.titleLines).toHaveLength(0);
+		expect(bare.descLines).toHaveLength(0);
+		expect(bare.card.h).toBeLessThan(L.card.h);
+		expect(bare.letter).toBe('E');
+	});
+	test('springs in: scale 0.96 to 1 with the fade, about 180 ms; hides with a quick fade', () => {
+		const s = state(1000, 800, { reduced: false, linkTip: tip({ x: 480, y: 300, w: 40, h: 20 }) });
+		const f0 = frame(s, idle, 16);
+		const card = (o: ChromeOut) => o.overlays.filter((v) => v.w > 200 && v.w < 345).at(-1);
+		const w0 = card(f0)!.w, a0 = card(f0)!.a;
+		let o = f0;
+		for (let i = 0; i < 12; i++) o = frame(s, idle, 16);
+		expect(card(o)!.w).toBeGreaterThan(w0);
+		expect(card(o)!.w).toBeLessThanOrEqual(TIP.maxW + 1e-6);
+		expect(card(o)!.a).toBeGreaterThan(a0);
+		expect(card(o)!.a).toBeGreaterThan(0.95);
+		expect(card(o)!.w).toBeGreaterThan(0.99 * TIP.maxW);
+		expect(f0.hits.some((h) => h.id.startsWith('tip'))).toBe(false); // non-interactive
+		s.linkTip = null;
+		for (let i = 0; i < 20; i++) o = frame(s, idle, 16);
+		expect(card(o)).toBeUndefined();
 	});
 });

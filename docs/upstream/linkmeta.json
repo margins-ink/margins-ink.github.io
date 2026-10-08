@@ -1,0 +1,191 @@
+{
+	"version": 1,
+	"links": {
+		"http://gnu.org/licenses/gpl.html": {
+			"title": "The GNU General Public License v3.0 - GNU Project - Free Software Foundation",
+			"description": "",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:38.374Z"
+		},
+		"http://www.gnu.org/software/gdb/documentation/": {
+			"title": "GDB Documentation",
+			"description": "",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:38.374Z"
+		},
+		"https://buck2.build/docs/rule_authors/dynamic_dependencies/": {
+			"title": "Dynamic Dependencies | Buck2",
+			"description": "Dynamic dependencies allow a rule to use information that was not available when",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:41.655Z"
+		},
+		"https://chat.openai.com/share/ad9c594c-0bc7-4658-a301-aa7211a1d441": {
+			"title": "ChatGPT",
+			"description": "ChatGPT helps you get answers, find inspiration, and be more productive.",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:40.177Z"
+		},
+		"https://discord.gg/xzH9vcESAP": {
+			"title": "Join the superglide Discord Server!",
+			"description": "do less, deeply | 42 members",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:39.192Z"
+		},
+		"https://doc.rust-lang.org/cargo/reference/unstable.html#unit-graph": {
+			"title": "Unstable Features - The Cargo Book",
+			"description": "",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:41.655Z"
+		},
+		"https://doc.rust-lang.org/std/panic/fn.catch_unwind.html": {
+			"title": "catch_unwind in std::panic - Rust",
+			"description": "Invokes a closure, capturing the cause of an unwinding panic if one occurs.",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:39.192Z"
+		},
+		"https://en.wikipedia.org/wiki/Lambda_calculus#Reduction": {
+			"title": "Lambda calculus - Wikipedia",
+			"description": "",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:39.192Z"
+		},
+		"https://en.wikipedia.org/wiki/Rice%27s_theorem": {
+			"title": "Rice's theorem - Wikipedia",
+			"description": "",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:39.192Z"
+		},
+		"https://github.com/NixOS/nix/pull/5253": {
+			"title": "Don't allow IFD in flakes in some commands by edolstra · Pull Request #5253 · NixOS/nix",
+			"description": "Import-from-derivation is a controversial feature because it can cause arbitrary amounts of building when running commands like nix flake show. It&#39;s better to disallow it now and re-enable it i...",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:40.177Z"
+		},
+		"https://github.com/SwarmBotMC/SwarmBot": {
+			"title": "GitHub - SwarmBotMC/SwarmBot: 🐜 A performant, autonomous bot launcher for Minecraft",
+			"description": "🐜 A performant, autonomous bot launcher for Minecraft - SwarmBotMC/SwarmBot",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:40.177Z"
+		},
+		"https://github.com/andrewgazelka/commit": {
+			"title": "GitHub - andrewgazelka/commit",
+			"description": "Contribute to andrewgazelka/commit development by creating an account on GitHub.",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:38.374Z"
+		},
+		"https://github.com/andrewgazelka/human-id": {
+			"title": "GitHub - andrewgazelka/human-id",
+			"description": "Contribute to andrewgazelka/human-id development by creating an account on GitHub.",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:38.374Z"
+		},
+		"https://github.com/first20hours/google-10000-english": {
+			"title": "GitHub - first20hours/google-10000-english: This repo contains a list of the 10,000 most common English words in order of frequency, as determined by n-gram frequency analysis of the Google's Trillion Word Corpus.",
+			"description": "This repo contains a list of the 10,000 most common English words in order of frequency, as determined by n-gram frequency analysis of the Google&#39;s Trillion Word Corpus. - first20hours/google-1...",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:38.374Z"
+		},
+		"https://github.com/ipetkov/crane": {
+			"title": "GitHub - ipetkov/crane: A Nix library for building cargo projects. Never build twice thanks to incremental artifact caching.",
+			"description": "A Nix library for building cargo projects. Never build twice thanks to incremental artifact caching. - ipetkov/crane",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:41.655Z"
+		},
+		"https://github.com/microsoft/TypeScript/issues/14833": {
+			"title": "TypeScripts Type System is Turing Complete · Issue #14833 · microsoft/TypeScript",
+			"description": "This is not really a bug report and I certainly don't want TypeScripts type system being restricted due to this issue. However, I noticed that the type system in its current form (version 2.2) is t...",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:39.192Z"
+		},
+		"https://github.com/superduperglide/extensions": {
+			"title": "",
+			"description": "",
+			"ok": false,
+			"fetched": "2026-10-08T03:36:38.374Z"
+		},
+		"https://github.com/unisonweb/unison/blob/a1652e3ada28924cb9e75ff1d62408ee8df6b78f/parser-typechecker/src/Unison/Codebase/SqliteCodebase/Paths.hs": {
+			"title": "unison/parser-typechecker/src/Unison/Codebase/SqliteCodebase/Paths.hs at a1652e3ada28924cb9e75ff1d62408ee8df6b78f · unisonweb/unison",
+			"description": "A friendly programming language from the future. Contribute to unisonweb/unison development by creating an account on GitHub.",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:39.192Z"
+		},
+		"https://jade.fyi/blog/nix-evaluation-blocking/": {
+			"title": "",
+			"description": "",
+			"ok": false,
+			"fetched": "2026-10-08T03:36:41.655Z"
+		},
+		"https://modelcontextprotocol.io/specification/2025-06-18": {
+			"title": "Specification - Model Context Protocol",
+			"description": "",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:40.177Z"
+		},
+		"https://nix.dev/manual/nix/2.34/language/import-from-derivation": {
+			"title": "Import From Derivation - Nix 2.34.9 Reference Manual",
+			"description": "",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:40.177Z"
+		},
+		"https://nushell.sh/": {
+			"title": "Nushell",
+			"description": "A new type of shell.",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:40.177Z"
+		},
+		"https://snix.dev/blog/announcing-snix/": {
+			"title": "Announcing Snix",
+			"description": "Announcing the Snix Project",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:41.655Z"
+		},
+		"https://superglide.ai": {
+			"title": "superglide // The AI coding interface for super users",
+			"description": "The AI coding interface for super users. Built from the ground up for agentic workflows and developers who use AI as their primary interface.",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:38.374Z"
+		},
+		"https://tvl.fyi/blog/rewriting-nix": {
+			"title": "TVL's blog: Tvix: We are rewriting Nix",
+			"description": "TVL's blog",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:41.655Z"
+		},
+		"https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/": {
+			"title": "Notes on structured concurrency, or: Go statement considered harmful &mdash; njs blog",
+			"description": "",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:39.192Z"
+		},
+		"https://www.gnu.org/software/gdb/bugs/": {
+			"title": "Bugs in GDB",
+			"description": "",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:38.374Z"
+		},
+		"https://www.microsoft.com/en-us/research/uploads/prod/2018/03/build-systems.pdf": {
+			"title": "",
+			"description": "",
+			"ok": false,
+			"fetched": "2026-10-08T03:36:41.655Z"
+		},
+		"https://www.nushell.sh/": {
+			"title": "Nushell",
+			"description": "A new type of shell.",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:40.177Z"
+		},
+		"https://www.nushell.sh/commands/docs/to_nuon.html": {
+			"title": "to nuon | Nushell",
+			"description": "A new type of shell.",
+			"ok": true,
+			"fetched": "2026-10-08T03:36:39.192Z"
+		},
+		"https://youtu.be/IbL96hVcCZc": {
+			"title": "",
+			"description": "",
+			"ok": false,
+			"fetched": "2026-10-08T03:36:40.177Z"
+		}
+	}
+}

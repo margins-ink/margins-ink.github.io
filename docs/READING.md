@@ -423,3 +423,7 @@ Supersedes the visual parts of sections 2.1 to 3.2 above (the hero plaque, ROOM 
 ## 2026-10-07 pass 3: type scale-down
 
 em = 16 to 17px (metrics.ts clamp), gutters 24px, narrow margin 48px, colW 38em (about 646px wide). Title 3.0/2.6/2.3em, h2 1.6/1.6/1.5em, dek and lead 1.12em, caption 0.8em, code 0.8em, inline code 0.9em. Shots: /Volumes/Projects/tmp/redesign/a/r5*.
+
+## 2026-10-07 pass 4: one link underline, link preview card
+
+The link record bottom edge is the baked underline bottom (typeset.ts UL_Y/UL_H); hover draws the same line at full ink, 1.5px (widgets.ts). Link card: ui/layout.ts layoutLinkTip, widgets.ts, reader.ts setTip (150 ms delay, mouse and keyboard focus), linktip.ts content; metadata from scripts/magazine/linkmeta.ts (build time, cache docs/upstream/linkmeta.json, baked into index.json articles[].links). UI font has one sans weight (500): the title is that weight, not 600.

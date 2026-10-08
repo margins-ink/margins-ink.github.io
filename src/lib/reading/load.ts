@@ -13,7 +13,7 @@ interface IndexArticle {
 }
 export interface MagazineIndex { version: number; fonts: string; articles: IndexArticle[]; images: IndexImage[] }
 
-export interface ArticleMeta { title: string; dek: string; date: string; wordsBrief: number; wordsFull: number; opensFull: boolean; wdth: number; wght: number; refs: { id: string; title: string; url: string }[] }
+export interface ArticleMeta { title: string; dek: string; date: string; wordsBrief: number; wordsFull: number; opensFull: boolean; wdth: number; wght: number; refs: { id: string; title: string; url: string }[]; /** baked link previews: href -> title, description (scripts/magazine/linkmeta.ts) */ links: Record<string, { t: string; d: string }> }
 export interface LoadedArticle {
 	slug: string;
 	widthClass: number;
@@ -78,7 +78,7 @@ export async function loadArticle(slug: string, widthClass: number): Promise<Loa
 		meta: {
 			title: a.title, dek: a.dek ?? '', date: a.date ?? '',
 			wordsBrief: a.briefWords ?? a.wordsBrief ?? 0, wordsFull: a.fullWords ?? a.wordsFull ?? 0, opensFull: !!a.opensFull,
-			wdth: a.wdth ?? 80, wght: a.wght ?? 600, refs: a.refs ?? []
+			wdth: a.wdth ?? 80, wght: a.wght ?? 600, refs: a.refs ?? [], links: a.links ?? {}
 		}
 	};
 }

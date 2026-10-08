@@ -282,6 +282,9 @@ function breakLines(seg: Seg, W: number): number[][] {
 
 interface ParaOpts { x0: number; width: number; bs: number; lh: number; font: number; align?: 'left'; indent?: number }
 
+/** link underline: top below the baseline (x font size) and thickness (em). The link record's bottom edge IS the underline's bottom, so the chrome's hover underline (widgets.ts) lands on it exactly. */
+const UL_Y = 0.16, UL_H = 0.05;
+
 export function linkKind(href: string): number {
 	if (href.startsWith('#ref-') || href.startsWith('#fn-')) return LinkKind.ref;
 	if (href.startsWith('#')) return LinkKind.anchor;
@@ -301,7 +304,7 @@ function layoutParaKP(env: Env, runs: Run[], o: ParaOpts, where: string, textPre
 		const x0 = o.x0 + tl.x0;
 		const ln: Ln = { yTop: y, yBot: y + o.lh, x0, x1: o.x0 + tl.width, base, glyphs: tl.glyphs.map((g) => ({ ...g, x: o.x0 + g.x, y: base + g.y })), off: tl.off, canBreakBefore: false };
 		for (const r of tl.rects) b.rects.push({ x0: o.x0 + r.x0, x1: o.x0 + r.x1, y0: base + r.y0, y1: base + r.y1, colour: r.colour, kind: r.kind });
-		for (const l of tl.links) b.links.push({ x0: o.x0 + l.x0, x1: o.x0 + l.x1, y0: y, y1: y + o.lh, kind: linkKind(l.href), target: l.href });
+		for (const l of tl.links) b.links.push({ x0: o.x0 + l.x0, x1: o.x0 + l.x1, y0: y, y1: base + UL_Y * o.bs + UL_H, kind: linkKind(l.href), target: l.href });
 		b.lines.push(ln);
 		y += o.lh;
 	}
@@ -361,9 +364,9 @@ export function layoutPara(env: Env, runs: Run[], o: ParaOpts, where: string, te
 			ln.x1 = x;
 			ln.off = ln.glyphs.length ? ln.glyphs[0].off : -1;
 			for (const s of spans) {
-				if (s.href && !s.code) b.rects.push({ x0: s.x0, x1: s.x1, y0: base + 0.16 * o.bs, y1: base + 0.16 * o.bs + 0.05, colour: PAL_EXT.ink3, kind: RectKind.rule });
+				if (s.href && !s.code) b.rects.push({ x0: s.x0, x1: s.x1, y0: base + UL_Y * o.bs, y1: base + UL_Y * o.bs + UL_H, colour: PAL_EXT.ink3, kind: RectKind.rule });
 				if (s.code) b.rects.push({ x0: s.x0 - 0.3, x1: s.x1 + 0.3, y0: base - 0.95 * o.bs, y1: base + 0.3 * o.bs, colour: PAL2.panel, kind: RectKind.inlineCodeBg, radius: 0.36 });
-				if (s.href) b.links.push({ x0: s.x0, x1: s.x1, y0: ln.yTop, y1: ln.yBot, kind: linkKind(s.href), target: s.href });
+				if (s.href) b.links.push({ x0: s.x0, x1: s.x1, y0: ln.yTop, y1: base + UL_Y * o.bs + UL_H, kind: linkKind(s.href), target: s.href });
 			}
 			b.lines.push(ln);
 			y += lh;
@@ -906,7 +909,7 @@ export function breakSegs(env: Env, segs: Seg[], width: number, o: BreakOpts, bs
 			tl.width = x;
 			tl.off = tl.glyphs.length ? tl.glyphs[0].off : -1;
 			for (const s of spans) {
-				if (s.href && !s.code) tl.rects.push({ x0: s.x0, x1: s.x1, y0: 0.16 * bs, y1: 0.16 * bs + 0.05, colour: PAL_EXT.ink3, kind: RectKind.rule });
+				if (s.href && !s.code) tl.rects.push({ x0: s.x0, x1: s.x1, y0: UL_Y * bs, y1: UL_Y * bs + UL_H, colour: PAL_EXT.ink3, kind: RectKind.rule });
 				if (s.code) tl.rects.push({ x0: s.x0 - 0.3, x1: s.x1 + 0.3, y0: -0.95 * bs, y1: 0.3 * bs, colour: PAL2.panel, kind: RectKind.inlineCodeBg, radius: 0.36 });
 				if (s.href) tl.links.push({ x0: s.x0, x1: s.x1, href: s.href });
 			}

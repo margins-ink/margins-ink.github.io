@@ -19,6 +19,7 @@ import { CFG, flowArticle, wordsOf, type Neighbour } from './flow';
 import { parsePost, lintDistill, type DistillBlock as LintBlock } from './distill';
 import { voiceFor } from './voices';
 import { buildPalette, PAL_SYNTAX_START } from './palette';
+import { bakeLinks, collectLinks, resolveLinkMeta } from './linkmeta';
 import { SYNTAX_ORDER, syntaxHex } from '../../src/lib/reading/theme';
 import { loadEnUs, type Hyphenator } from './hyph';
 import { loadFigures, type FigureArt } from './fig/emit';
@@ -262,6 +263,11 @@ export async function buildMagazine(opts: BuildOpts = {}): Promise<BuildResult> 
 	const fontsBytes = fontsBin(sh, everything);
 	const fontsName = `fonts.${sha1(fontsBytes)}.bin`;
 	const fe = write(fontsName, fontsBytes);
+	// link preview metadata (cache-first, never fails the build): baked per article into index.json
+	const slugInfo = new Map(everything.map((p) => [p.slug, { title: p.meta.title, dek: p.meta.dek ?? '' }]));
+	const extAll = new Set<string>();
+	for (const p of parsed) collectLinks(fs.readFileSync(p.file, 'utf8')).external.forEach((u) => extAll.add(u));
+	const lm = await resolveLinkMeta([...extAll], { log });
 	const articles: any[] = [];
 	for (const p of parsed) {
 		const bins: Record<string, any> = {};
@@ -274,7 +280,7 @@ export async function buildMagazine(opts: BuildOpts = {}): Promise<BuildResult> 
 		const b0 = built.find((x) => x.p === p)!;
 		articles.push({
 			slug: p.slug, title: p.meta.title, dek: p.meta.dek, date: p.meta.date, hidden: !p.meta.visible, hasBrief: b0.hasBrief, words: b0.words,
-			wdth: voiceOf(p.slug, sidecar(path.dirname(p.file))).wdth, wght: voiceOf(p.slug, sidecar(path.dirname(p.file))).wght, refs: p.refs, neighbours: nbs.get(p.slug) ?? {}, bins
+			wdth: voiceOf(p.slug, sidecar(path.dirname(p.file))).wdth, wght: voiceOf(p.slug, sidecar(path.dirname(p.file))).wght, refs: p.refs, links: bakeLinks(fs.readFileSync(p.file, 'utf8'), lm, slugInfo), neighbours: nbs.get(p.slug) ?? {}, bins
 		});
 	}
 	const index = {

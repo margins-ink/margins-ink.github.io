@@ -170,6 +170,8 @@ export interface Theme {
 	syntax: Record<SyntaxName, Rgb>;
 	/** ink-1 at 6% over the ground: the inline code pill */
 	pill: Rgb;
+	/** ix --ink-4 (g-8): decoration-grade text (a URL line); about 2.4:1 on the card, so never body text */
+	ink4: Rgb;
 }
 
 function buildTheme(): Theme {
@@ -186,7 +188,8 @@ function buildTheme(): Theme {
 		field: fromHex(FIELD_HEX),
 		neutral: NEUTRAL_HEX.map(fromHex) as unknown as readonly [Rgb, Rgb, Rgb],
 		syntax: syntaxRgb(),
-		pill: quant(over(accent, surface.ground, TINT_ALPHA))
+		pill: quant(over(accent, surface.ground, TINT_ALPHA)),
+		ink4: fromHex(IX.g8)
 	};
 }
 

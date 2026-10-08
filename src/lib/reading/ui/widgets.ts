@@ -10,7 +10,7 @@ import type { Overlay } from '../page-api';
 import type { ScrollbarFrame, ScrollbarInput, ScrollbarState, Shaped, UiFont, UiGlyph } from './types';
 import { hitChrome } from './hit';
 import {
-	BAR_H, BTN, createChromeAnim, ellipsize, layoutAa, layoutBar, layoutCite, layoutCodeCorner, layoutFind,
+	BAR_H, BTN, TIP, createChromeAnim, ellipsize, layoutAa, layoutBar, layoutCite, layoutCodeCorner, layoutFind, layoutLinkTip,
 	layoutLightbox, layoutToast, scrollbarHit,
 	type ChromeInput, type ChromeState, type HitRect, type KeyEvent, type Measure, type Rect, type RGB
 } from './layout';
@@ -192,6 +192,8 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 
 
 	// progress of every layer
+	if (s.linkTip) a.lastTip = s.linkTip;
+	a.tipT = track(a.tipT, s.linkTip ? 1 : 0, s.linkTip ? 60 : 35);
 	if (s.popover) a.lastPop = s.popover;
 	if (s.lightbox) a.lastLb = s.lightbox;
 	a.aaT = track(a.aaT, s.aa.open ? 1 : 0, 80);
@@ -222,7 +224,8 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 	// ---- links: underline and focus ring ----
 	if (a.linkT > 0.004) {
 		for (const r of a.linkRects) {
-			if (s.hoverLink) out.box({ x: r.x, y: r.y + r.h - 2, w: r.w, h: 1.5 }, 0.75, th.accent, 0.9 * a.linkT, hdr);
+			// the baked resting underline ends at r.y + r.h (typeset.ts UL_Y/UL_H); on hover the same line goes to full ink at 1.5px, no second line
+			if (s.hoverLink) out.box({ x: r.x, y: r.y + r.h - 1.5, w: r.w, h: 1.5 }, 0.75, th.accent, a.linkT, hdr);
 		}
 		if (s.focusLink) for (const r of a.linkRects) out.ring(r, 2, 2, th.accent, 0.95 * a.linkT, hdr);
 	}
@@ -293,6 +296,28 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 				out.hit(id, L.open, 'pointer', ovb, id);
 			}
 		}
+	}
+
+	// ---- link preview card: springs in (scale 0.96 to 1 with the fade, about 180 ms to settle), non-interactive, follows no pointer ----
+	if (a.tipT > 0.004 && a.lastTip) {
+		const t = a.tipT;
+		const live = s.linkTip ?? a.lastTip;
+		const L = layoutLinkTip(s.view, { ...a.lastTip, anchor: live.anchor }, m);
+		const k = 0.96 + 0.04 * t;
+		const ox = L.origin.x, oy = L.origin.y;
+		const X = (x: number) => ox + (x - ox) * k, Y = (y: number) => oy + (y - oy) * k;
+		const R = (r: Rect): Rect => ({ x: X(r.x), y: Y(r.y), w: r.w * k, h: r.h * k });
+		const c = R(L.card);
+		for (const [grow, dy, al] of [[14, 10, 0.1], [8, 6, 0.14], [3, 2, 0.2]] as const) out.box({ x: c.x - grow, y: c.y - grow + dy, w: c.w + 2 * grow, h: c.h + 2 * grow }, 12 + grow, [0, 0, 0], al * t);
+		out.box({ x: c.x - 1, y: c.y - 1, w: c.w + 2, h: c.h + 2 }, 13, th.ink, 0.12 * t);
+		out.box(c, 12, th.card, t);
+		const circ = R(L.circle);
+		out.box(circ, circ.w / 2, th.ink, 0.1 * t);
+		out.text(L.letter, circ.x + circ.w / 2, circ.y + circ.h / 2, 'sans', 12 * k, th.ink, t, { align: 'c' });
+		out.text(L.host.text, X(L.host.x), Y(L.host.y), 'sans', 13 * k, th.ink2, t);
+		for (const ln of L.titleLines) out.text(ln.text, X(ln.x), Y(ln.y), 'sans', TIP.titleSize * k, th.ink, t);
+		for (const ln of L.descLines) out.text(ln.text, X(ln.x), Y(ln.y), 'sans', TIP.descSize * k, th.ink3, t);
+		out.text(L.url.text, X(L.url.x), Y(L.url.y), 'mono', TIP.urlSize * k, th.ink4, t);
 	}
 
 	// ---- Aa popover ----

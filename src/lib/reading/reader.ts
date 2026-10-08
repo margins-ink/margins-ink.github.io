@@ -23,6 +23,7 @@ import { press, dragTo, selectAll, selectionRects, copyText, selEmpty, selLo, se
 import { findInModel, nextHit, prevHit, hitFrom, rangesToRects, type FindHit } from './find';
 import { buildChrome, createChromeAnim } from './ui/widgets';
 import { hitChrome } from './ui/hit';
+import { linkTipContent } from './linktip';
 import type { ChromeState, ChromeInput, HitRect, KeyEvent, Rect, FindState, CodeBlockInfo, ToastInfo } from './ui/layout';
 import { newScrollbar, scrollbarFrame, scrollbarDragStart, scrollbarDragTo, scrollbarTrackClick } from './ui/scrollbar';
 import { loadUiTables, setUiTables, shapeUi } from './ui/text';
@@ -125,6 +126,17 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let aaOpen = false;
 	let popover: { ref: number; link: number } | null = null;
 	let popTimer: ReturnType<typeof setTimeout> | undefined;
+	/** link preview card: the link shown (after a 150 ms delay), -1 hidden */
+	let tipLink = -1;
+	let tipTimer: ReturnType<typeof setTimeout> | undefined;
+	function setTip(li: number, delay = 150) {
+		clearTimeout(tipTimer);
+		if (li === tipLink) return;
+		if (li < 0) { tipLink = -1; needDraw = true; return; }
+		tipLink = -1;
+		tipTimer = setTimeout(() => { tipLink = li; needDraw = true; }, delay);
+		needDraw = true;
+	}
 	let lightbox: { block: number; imageId: number; w: number; h: number; caption: string; em: { x0: number; y0: number; x1: number; y1: number } } | null = null;
 	const find: FindState = { open: false, query: '', caret: 0, count: 0, index: 0 };
 	let findHits: FindHit[] = [];
@@ -219,7 +231,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		articleDisposers = [];
 		scrollSt?.dispose();
 		scrollSt = null;
-		sel = null; gesture = null; popover = null; lightbox = null; findHits = []; findCur = -1;
+		sel = null; gesture = null; popover = null; tipLink = -1; clearTimeout(tipTimer); lightbox = null; findHits = []; findCur = -1;
 		find.open = false; aaOpen = false; focusLinkIdx = -1;
 		clearTimeout(exTimer); exDirty.clear(); exCursor = null; routed = null; router.clearFocus();
 		stopFilm();
@@ -473,9 +485,11 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		const secIdx = (() => { let a = -1; const probe = y + viewH * 0.3; parts.sections.forEach((s, i) => { if (s.y <= probe) a = i; }); return a; })();
 		const hoverLink = hoverHit && (hoverHit.kind === 'link' || hoverHit.kind === 'cite') && hoverHit.link >= 0 ? linkViewRects(hoverHit.link) : null;
 		const focusLinkR = focusLinkIdx >= 0 ? linkViewRects(focusLinkIdx) : null;
+		const tipContent = tipLink >= 0 ? linkTipContent(m, art?.meta.links ?? {}, tipLink, typeof location !== 'undefined' ? location.host : '') : null;
+		const tipRect = tipContent ? linkViewRects(tipLink)[0] : null;
 		const col = originX + m.docX0 * emPx;
 		const state: ChromeState = {
-			theme: { ground: toRgb(theme.surface.ground), surface: toRgb(theme.surface.code), popover: toRgb(theme.surface.popover), ink: toRgb(theme.text.primary), ink2: toRgb(theme.text.secondary), ink3: toRgb(theme.text.tertiary), accent: toRgb(theme.accent) },
+			theme: { ground: toRgb(theme.surface.ground), surface: toRgb(theme.surface.code), card: toRgb(theme.surface.card), popover: toRgb(theme.surface.popover), ink: toRgb(theme.text.primary), ink2: toRgb(theme.text.secondary), ink3: toRgb(theme.text.tertiary), ink4: toRgb(theme.ink4), accent: toRgb(theme.accent) },
 			reduced, hdrGain, nowMs: now, touch: ptrType === 'touch',
 			view: { w: viewW, h: viewH }, colLeft: col,
 			meta: {
@@ -487,6 +501,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			foldExpanded,
 			aa: { open: aaOpen, step: Math.max(0, scaleSteps.findIndex((s) => s === scale)), steps: scaleSteps.length, hasFold: m.foldH > 0, alwaysFull: false },
 			popover: popover && popAnchor ? { ref: popover.ref, anchor: popAnchor } : null,
+			linkTip: tipContent && tipRect ? { anchor: tipRect, ...tipContent } : null,
 			lightbox: lbSrc,
 			find,
 			copyFlash, toasts,
@@ -728,6 +743,8 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		hoverHit = hit;
 		const bi = hit && hit.block >= 0 ? hit.block : -1;
 		if (bi !== hoverBlockSent) { hoverBlockSent = bi; reading.input(INPUT.hoverBlock, bi); }
+		// link preview intent (mouse only; keyboard focus has its own path in focusLink)
+		if (ptrType === 'mouse') setTip(hit && hit.kind === 'link' && hit.link >= 0 ? hit.link : focusLinkIdx);
 		// citation hover intent
 		if (hit && hit.kind === 'cite' && hit.link >= 0 && ptrType === 'mouse') {
 			const want = hit.link;
@@ -843,6 +860,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		if (filmMode && filmCtl) { filmCtl.pointer('leave', 0, 0, { pointerId: 0, pointerType: 'mouse', buttons: 0 }); filmCursor = null; needDraw = true; return; }
 		ptr = null;
 		hoverHit = null;
+		setTip(focusLinkIdx);
 		if (hoverBlockSent !== -1) { hoverBlockSent = -1; reading?.input(INPUT.hoverBlock, -1); }
 		if (canvasEl) router.event({ type: 'leave', id: 0, ptype: 'mouse', x: 0, y: 0, buttons: 0, mods: 0 });
 		exCursor = null;
@@ -1031,6 +1049,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 
 	function focusLink(i: number) {
 		focusLinkIdx = i;
+		setTip(i);
 		if (i >= 0) {
 			const l = model!.links[i];
 			const y = layoutYPx(l.y0);
