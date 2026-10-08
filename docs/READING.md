@@ -427,3 +427,18 @@ em = 16 to 17px (metrics.ts clamp), gutters 24px, narrow margin 48px, colW 38em 
 ## 2026-10-07 pass 4: one link underline, link preview card
 
 The link record bottom edge is the baked underline bottom (typeset.ts UL_Y/UL_H); hover draws the same line at full ink, 1.5px (widgets.ts). Link card: ui/layout.ts layoutLinkTip, widgets.ts, reader.ts setTip (150 ms delay, mouse and keyboard focus), linktip.ts content; metadata from scripts/magazine/linkmeta.ts (build time, cache docs/upstream/linkmeta.json, baked into index.json articles[].links). UI font has one sans weight (500): the title is that weight, not 600.
+
+## 2026-10-07 pass 5: code hover tips and one motion system
+
+Code hover is ix's syntax tip (packages/web/src/lib/syntax-tips.ts, styles/base.css .syntax-tip), not a copy button (Andrew: "there should be no copy button, it's like a highlight thing where the text pops out"). `codetip.ts` finds the token under the pointer (run of one palette slot and one character class), the wash follows at once (ink 10%, 3px radius, 110 ms), the tip appears after 250 ms (once one is out, hops retarget at once), mono 12.5px, max 46ch, flips below, clamps 8px. Inline code spans get the wash only. Roles come from the glyph's palette slot, and the build maps each Shiki hex to the first slot with that hex (ix reuses six colours across twelve slots), so a slot names a colour family; `roleOf` splits blue / orange / code-ink by the token text. Exact words: `WORDS` (ix shell words, nix words).
+
+Motion (ui/motion.ts, from ix site.css `--ease: cubic-bezier(0.2, 0.7, 0.2, 1)`, `--dur-fast: 150ms`, SearchPalette `pop` 0.2s): every chrome animation is a time-based tween with that ease.
+
+| thing | in | out |
+| --- | --- | --- |
+| hover tint (buttons, hits), link underline, code buttons | 150 | 150 |
+| Aa popover, citation popover, lightbox, find bar | 200 | 150 |
+| link card (springs 0.96 to 1) | 200 | 150 |
+| code token wash | 110 | 110 |
+| code tip (0.98 to 1) | 90 | 90 |
+| hover intent before showing | link 150, code 250 | |

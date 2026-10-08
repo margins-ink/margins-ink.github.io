@@ -9,8 +9,9 @@
 import type { Overlay } from '../page-api';
 import type { ScrollbarFrame, ScrollbarInput, ScrollbarState, Shaped, UiFont, UiGlyph } from './types';
 import { hitChrome } from './hit';
+import { DUR, ease } from './motion';
 import {
-	BAR_H, BTN, TIP, createChromeAnim, ellipsize, layoutAa, layoutBar, layoutCite, layoutCodeCorner, layoutFind, layoutLinkTip,
+	BAR_H, BTN, TIP, createChromeAnim, ellipsize, layoutAa, layoutBar, layoutCite, layoutCodeCorner, layoutFind, layoutLinkTip, layoutCodeTip, CTIP,
 	layoutLightbox, layoutToast, scrollbarHit,
 	type ChromeInput, type ChromeState, type HitRect, type KeyEvent, type Measure, type Rect, type RGB
 } from './layout';
@@ -87,12 +88,6 @@ export function caretIndexAt(q: string, localX: number, m: Measure, size = 13): 
 
 // ---- animation ----
 
-const approach = (cur: number, target: number, dt: number, tau: number, reduced: boolean): number => {
-	if (reduced) return target;
-	const v = target + (cur - target) * Math.exp(-dt / tau);
-	return Math.abs(v - target) < 0.004 ? target : v;
-};
-
 // ---- output builder ----
 
 class Out {
@@ -164,10 +159,13 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 	const out = new Out(deps, m, s.hdrGain);
 	const actions: string[] = [];
 	let animating = false;
-	const track = (cur: number, target: number, tau: number) => {
-		const v = approach(cur, target, dtMs, tau, red);
-		if (v !== target) animating = true;
-		return v;
+	/** time-based tween (motion.ts): linear progress per key moves toward target at 1/dur per ms, the returned value is eased; `reduced` snaps */
+	const track = (key: string, target: number, dur: number) => {
+		const cur = a.lin[key] ?? 0;
+		const lin = red ? target : target > cur ? Math.min(target, cur + dtMs / dur) : Math.max(target, cur - dtMs / dur);
+		if (lin !== target) animating = true;
+		if (lin === 0 && target === 0) delete a.lin[key]; else a.lin[key] = lin;
+		return ease(lin);
 	};
 
 	// keyboard into the find field
@@ -185,7 +183,7 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 	const hoverId = input.captured ?? prevTop?.id ?? null;
 	const pressed = input.down && hoverId !== null;
 	const heat = (id: string): number => {
-		const v = track(a.hover[id] ?? 0, hoverId === id ? 1 : 0, 70);
+		const v = track('h:' + id, hoverId === id ? 1 : 0, DUR.fast);
 		if (v === 0 && hoverId !== id) delete a.hover[id]; else a.hover[id] = v;
 		return v;
 	};
@@ -193,16 +191,20 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 
 	// progress of every layer
 	if (s.linkTip) a.lastTip = s.linkTip;
-	a.tipT = track(a.tipT, s.linkTip ? 1 : 0, s.linkTip ? 60 : 35);
+	a.tipT = track('tip', s.linkTip ? 1 : 0, s.linkTip ? DUR.pop : DUR.fast);
+	if (s.codeWash) a.lastWash = s.codeWash;
+	a.washT = track('wash', s.codeWash ? 1 : 0, DUR.wash);
+	if (s.codeTip) a.lastCTip = s.codeTip;
+	a.cTipT = track('ctip', s.codeTip ? 1 : 0, s.codeTip ? DUR.tip : DUR.tip);
 	if (s.popover) a.lastPop = s.popover;
 	if (s.lightbox) a.lastLb = s.lightbox;
-	a.aaT = track(a.aaT, s.aa.open ? 1 : 0, 80);
-	a.popT = track(a.popT, s.popover ? 1 : 0, 70);
-	a.lbT = track(a.lbT, s.lightbox ? 1 : 0, 100);
-	a.findT = track(a.findT, s.find.open ? 1 : 0, 80);
+	a.aaT = track('aa', s.aa.open ? 1 : 0, s.aa.open ? DUR.pop : DUR.fast);
+	a.popT = track('pop', s.popover ? 1 : 0, s.popover ? DUR.pop : DUR.fast);
+	a.lbT = track('lb', s.lightbox ? 1 : 0, s.lightbox ? DUR.pop : DUR.fast);
+	a.findT = track('find', s.find.open ? 1 : 0, s.find.open ? DUR.pop : DUR.fast);
 	const linkOn = s.hoverLink ?? s.focusLink;
 	if (linkOn) a.linkRects = linkOn;
-	a.linkT = track(a.linkT, linkOn ? 1 : 0, 80);
+	a.linkT = track('link', linkOn ? 1 : 0, DUR.fast);
 	const hdr = s.hdrGain;
 
 	// ---- scrollbar (below everything) ----
@@ -236,7 +238,7 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 		const flashAge = b.block in s.copyFlash ? s.nowMs - s.copyFlash[b.block] : Infinity;
 		const flashing = flashAge >= 0 && flashAge < 1200;
 		const want = s.hoverCode === b.block || s.focusCode === b.block || s.touch || flashing || hoverId === `copy:${b.block}`;
-		const t = (a.codeT[b.block] = track(a.codeT[b.block] ?? 0, want ? 1 : 0, 80));
+		const t = (a.codeT[b.block] = track('code:' + b.block, want ? 1 : 0, DUR.fast));
 		if (flashing) animating = true;
 		if (t <= 0.004) { delete a.codeT[b.block]; continue; }
 		const c = layoutCodeCorner(b, flashing, m);
@@ -318,6 +320,21 @@ export function buildChrome(s: ChromeState, input: ChromeInput, dtMs: number, de
 		for (const ln of L.titleLines) out.text(ln.text, X(ln.x), Y(ln.y), 'sans', TIP.titleSize * k, th.ink, t);
 		for (const ln of L.descLines) out.text(ln.text, X(ln.x), Y(ln.y), 'sans', TIP.descSize * k, th.ink3, t);
 		out.text(L.url.text, X(L.url.x), Y(L.url.y), 'mono', TIP.urlSize * k, th.ink4, t);
+	}
+
+	// ---- code hover (ix .syntax-tip): soft wash behind the hovered token, then the explanation tip after the intent pause ----
+	if (a.washT > 0.004 && a.lastWash) out.box(a.lastWash, 3, th.ink, 0.1 * a.washT);
+	if (a.cTipT > 0.004 && a.lastCTip) {
+		const t = a.cTipT;
+		const live = s.codeTip ?? a.lastCTip;
+		const L = layoutCodeTip(s.view, { ...a.lastCTip, anchor: live.anchor }, m);
+		const k = 0.98 + 0.02 * t;
+		const ox = L.origin.x, oy = L.origin.y;
+		const X = (x: number) => ox + (x - ox) * k, Y = (y: number) => oy + (y - oy) * k;
+		const c = { x: X(L.card.x), y: Y(L.card.y), w: L.card.w * k, h: L.card.h * k };
+		out.box({ x: c.x - 1, y: c.y - 1, w: c.w + 2, h: c.h + 2 }, CTIP.radius + 1, th.ink, 0.12 * t);
+		out.box(c, CTIP.radius, th.card, t);
+		for (const ln of L.lines) out.text(ln.text, X(ln.x), Y(ln.y), 'mono', CTIP.size * k, th.ink2, t);
 	}
 
 	// ---- Aa popover ----

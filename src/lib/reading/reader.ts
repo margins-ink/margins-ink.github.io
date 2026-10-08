@@ -22,8 +22,10 @@ import { hitTest, caretAt, type Hit, type ViewOpts } from './hit';
 import { press, dragTo, selectAll, selectionRects, copyText, selEmpty, selLo, selHi, type Gesture, type Sel } from './select';
 import { findInModel, nextHit, prevHit, hitFrom, rangesToRects, type FindHit } from './find';
 import { buildChrome, createChromeAnim } from './ui/widgets';
+import { DUR } from './ui/motion';
 import { hitChrome } from './ui/hit';
 import { linkTipContent } from './linktip';
+import { codeTipOf, codeTokenAt, type CodeToken } from './codetip';
 import type { ChromeState, ChromeInput, HitRect, KeyEvent, Rect, FindState, CodeBlockInfo, ToastInfo } from './ui/layout';
 import { newScrollbar, scrollbarFrame, scrollbarDragStart, scrollbarDragTo, scrollbarTrackClick } from './ui/scrollbar';
 import { loadUiTables, setUiTables, shapeUi } from './ui/text';
@@ -128,8 +130,22 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 	let popTimer: ReturnType<typeof setTimeout> | undefined;
 	/** link preview card: the link shown (after a 150 ms delay), -1 hidden */
 	let tipLink = -1;
+	/** code hover: the token under the pointer (wash at once), and whether its tip is out (after the intent pause; once one is out, hops retarget at once) */
+	let codeTok: CodeToken | null = null;
+	let codeTipOn = false;
+	let codeTipTimer: ReturnType<typeof setTimeout> | undefined;
+	const sameTok = (a: CodeToken | null, b: CodeToken | null) => a === b || (!!a && !!b && a.line === b.line && a.g0 === b.g0);
+	function setCodeTok(t: CodeToken | null) {
+		if (sameTok(t, codeTok)) return;
+		codeTok = t;
+		clearTimeout(codeTipTimer);
+		const tipped = !!t && codeTipOf(t) !== null;
+		if (!tipped) codeTipOn = false;
+		else if (!codeTipOn) codeTipTimer = setTimeout(() => { codeTipOn = true; needDraw = true; }, DUR.codeIntent);
+		needDraw = true;
+	}
 	let tipTimer: ReturnType<typeof setTimeout> | undefined;
-	function setTip(li: number, delay = 150) {
+	function setTip(li: number, delay: number = DUR.linkIntent) {
 		clearTimeout(tipTimer);
 		if (li === tipLink) return;
 		if (li < 0) { tipLink = -1; needDraw = true; return; }
@@ -231,7 +247,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		articleDisposers = [];
 		scrollSt?.dispose();
 		scrollSt = null;
-		sel = null; gesture = null; popover = null; tipLink = -1; clearTimeout(tipTimer); lightbox = null; findHits = []; findCur = -1;
+		sel = null; gesture = null; popover = null; tipLink = -1; clearTimeout(tipTimer); codeTok = null; codeTipOn = false; clearTimeout(codeTipTimer); lightbox = null; findHits = []; findCur = -1;
 		find.open = false; aaOpen = false; focusLinkIdx = -1;
 		clearTimeout(exTimer); exDirty.clear(); exCursor = null; routed = null; router.clearFocus();
 		stopFilm();
@@ -487,6 +503,15 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		const focusLinkR = focusLinkIdx >= 0 ? linkViewRects(focusLinkIdx) : null;
 		const tipContent = tipLink >= 0 ? linkTipContent(m, art?.meta.links ?? {}, tipLink, typeof location !== 'undefined' ? location.host : '') : null;
 		const tipRect = tipContent ? linkViewRects(tipLink)[0] : null;
+		const codeRect = ((): Rect | null => {
+			const t = codeTok;
+			if (!t) return null;
+			const dx = codeDx.get(t.block) ?? 0;
+			const x0 = docXPx(t.x0 - dx), x1 = docXPx(t.x1 - dx);
+			const y0 = layoutYPx(t.base - 0.95 * t.size), y1 = layoutYPx(t.base + 0.3 * t.size);
+			return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+		})();
+		const codeTipText = codeTok && codeTipOn ? codeTipOf(codeTok) : null;
 		const col = originX + m.docX0 * emPx;
 		const state: ChromeState = {
 			theme: { ground: toRgb(theme.surface.ground), surface: toRgb(theme.surface.code), card: toRgb(theme.surface.card), popover: toRgb(theme.surface.popover), ink: toRgb(theme.text.primary), ink2: toRgb(theme.text.secondary), ink3: toRgb(theme.text.tertiary), ink4: toRgb(theme.ink4), accent: toRgb(theme.accent) },
@@ -502,6 +527,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 			aa: { open: aaOpen, step: Math.max(0, scaleSteps.findIndex((s) => s === scale)), steps: scaleSteps.length, hasFold: m.foldH > 0, alwaysFull: false },
 			popover: popover && popAnchor ? { ref: popover.ref, anchor: popAnchor } : null,
 			linkTip: tipContent && tipRect ? { anchor: tipRect, ...tipContent } : null,
+			codeWash: codeRect, codeTip: codeRect && codeTipText ? { anchor: codeRect, text: codeTipText } : null,
 			lightbox: lbSrc,
 			find,
 			copyFlash, toasts,
@@ -743,6 +769,11 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		hoverHit = hit;
 		const bi = hit && hit.block >= 0 ? hit.block : -1;
 		if (bi !== hoverBlockSent) { hoverBlockSent = bi; reading.input(INPUT.hoverBlock, bi); }
+		// code token wash and tip (mouse only)
+		if (ptrType === 'mouse' && hit && (hit.kind === 'text' || hit.kind === 'code') && hit.glyph >= 0) {
+			const dx = codeDx.get(hit.block) ?? 0;
+			setCodeTok(codeTokenAt(model, hit.line, hit.glyph, toDocX(x) + dx));
+		} else setCodeTok(null);
 		// link preview intent (mouse only; keyboard focus has its own path in focusLink)
 		if (ptrType === 'mouse') setTip(hit && hit.kind === 'link' && hit.link >= 0 ? hit.link : focusLinkIdx);
 		// citation hover intent
@@ -861,6 +892,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		ptr = null;
 		hoverHit = null;
 		setTip(focusLinkIdx);
+		setCodeTok(null);
 		if (hoverBlockSent !== -1) { hoverBlockSent = -1; reading?.input(INPUT.hoverBlock, -1); }
 		if (canvasEl) router.event({ type: 'leave', id: 0, ptype: 'mouse', x: 0, y: 0, buttons: 0, mods: 0 });
 		exCursor = null;

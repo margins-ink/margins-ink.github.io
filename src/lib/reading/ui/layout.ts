@@ -58,6 +58,10 @@ export interface ChromeAnim {
 	prevHits: HitRect[];
 	/** link preview card: progress and the last content (kept while it fades out) */
 	tipT: number; lastTip: LinkTip | null;
+	/** code hover: token wash and explanation tip (progress and last content, kept while fading) */
+	washT: number; lastWash: Rect | null; cTipT: number; lastCTip: CodeTip | null;
+	/** linear tween progress per animated thing (widgets.ts `track`) */
+	lin: Record<string, number>;
 	/** last popover (kept while it fades out) */
 	lastPop: { ref: number; anchor: Rect } | null;
 	lastLb: { w: number; h: number; caption: string } | null;
@@ -65,10 +69,13 @@ export interface ChromeAnim {
 
 export function createChromeAnim(): ChromeAnim {
 	return {
-		aaT: 0, popT: 0, lbT: 0, findT: 0, linkT: 0, linkRects: [], tipT: 0, lastTip: null,
+		aaT: 0, popT: 0, lbT: 0, findT: 0, linkT: 0, linkRects: [], tipT: 0, lastTip: null, washT: 0, lastWash: null, cTipT: 0, lastCTip: null, lin: {},
 		hover: {}, codeT: {}, prevHits: [], lastPop: null, lastLb: null
 	};
 }
+
+/** The code explanation tip (ix .syntax-tip): small mono box near the token. */
+export interface CodeTip { anchor: Rect; text: string }
 
 /** What the link preview card shows (the root resolves it; chrome only lays out and draws). Empty `title` = lookup failed: host and URL only. */
 export interface LinkTip { anchor: Rect; host: string; url: string; title: string; description: string }
@@ -102,6 +109,8 @@ export interface ChromeState {
 	popover: { ref: number; anchor: Rect } | null;
 	/** hovered or keyboard-focused link after its 150 ms delay (null = hidden) */
 	linkTip?: LinkTip | null;
+	/** soft wash behind the hovered code token or inline code span (viewport px) and the tip after its intent pause */
+	codeWash?: Rect | null; codeTip?: CodeTip | null;
 	lightbox: { w: number; h: number; caption: string } | null;
 	find: FindState;
 	copyFlash: Record<number, number>;
@@ -294,6 +303,33 @@ export function layoutLinkTip(view: { w: number; h: number }, tip: LinkTip, m: M
 	const url = { x: x + TIP.pad, y: cy + TIP.urlLh / 2, text: ellipsize(tip.url, 'mono', TIP.urlSize, iw, m) };
 	const origin = { x: Math.max(x + 16, Math.min(x + w - 16, a.x + a.w / 2)), y: below ? y : y + h };
 	return { card, below, origin, circle, letter, host, titleLines, descLines, url };
+}
+
+// ---- code explanation tip ----
+
+export const CTIP = { size: 12.5, lh: 18, padX: 10, padY: 6, maxCh: 46, margin: 8, gap: 6, radius: 6 } as const;
+export interface CodeTipLayout { card: Rect; below: boolean; origin: { x: number; y: number }; lines: { x: number; y: number; text: string }[] }
+
+/** Pure layout (ix syntax-tips.ts showTip): width up to 46ch (and the viewport less 16 px), centred on the token, clamped 8 px from the sides, above the token unless there is no room (then below). */
+export function layoutCodeTip(view: { w: number; h: number }, tip: CodeTip, m: Measure): CodeTipLayout {
+	const ch = m('0', 'mono', CTIP.size);
+	const maxW = Math.min(CTIP.maxCh * ch + 2 * CTIP.padX, view.w - 2 * CTIP.margin);
+	const iw = maxW - 2 * CTIP.padX;
+	const lines = wrapLines(tip.text, 'mono', CTIP.size, iw, 8, m);
+	const textW = Math.max(...lines.map((t) => m(t, 'mono', CTIP.size)), 0);
+	const w = Math.min(maxW, textW + 2 * CTIP.padX);
+	const h = lines.length * CTIP.lh + 2 * CTIP.padY;
+	const a = tip.anchor;
+	const x = Math.max(CTIP.margin, Math.min(view.w - CTIP.margin - w, a.x + a.w / 2 - w / 2));
+	let y = a.y - CTIP.gap - h;
+	let below = false;
+	if (y < BAR_H + CTIP.margin) { y = a.y + a.h + CTIP.gap; below = true; }
+	if (y + h > view.h - CTIP.margin) y = Math.max(BAR_H + CTIP.margin, view.h - CTIP.margin - h);
+	const card = { x, y, w, h };
+	return {
+		card, below, origin: { x: Math.max(x + 8, Math.min(x + w - 8, a.x + a.w / 2)), y: below ? y : y + h },
+		lines: lines.map((t, i) => ({ x: x + CTIP.padX, y: y + CTIP.padY + i * CTIP.lh + CTIP.lh / 2, text: t }))
+	};
 }
 
 // ---- lightbox ----
