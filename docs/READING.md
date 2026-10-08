@@ -419,3 +419,7 @@ Supersedes the visual parts of sections 2.1 to 3.2 above (the hero plaque, ROOM 
 - Wide column is centred (docX0 -9, docX1 43; figures 52em break out on both sides); margin notes deleted, citations are inline note blocks at every width.
 - Links white with a thin ink3 underline, inline code coral (the `property` syntax slot) on a faint pill, code panel radius 0.6em with a header row (language label, hairline). LINE_H is 1.7 (UNIT 0.85). Title is Inter 650 opsz 32.
 - Ragged-right: the K-P breaker minimises global slack, so a 90% line followed by a longer one is its optimum; changing raggedStretch (0.5, 3, 12) did not change breaks, left at the default.
+
+## 2026-10-07 pass 3: type scale-down
+
+em = 16 to 17px (metrics.ts clamp), gutters 24px, narrow margin 48px, colW 38em (about 646px wide). Title 3.0/2.6/2.3em, h2 1.6/1.6/1.5em, dek and lead 1.12em, caption 0.8em, code 0.8em, inline code 0.9em. Shots: /Volumes/Projects/tmp/redesign/a/r5*.

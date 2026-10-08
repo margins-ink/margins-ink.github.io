@@ -27,9 +27,9 @@ export interface Cfg {
 	title: number; h2: number; pull: number; hyph: boolean; topPad: number;
 }
 export const CFG: Cfg[] = [
-	{ cls: 0, colW: 34, docX0: -9, docX1: 43, figX: -9, figW: 52, noteX: 37, noteW: 17, margin: true, title: 3.2, h2: 2.1, pull: 1.7, hyph: false, topPad: SP.s8 + SP.s5 },
-	{ cls: 1, colW: 34, docX0: 0, docX1: 34, figX: 0, figW: 34, noteX: 0, noteW: 34, margin: false, title: 2.7, h2: 2.1, pull: 1.6, hyph: false, topPad: SP.s7 },
-	{ cls: 2, colW: 21, docX0: 0, docX1: 21, figX: 0, figW: 21, noteX: 0, noteW: 21, margin: false, title: 2.1, h2: 1.6, pull: 1.35, hyph: true, topPad: SP.s6 }
+	{ cls: 0, colW: 38, docX0: -11, docX1: 49, figX: -11, figW: 60, noteX: 37, noteW: 17, margin: true, title: 3.0, h2: 1.6, pull: 1.5, hyph: false, topPad: SP.s8 + SP.s5 },
+	{ cls: 1, colW: 38, docX0: 0, docX1: 38, figX: 0, figW: 38, noteX: 0, noteW: 38, margin: false, title: 2.6, h2: 1.6, pull: 1.4, hyph: false, topPad: SP.s7 },
+	{ cls: 2, colW: 21, docX0: 0, docX1: 21, figX: 0, figW: 21, noteX: 0, noteW: 21, margin: false, title: 2.3, h2: 1.5, pull: 1.3, hyph: true, topPad: SP.s6 }
 ];
 
 export interface Neighbour { slug: string; title: string }
@@ -294,8 +294,8 @@ export function flowArticle(inp: FlowInput): FlowOut {
 		pg.place(b, { kind: BlockKind.hero, level: 1, before: 0, after: SP.s4, size, font: LineFont.display, start, anchor: 'top' });
 		if (p.meta.dek) {
 			const st = env.text.len;
-			const d = para(spanRuns(String(p.meta.dek), F.body, PAL2.ink), W, 1.3, 1.95, F.body);
-			pg.place(d, { kind: BlockKind.hero, level: 2, before: 0, after: SP.s3, size: 1.3, font: LineFont.body, start: st });
+			const d = para(spanRuns(String(p.meta.dek), F.body, PAL2.ink), W, 1.12, 1.9, F.body);
+			pg.place(d, { kind: BlockKind.hero, level: 2, before: 0, after: SP.s3, size: 1.12, font: LineFont.body, start: st });
 		}
 		const st = env.text.len;
 		const rt = para([{ text: [when, `${mins} min read`].filter(Boolean).join('  ·  '), font: F.sans, size: 1, color: PAL_EXT.ink3, flags: 0 }], W, 0.85, LH, F.sans);
@@ -357,8 +357,8 @@ export function flowArticle(inp: FlowInput): FlowOut {
 			const text = caption?.text ?? (scr ? (scr.caption || scr.claim) : isStatic ? firstSentence(art!.compiled.describe) : '');
 			if (text) {
 				const st = env.text.len;
-				const q = para(spanRuns(text, F.body, PAL2.muted), W, 0.85, 1.4, F.body);
-				pg.place(q, { kind: BlockKind.caption, before: SP.s2, after: SP.s5, size: 0.85, font: LineFont.body, start: st, flags });
+				const q = para(spanRuns(text, F.body, PAL2.muted), W, 0.8, 1.4, F.body);
+				pg.place(q, { kind: BlockKind.caption, before: SP.s2, after: SP.s5, size: 0.8, font: LineFont.body, start: st, flags });
 			} else pg.prevAfter = SP.s5;
 		}
 		return num;
@@ -381,8 +381,8 @@ export function flowArticle(inp: FlowInput): FlowOut {
 		const lead = d.definition ?? d.deck ?? p.meta.dek;
 		{
 			const st = env.text.len;
-			const b = para(spanRuns(String(lead), F.body, PAL2.ink), W, 1.2, 1.86, F.body);
-			pg.place(b, { kind: BlockKind.para, before: 0, after: SP.s4, size: 1.2, font: LineFont.lead, start: st, flags: BlockFlag.lead });
+			const b = para(spanRuns(String(lead), F.body, PAL2.ink), W, 1.12, 1.9, F.body);
+			pg.place(b, { kind: BlockKind.para, before: 0, after: SP.s4, size: 1.12, font: LineFont.lead, start: st, flags: BlockFlag.lead });
 		}
 		const used = new Set<number>();
 		d.figures.forEach((id, i) => {

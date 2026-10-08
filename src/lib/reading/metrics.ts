@@ -6,9 +6,9 @@ export const scaleSteps = [0.9, 1, 1.1, 1.25, 1.4] as const;
 export const DEFAULT_SCALE = 1;
 
 /** Horizontal gutter in CSS px per width class id (wide, mid, narrow). Wide is centred, 32 is the floor. */
-export const GUTTER_PX = [32, 32, 20] as const;
+export const GUTTER_PX = [24, 24, 24] as const;
 /** Narrow: the column is the viewport minus 2 x 20 px. */
-export const NARROW_MARGIN_PX = 40;
+export const NARROW_MARGIN_PX = 48;
 export const BAR_PX = { wide: 40, mid: 40, narrow: 44 } as const;
 /** One body line in em (LINE_H of format.ts, repeated so this file stays import-free). */
 export const LINE_EM = 1.7;
@@ -31,7 +31,7 @@ export function snapScale(s: number): number {
  */
 export function emPxFor(viewW: number, widthClass: number, scale: number, docWidthEm: number, colW: number = docWidthEm): number {
 	if (widthClass === 2) return (Math.min(scale, 1) * (viewW - NARROW_MARGIN_PX)) / colW;
-	const base = Math.min(20, Math.max(17.5, 14.5 + 0.004 * viewW)) * scale;
+	const base = Math.min(17, Math.max(16, 15.2 + 0.0012 * viewW)) * scale;
 	const fit = (viewW - 2 * GUTTER_PX[widthClass]) / docWidthEm;
 	return Math.min(base, fit);
 }

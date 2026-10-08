@@ -19,7 +19,7 @@ export const CLASSES: WidthClass[] = [
 	{ id: 1, sheetW: 28, sheetH: 56, measure: 21, marginX: 3.5, marginY: 5 }
 ];
 export const LINE_H = 1.62;
-export const CODE_SIZE = 0.875;
+export const CODE_SIZE = 0.8;
 /** Code line pitch: 1.6 x CODE_SIZE (docs/READING.md 2.1), in em of the sheet. */
 export const CODE_LH = 1.6 * CODE_SIZE;
 /** Code panel: corner radius, the label row above the first line, and the top right corner kept free for the copy button (em). */

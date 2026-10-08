@@ -46,8 +46,8 @@ export type BlockKindId = (typeof BlockKind)[keyof typeof BlockKind];
 export const BlockFlag = { lead: 1, folded: 2, brief: 4, wide: 8, margin: 16, hairTop: 32, tick: 64, /** a wall plaque or label card: the reader floats it by a few px against the scroll (parallax) */ plaque: 128 } as const;
 /** Width classes: viewport >= 1180 wide (notes in the margin), 720..1179 mid (inline notes), < 720 narrow. */
 export const WIDTH_CLASSES = [
-	{ id: 0, name: 'wide', minPx: 1180, col: 34 },
-	{ id: 1, name: 'mid', minPx: 720, col: 34 },
+	{ id: 0, name: 'wide', minPx: 1180, col: 38 },
+	{ id: 1, name: 'mid', minPx: 720, col: 38 },
 	{ id: 2, name: 'narrow', minPx: 0, col: 21 }
 ] as const;
 /** Line font roles (Line.font): which CSS face the DOM text layer uses for the line. */
