@@ -18,6 +18,9 @@ import { NO_GLYPH, type UiGlyph } from './ui/types';
 import { CHAN_BASE, CHAN_FLOATS, DATA_BASE, FRAME_VEC4, MAGIC_PAGE, MH, PAGE_WGSL, SEG_BYTES } from './page.wgsl';
 
 const MAX_LAYER = 2048;
+const MAX_CANVAS_PIX = 5e6;
+/** Budget for the image array incl. mips (RGBA8 = 4 B/px, x4/3 for mips): keeps a many-image article under ~200 MB. */
+const MAX_IMAGE_BYTES = 192 * 2 ** 20;
 const MAX_FIGS = 1024;
 const MAX_OVERLAYS = 4096; // chrome (~512) plus two exhibits at 400 items, plus file icons (up to ~100 triangles each)
 const OVERLAY_FLOATS = 12;
@@ -396,7 +399,8 @@ class PageImpl implements PagePass {
 		const bmps = await Promise.all(blobs.map((b) => (b ? createImageBitmap(b, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' }).catch(() => null) : null)));
 		if (my !== this.gen) { bmps.forEach((b) => b?.close()); return; }
 		const dim = Math.max(1, ...bmps.map((b) => (b ? Math.max(b.width, b.height) : 1)));
-		const L = Math.min(dim, MAX_LAYER, this.device.limits.maxTextureDimension2D);
+		let L = Math.min(dim, MAX_LAYER, this.device.limits.maxTextureDimension2D);
+		while (L > 256 && L * L * 4 * (4 / 3) * urls.length > MAX_IMAGE_BYTES) L >>= 1;
 		const old = this.img;
 		const tex = this.makeTexture(L, L, urls.length);
 		const mips = Math.floor(Math.log2(L)) + 1;
@@ -436,8 +440,11 @@ class PageImpl implements PagePass {
 	resize(cssW: number, cssH: number, dpr: number): void {
 		this.cssW = cssW;
 		this.cssH = cssH;
-		this.canvas.width = Math.max(1, Math.round(cssW * dpr));
-		this.canvas.height = Math.max(1, Math.round(cssH * dpr));
+		// phones: a 3x dpr full-screen canvas plus the f16 HDR format is what gets the tab killed; cap the pixel count and the texture dimension
+		const maxDim = this.device.limits.maxTextureDimension2D;
+		while (dpr > 1 && cssW * dpr * cssH * dpr > MAX_CANVAS_PIX) dpr = Math.max(1, dpr - 0.25);
+		this.canvas.width = Math.max(1, Math.min(maxDim, Math.round(cssW * dpr)));
+		this.canvas.height = Math.max(1, Math.min(maxDim, Math.round(cssH * dpr)));
 		this.configure();
 		this.force = true;
 	}
