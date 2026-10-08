@@ -497,23 +497,22 @@ impl Core for Graph {
             let name_dx = if node.icon.is_empty() { pad } else { pad + ICON * f + 0.32 * f };
             let name = if self.ren[i] && !node.alt.is_empty() { &node.alt } else { &node.label };
             let kw = 1.05 * f;
-            let name_w = (w - name_dx - pad - kw * 2.2).max(1.0);
+            // names never truncate: the key column is one key wide; an edit stacks the struck old key above the new one instead of widening
+            let name_w = (w - name_dx - pad - kw * 1.15).max(1.0);
             dl.label(ex(name_dx), cy + 0.19 * f * pop, 0.54 * f * pop, name_w * pop, name, INK, 0);
-            // the key sits on the right; a stale key shows the old one struck beside it
             let (kr, ky, ks) = (ex(w - pad), cy + 0.14 * f * pop, 0.38 * f * pop);
-            let key_gap = kw + 0.22 * f;
             let cur = short(self.cur[i]);
             let moving = !stale && self.age[i] < SETTLE_SPAN && self.from[i] != self.cur[i];
             if moving {
                 let e = ease((self.age[i] / SETTLE_SPAN).min(1.0));
-                dl.label(kr - (1.0 - e) * key_gap * pop, ky, ks, 0.0, &cur, if lit { ACCENT } else { INK3 }, F_MONO | ALIGN_RIGHT);
+                dl.label_a(kr, ky + (1.0 - e) * 0.3 * f * pop, ks, 0.0, &cur, if lit { ACCENT } else { INK3 }, F_MONO | ALIGN_RIGHT, e.max(0.02));
             } else if stale || (src && changed[i]) {
                 let old = if stale { self.shown[i] } else { self.orig[i] };
                 let e = if stale { ease(((self.edit_age - LEVEL_STEP * level[i] as f32) / 0.35).clamp(0.0, 1.0)) } else { edit_t };
-                let or = kr - e * key_gap * pop;
-                dl.label(or, ky, ks, 0.0, &short(old), INK3, F_MONO | ALIGN_RIGHT);
-                dl.line_a(or - kw * pop - 0.04, ky - 0.13 * f * pop, (kw + 0.08) * pop * e, 0.0, 0.04, INK3, e);
-                dl.label_a(kr, ky, ks, 0.0, &cur, ACCENT, F_MONO | ALIGN_RIGHT, e);
+                let oy = ky - e * 0.36 * f * pop;
+                dl.label(kr, oy, ks * (1.0 - 0.12 * e), 0.0, &short(old), INK3, F_MONO | ALIGN_RIGHT);
+                dl.line_a(kr - kw * pop - 0.04, oy - 0.13 * f * pop, (kw + 0.08) * pop * e, 0.0, 0.04, INK3, e);
+                dl.label_a(kr, ky + e * 0.28 * f * pop, ks, 0.0, &cur, ACCENT, F_MONO | ALIGN_RIGHT, e);
             } else {
                 dl.label(kr, ky, ks, 0.0, &cur, ink, F_MONO | ALIGN_RIGHT);
             }

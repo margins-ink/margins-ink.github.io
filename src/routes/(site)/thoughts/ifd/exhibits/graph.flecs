@@ -7,64 +7,64 @@ workspace : Preset {
     Icon: {"rust"}
     Label: {"build.rs"}
     Content: {"fn main emit schema"}
-    Place: {1, 4.3, 6.9, 1.8}
+    Place: {1, 4.3, 7.4, 1.8}
   }
   schema : Source {
     Icon: {"toml"}
     Label: {"schema.toml"}
     Content: {"version = 1"}
-    Place: {1, 6.85, 6.9, 1.8}
+    Place: {1, 6.85, 7.4, 1.8}
   }
   derive_rs : Source {
     Icon: {"rust"}
     Label: {"derive.rs"}
     Content: {"proc_macro derive"}
-    Place: {1, 9.4, 6.9, 1.8}
+    Place: {1, 9.4, 7.4, 1.8}
   }
   serde_rs : Source {
     Icon: {"rust"}
     Label: {"serde.rs"}
     Content: {"pub trait Serialize"}
-    Place: {1, 11.95, 6.9, 1.8}
+    Place: {1, 11.95, 7.4, 1.8}
   }
   itoa_rs : Source {
     Icon: {"rust"}
     Label: {"itoa.rs"}
     Content: {"pub fn write"}
-    Place: {1, 14.5, 6.9, 1.8}
+    Place: {1, 14.5, 7.4, 1.8}
   }
   main_rs : Source {
     Icon: {"rust"}
     Label: {"main.rs"}
     Content: {"fn main run"}
-    Place: {1, 17.05, 6.9, 1.8}
+    Place: {1, 17.05, 7.4, 1.8}
   }
   build_script : Action {
     Icon: {"terminal"}
     Label: {"build-script"}
     Content: {"rustc build_script_build"}
-    Place: {10, 4.3, 6.9, 1.8}
+    Place: {9.9, 4.3, 7.4, 1.8}
     (Reads, build_rs)
   }
   derive_proc : Action {
     Icon: {"bolt"}
     Label: {"derive-proc"}
     Content: {"rustc serde_derive proc-macro"}
-    Place: {10, 9.4, 6.9, 1.8}
+    Place: {9.9, 9.4, 7.4, 1.8}
     (Reads, derive_rs)
   }
   itoa_lib : Action {
     Icon: {"terminal"}
     Label: {"itoa-lib"}
     Content: {"rustc itoa lib"}
-    Place: {10, 14.5, 6.9, 1.8}
+    Place: {9.9, 14.5, 7.4, 1.8}
     (Reads, itoa_rs)
   }
   build_run : Action {
     Icon: {"play-circle"}
     Label: {"build-run"}
     Content: {"run build_script_build"}
-    Place: {19, 6.85, 6.9, 1.8}
+    Place: {18.8, 6.85, 7.4, 1.8}
     (Reads, build_script)
     (Reads, schema)
   }
@@ -72,7 +72,7 @@ workspace : Preset {
     Icon: {"terminal"}
     Label: {"serde-lib"}
     Content: {"rustc serde lib"}
-    Place: {19, 11.95, 6.9, 1.8}
+    Place: {18.8, 11.95, 7.4, 1.8}
     (Reads, derive_proc)
     (Reads, serde_rs)
   }
@@ -80,7 +80,7 @@ workspace : Preset {
     Icon: {"box"}
     Label: {"app-bin"}
     Content: {"rustc app bin"}
-    Place: {28, 12.6, 6.9, 1.8}
+    Place: {27.7, 12.6, 7.4, 1.8}
     (Reads, serde_lib)
     (Reads, itoa_lib)
     (Reads, build_run)
