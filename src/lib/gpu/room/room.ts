@@ -366,6 +366,11 @@ export async function createRoom(
 	let rdIdle = 0;
 	let rdSig = '';
 	let rdPix = 2.4e6;
+	// auto quality: a pixel-budget multiplier that only ever steps down when frames run long (phones, integrated GPUs); starts lower on touch devices
+	let quality = matchMedia('(pointer: coarse)').matches ? 0.6 : 1;
+	let qLast = 0;
+	let qEma = 16;
+	let qSlow = 0;
 	const magRow = new Float32Array(28);
 	let wantSlug: string | null = null;
 	let readCb: (e: { kind: string; arg: number }) => void = () => {};
@@ -556,7 +561,7 @@ export async function createRoom(
 		const cssH = canvas.clientHeight;
 		let dpr = Math.min(devicePixelRatio || 1, 2);
 		// the g-buffer is 48 B per pixel and must fit one storage binding
-		const maxPix = Math.min(rdPix, device!.limits.maxStorageBufferBindingSize / 48);
+		const maxPix = Math.min(rdPix * quality, device!.limits.maxStorageBufferBindingSize / 48);
 		while (cssW * dpr * cssH * dpr > maxPix && dpr > 0.5) dpr -= 0.25;
 		const nw = Math.max(8, Math.round(cssW * dpr));
 		const nh = Math.max(8, Math.round(cssH * dpr));
@@ -829,10 +834,25 @@ export async function createRoom(
 
 	let audio: import('$lib/audio').RoomAudio | null = null;
 
+	const baking0 = () => lmN < LM_SPP || probeN < PROBE_SPP;
+
 	function tick() {
 		raf = 0;
 		if (dead) return;
 		const now = performance.now();
+		// consecutive animation frames only (a gap over 100 ms is idle, not slowness)
+		if (qLast && now - qLast < 100) {
+			qEma += (now - qLast - qEma) * 0.1;
+			qSlow = qEma > 30 && !baking0() ? qSlow + 1 : 0;
+			if (qSlow > 45 && quality > 0.3) {
+				quality = Math.max(0.3, quality * 0.8);
+				qSlow = 0;
+				qEma = 16;
+				console.debug(`room: auto quality -> ${quality.toFixed(2)}`);
+				resize();
+			}
+		}
+		qLast = now;
 		readTick(now);
 		if (readingOn() && !focusObj) {
 			bakeStep();
