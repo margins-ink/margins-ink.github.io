@@ -563,7 +563,7 @@ export function createReader(rootEl: HTMLElement, init: ReaderInit): ReaderHandl
 		if (!model || selEmpty(sel)) return false;
 		const text = copyText(model, sel!, { clipEm: clipEm() });
 		if (!reduced) { flash = { t0: performance.now(), lo: selLo(sel!), hi: selHi(sel!) }; needDraw = true; }
-		void copyToClipboard(text).then((ok) => toast(ok ? 'Copied' : 'Copy failed'));
+		void copyToClipboard(text).then((ok) => { if (!ok) toast('Copy failed'); });
 		return true;
 	}
 
