@@ -413,3 +413,9 @@ Supersedes the visual parts of sections 2.1 to 3.2 above (the hero plaque, ROOM 
 - Body em: clamp(17.5, 14.5 + 0.004 vw, 20) so 20px at 1440, column 34em = 680px.
 - Palette: code L 0.188, card 0.212, popover 0.235 (was 0.2/0.23/0.26); thresholds untouched; theme.test hairline floor 1.3 is what limits how faint hairlines go.
 - Traps: `static/magazine` must be rebuilt (`bun scripts/magazine/build.ts --preview`) or the old plaque keeps showing; shelf.test stamp fails until then. Adding a font instance means appending to FONT_SPECS (indices are baked). Title tracking is not supported by the typesetter (opsz 32 carries tight spacing itself).
+
+### 2026-10-07 pass 2 (reference: the ix docs "Machines" page)
+- Neutral ground (L 0.16, C 0.003), cards 0.195/0.222/0.25, hairline alpha 0.06; text primary 0.97 (headings, links), body secondary 0.785 (the 9:1 body floor on the code panel is what stops it going darker), tertiary 0.66 (meta, captions). Figure neutrals darkened to [0.39, 0.355, 0.32] because body ink (now grey) must still reach 4.5:1 on neutral1 and neutral3 must stay 1.5:1 off the ground.
+- Wide column is centred (docX0 -9, docX1 43; figures 52em break out on both sides); margin notes deleted, citations are inline note blocks at every width.
+- Links white with a thin ink3 underline, inline code coral (the `property` syntax slot) on a faint pill, code panel radius 0.6em with a header row (language label, hairline). LINE_H is 1.7 (UNIT 0.85). Title is Inter 650 opsz 32.
+- Ragged-right: the K-P breaker minimises global slack, so a 90% line followed by a longer one is its optimum; changing raggedStretch (0.5, 3, 12) did not change breaks, left at the default.

@@ -85,31 +85,31 @@ export const CONTRAST = { text: 4.5, large: 3, graphic: 3, /** body ink: far abo
 // ---- ground and elevations -----------------------------------------------------------------------------
 
 /** The one hue of the ground, surfaces and text tints (deep blue-grey: the cool counterpart of the warm accent). */
-export const TINT_HUE = 265;
+export const TINT_HUE = 265; // used only by the syntax slots; surfaces and text are neutral (chroma about 0.003)
 /** Page ground: deep tinted near-black, flat (the same pixels on every page and at every scroll position). */
-export const GROUND = { L: 0.15, C: 0.014 } as const;
+export const GROUND = { L: 0.16, C: 0.003 } as const;
 
 /** Elevation steps above the ground (opaque L; the tint follows the article hue). Each also has a hairline: the border drawn on it. */
 export const ELEVATION = {
 	ground: { L: GROUND.L, C: GROUND.C },
 	/** code panel */
-	code: { L: 0.188, C: 0.013 },
+	code: { L: 0.195, C: 0.003 },
 	/** figure card, tinted field */
-	card: { L: 0.212, C: 0.014 },
+	card: { L: 0.222, C: 0.003 },
 	/** popover, cite card, menus */
-	popover: { L: 0.235, C: 0.015 }
+	popover: { L: 0.25, C: 0.003 }
 } as const;
 export type ElevationName = keyof typeof ELEVATION;
 /** Hairline: ink at this alpha over the surface it borders (about 1.6x to 1.8x contrast against it, deliberately faint; linear-light mix). */
-export const HAIRLINE_ALPHA = 0.03;
+export const HAIRLINE_ALPHA = 0.06;
 
 // ---- text ramp -----------------------------------------------------------------------------------------
 
 /** Text colours (L, C), all >= 4.5:1 on every elevation (tertiary is the floor: popover). */
 export const TEXT = {
-	primary: { L: 0.93, C: 0.008 },
-	secondary: { L: 0.78, C: 0.009 },
-	tertiary: { L: 0.665, C: 0.011 }
+	primary: { L: 0.97, C: 0.003 },
+	secondary: { L: 0.785, C: 0.003 },
+	tertiary: { L: 0.66, C: 0.003 }
 } as const;
 export type TextName = keyof typeof TEXT;
 
@@ -124,7 +124,7 @@ export const ACCENT_INK = { L: 0.2, C: 0.01 } as const;
 /** Tinted field block (a `field` fill) and its text, plus the three neutral steps figures draw with. */
 export const FIELD = { L: 0.3, C: 0.1 } as const;
 /** Figure neutrals, light to dark: each >= 1.5:1 against the ground (shapes), the first two carry ink text at >= 4.5:1. */
-export const NEUTRAL = { L: [0.5, 0.38, 0.32], C: 0.012 } as const;
+export const NEUTRAL = { L: [0.39, 0.355, 0.32], C: 0.012 } as const;
 
 // ---- syntax (designed for the dark code panel, hue independent) -----------------------------------------
 

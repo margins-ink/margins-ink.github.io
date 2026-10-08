@@ -27,9 +27,9 @@ export interface Cfg {
 	title: number; h2: number; pull: number; hyph: boolean; topPad: number;
 }
 export const CFG: Cfg[] = [
-	{ cls: 0, colW: 34, docX0: -3, docX1: 54, figX: -3, figW: 52, noteX: 37, noteW: 17, margin: true, title: 2.8, h2: 1.9, pull: 1.7, hyph: false, topPad: SP.s8 },
-	{ cls: 1, colW: 34, docX0: 0, docX1: 34, figX: 0, figW: 34, noteX: 0, noteW: 34, margin: false, title: 2.7, h2: 1.9, pull: 1.6, hyph: false, topPad: SP.s7 },
-	{ cls: 2, colW: 21, docX0: 0, docX1: 21, figX: 0, figW: 21, noteX: 0, noteW: 21, margin: false, title: 2.1, h2: 1.5, pull: 1.35, hyph: true, topPad: SP.s6 }
+	{ cls: 0, colW: 34, docX0: -9, docX1: 43, figX: -9, figW: 52, noteX: 37, noteW: 17, margin: true, title: 3.2, h2: 2.1, pull: 1.7, hyph: false, topPad: SP.s8 + SP.s5 },
+	{ cls: 1, colW: 34, docX0: 0, docX1: 34, figX: 0, figW: 34, noteX: 0, noteW: 34, margin: false, title: 2.7, h2: 2.1, pull: 1.6, hyph: false, topPad: SP.s7 },
+	{ cls: 2, colW: 21, docX0: 0, docX1: 21, figX: 0, figW: 21, noteX: 0, noteW: 21, margin: false, title: 2.1, h2: 1.6, pull: 1.35, hyph: true, topPad: SP.s6 }
 ];
 
 export interface Neighbour { slug: string; title: string }
@@ -234,7 +234,6 @@ export function flowArticle(inp: FlowInput): FlowOut {
 	const pg = new Page(env, cfg);
 	const s = pg.s;
 	const refIndex = new Map(p.refs.map((r, i) => [r.id, i]));
-	const pending: Pending[] = [];
 	const noted = new Set<string>();
 	const hasBrief = !!p.distill;
 	// h2: Inter 600 (opsz 28), tracking 0 (docs/READING.md 2.1); the condensed display voice stays on the hero
@@ -286,25 +285,20 @@ export function flowArticle(inp: FlowInput): FlowOut {
 	const when = fmtDate(p.meta.date);
 	pg.y = cfg.topPad;
 	{
-		if (when) {
-			const st0 = env.text.len;
-			const k = para([{ text: when, font: F.sans, size: 1, color: PAL2.muted, flags: 0 }], W, 0.85, LH, F.sans);
-			pg.place(k, { kind: BlockKind.label, before: 0, after: SP.s3, size: 0.85, font: LineFont.sans, start: st0 });
-		}
 		const runs: Run[] = [{ text: p.meta.title, font: F.title, color: PAL2.heading, size: 1, flags: GlyphFlag.display }];
 		let size = cfg.title;
 		while (size > 1.4 && longestWord(runs, size) > W - 0.05) size -= 0.1;
-		const lh = up(size * 1.08);
+		const lh = up(size * 1.05);
 		const start = env.text.len;
 		const b = para(runs, W, size, lh, F.title);
 		pg.place(b, { kind: BlockKind.hero, level: 1, before: 0, after: SP.s4, size, font: LineFont.display, start, anchor: 'top' });
 		if (p.meta.dek) {
 			const st = env.text.len;
-			const d = para(spanRuns(String(p.meta.dek), F.body, PAL2.muted), W, 1.3, 1.95, F.body);
+			const d = para(spanRuns(String(p.meta.dek), F.body, PAL2.ink), W, 1.3, 1.95, F.body);
 			pg.place(d, { kind: BlockKind.hero, level: 2, before: 0, after: SP.s3, size: 1.3, font: LineFont.body, start: st });
 		}
 		const st = env.text.len;
-		const rt = para([{ text: `${mins} min read`, font: F.sans, size: 1, color: PAL_EXT.ink3, flags: 0 }], W, 0.85, LH, F.sans);
+		const rt = para([{ text: [when, `${mins} min read`].filter(Boolean).join('  ·  '), font: F.sans, size: 1, color: PAL_EXT.ink3, flags: 0 }], W, 0.85, LH, F.sans);
 		pg.place(rt, { kind: BlockKind.hero, level: 3, before: 0, after: SP.s6, size: 0.85, font: LineFont.sans, start: st });
 	}
 
@@ -373,7 +367,7 @@ export function flowArticle(inp: FlowInput): FlowOut {
 	// ---- section heading: plain h2 with generous space above ----
 	const sectionEntry = (heading: Run[], id: string | undefined, flags: number, headingSize = cfg.h2) => {
 		const hs = env.text.len;
-		const hb = para(headRuns(heading), W, headingSize, up(headingSize * 1.15), F.head);
+		const hb = para(headRuns(heading), W, headingSize, up(headingSize * 1.08), F.head);
 		if (id) hb.anchors.push({ id, y: 0 });
 		pg.place(hb, { kind: BlockKind.heading, level: 2, before: SP.s7, after: SP.s3, size: headingSize, font: LineFont.bold, start: hs, anchor: id, flags });
 	};
@@ -439,10 +433,9 @@ export function flowArticle(inp: FlowInput): FlowOut {
 	let leadNext = true; // the first paragraph after the hero or an h2 opens with a lead sentence
 	let sectionNo = 0;
 	const layoutNote = (fresh: Pending[]) => {
-		for (const f of fresh) pending.push(f);
 	};
 	const inlineNotes = (fresh: Pending[]) => {
-		if (cfg.margin || !fresh.length) return;
+		if (!fresh.length) return;
 		const parts = fresh.map((f) => refBlk(p.refs[f.n - 1], f.n, W - 0.9));
 		parts.forEach((b) => { b.before = 0; b.after = 0.3; });
 		const st = env.text.len;
@@ -600,35 +593,6 @@ export function flowArticle(inp: FlowInput): FlowOut {
 			b.h = y;
 			pg.place(b, { kind: BlockKind.nextprev, before: SP.s8, after: 0, size: 1, font: LineFont.body, start: st });
 		}
-	}
-
-	// ---- margin notes (wide): y-sorted, pushed down past each other and past wide figures ----
-	if (cfg.margin) {
-		let bottom = -Infinity;
-		for (const f of pending) {
-			const r = p.refs[f.n - 1];
-			const st = env.text.len;
-			const b = refBlk(r, f.n, cfg.noteW - 1.1);
-			// a margin note hangs from a hairline, like a label on the wall
-			b.rects.push({ x0: 0, x1: 0.07, y0: 0.15, y1: Math.max(0.3, up(b.h) - 0.15), colour: PAL2.neutral3, kind: RectKind.quoteBar });
-			shiftText(b, 1.1);
-			const h = up(b.h);
-			let y = Math.max(f.y, bottom + SP.s2);
-			for (let guard = 0; guard < 8; guard++) {
-				const hit = pg.wideRanges.find((w) => y < w.y1 + 0.4 && y + h > w.y0 - 0.4);
-				if (!hit) break;
-				y = hit.y1 + 0.4;
-			}
-			const ni = pg.notes.length;
-			const w = pg.write(b, cfg.noteX, y, (NOTE_BIT | ni) >>> 0, { size: 0.82, font: LineFont.sans, start: st, end: env.text.len });
-			pg.notes.push({
-				x0: cfg.noteX, y0: y, x1: cfg.noteX + cfg.noteW, y1: y + h, firstItem: w.firstItem, itemCount: w.itemCount, firstLine: w.firstLine, lineCount: w.lineCount,
-				anchorBlock: f.block, anchorLine: 0, refIndex: f.n - 1
-			});
-			bottom = y + h;
-		}
-		// a note may hang below the last block: the page grows to hold it
-		if (bottom > pg.y) pg.y = bottom;
 	}
 
 	const docH = pg.y + SP.s7;

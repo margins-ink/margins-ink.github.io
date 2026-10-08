@@ -77,8 +77,8 @@ export const FONT_SPECS: FontSpec[] = [
 	{ name: 'Fira Code 400', file: 'FiraCode.ttf', variations: { wght: 400 }, features: ['kern'], defaultInstance: false },
 	// section headings (h2): Inter 600 at its display optical size, tracking 0, never the condensed Instrument Sans axis (that voice is the hero's)
 	{ name: 'Inter 600 opsz 28', file: 'Inter.ttf', variations: { wght: 600, opsz: 28 }, features: INTER, defaultInstance: false },
-	// article title: Inter 700 at its largest optical size (tight built-in spacing), the Apple-style headline
-	{ name: 'Inter 700 opsz 32', file: 'Inter.ttf', variations: { wght: 700, opsz: 32 }, features: INTER, defaultInstance: false }
+	// article title: Inter 600 at its largest optical size (tight built-in spacing), the Apple-style headline
+	{ name: 'Inter 650 opsz 32', file: 'Inter.ttf', variations: { wght: 650, opsz: 32 }, features: INTER, defaultInstance: false }
 ];
 // Indices into FONT_SPECS. `sans` is the label face (Inter 500); `display` is the default display instance;
 // per-article display instances are appended by FontSet.display().

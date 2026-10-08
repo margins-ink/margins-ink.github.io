@@ -65,6 +65,8 @@ export interface Parsed {
 }
 
 interface Style { font: number; size: number; color: Run['color']; flags: number; href?: string; sup?: boolean; inlineCode?: boolean }
+/** inline code: the coral `property` syntax slot (palette slot 20 + its index in SYNTAX_ORDER) */
+const CODE_INK = 20 + 7;
 const BASE: Style = { font: F.body, size: 1, color: Pal.ink, flags: 0 };
 
 const processor = unified().use(remarkParse).use(remarkFrontmatter, ['yaml']).use(remarkGfm).use(remarkMath);
@@ -132,7 +134,7 @@ function htmlInline(ctx: Ctx, node: any, toks: Tok[], style: Style, out: Run[], 
 		if (tk.close) { stack.pop(); continue; }
 		if (tk.self) continue;
 		let s: Style = cur;
-		if (tk.tag === 'code' || tk.tag === 'kbd') s = { ...cur, font: F.code, size: cur.size * 0.85, flags: cur.flags | GlyphFlag.code, inlineCode: true };
+		if (tk.tag === 'code' || tk.tag === 'kbd') s = { ...cur, font: F.code, size: cur.size * 0.85, flags: cur.flags | GlyphFlag.code, inlineCode: true, color: CODE_INK };
 		else if (tk.tag === 'em' || tk.tag === 'i') s = { ...cur, font: cur.font === F.code ? cur.font : F.italic };
 		else if (tk.tag === 'strong' || tk.tag === 'b') s = { ...cur, font: cur.font === F.code ? F.codeBold : F.bold };
 		else if (tk.tag === 'a') s = { ...cur, color: Pal.link, flags: cur.flags | GlyphFlag.link, href: tk.attrs.href };
@@ -166,7 +168,7 @@ async function inline(ctx: Ctx, nodes: any[], style: Style): Promise<Run[]> {
 			case 'inlineCode': {
 				const nxt = nodes[i + 1];
 				const m = nxt?.type === 'text' ? /^\{:([a-zA-Z0-9_+#-]+)\}/.exec(nxt.value) : null;
-				const base: Style = { ...cur, font: cur.font === F.bold || cur.font === F.sans ? F.code : F.code, size: cur.size * 0.85, flags: cur.flags | GlyphFlag.code, inlineCode: true, color: Pal.ink };
+				const base: Style = { ...cur, font: cur.font === F.bold || cur.font === F.sans ? F.code : F.code, size: cur.size * 0.85, flags: cur.flags | GlyphFlag.code, inlineCode: true, color: CODE_INK };
 				if (m) {
 					nxt.value = nxt.value.slice(m[0].length);
 					out.push(...(await shikiRuns(ctx, n.value, m[1], base, false)).flat());

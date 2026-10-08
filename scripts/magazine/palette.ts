@@ -20,7 +20,7 @@ export type PaletteEntries = Record<keyof typeof PAL2 | keyof typeof PAL_EXT, Rg
 export function paletteEntries(): PaletteEntries {
 	const t = THEME;
 	return {
-		ink: t.text.primary, link: t.accent, muted: t.text.secondary, heading: t.text.primary, rule: t.hairline.ground,
+		ink: t.text.secondary, link: t.text.primary, muted: t.text.tertiary, heading: t.text.primary, rule: t.hairline.ground,
 		selection: t.selection, codeBg: t.surface.code, quoteBar: t.accent,
 		accent: t.accent, accent2: t.accent2, accentTint: t.accentTint, accentInk: t.accentInk,
 		neutral1: t.neutral[0], neutral2: t.neutral[1], neutral3: t.neutral[2],

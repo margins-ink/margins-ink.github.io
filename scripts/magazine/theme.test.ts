@@ -37,9 +37,9 @@ describe('token table', () => {
 			expect(L(t.surface.code)).toBeGreaterThan(L(t.surface.ground) + 0.03);
 			expect(L(t.surface.card)).toBeGreaterThan(L(t.surface.code) + 0.02);
 			expect(L(t.surface.popover)).toBeGreaterThan(L(t.surface.card) + 0.02);
-			expect(fromRgb(t.surface.ground)[1]).toBeGreaterThan(0.008); // tinted, not grey
+			expect(fromRgb(t.surface.ground)[1]).toBeGreaterThan(0.002); // near-neutral by design (2026-10-07: neutral ground, chroma about 0.004)
 		}
-		expect(ELEVATION.code.L).toBeCloseTo(0.188, 2);
+		expect(ELEVATION.code.L).toBeCloseTo(0.195, 2);
 			});
 
 	test('text ramp: primary 9:1 on the ground, all three >= 4.5:1 on ground (lightest stop) and on all three elevations', () => {

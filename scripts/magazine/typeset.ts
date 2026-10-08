@@ -23,7 +23,7 @@ export const CODE_SIZE = 0.875;
 /** Code line pitch: 1.6 x CODE_SIZE (docs/READING.md 2.1), in em of the sheet. */
 export const CODE_LH = 1.6 * CODE_SIZE;
 /** Code panel: corner radius, the label row above the first line, and the top right corner kept free for the copy button (em). */
-export const CODE_PANEL = { radius: 1.0, padX: 1.3, padY: 1.0, labelRow: 0.7, labelSize: 0.66, copyW: 2.6, copyH: 1.9 } as const;
+export const CODE_PANEL = { radius: 0.6, padX: 1.3, padY: 1.0, labelRow: 2.2, labelSize: 0.72, copyW: 2.6, copyH: 1.9 } as const;
 
 // ---- sinks ---------------------------------------------------------------------------------------
 
@@ -361,6 +361,7 @@ export function layoutPara(env: Env, runs: Run[], o: ParaOpts, where: string, te
 			ln.x1 = x;
 			ln.off = ln.glyphs.length ? ln.glyphs[0].off : -1;
 			for (const s of spans) {
+				if (s.href && !s.code) b.rects.push({ x0: s.x0, x1: s.x1, y0: base + 0.16 * o.bs, y1: base + 0.16 * o.bs + 0.05, colour: PAL_EXT.ink3, kind: RectKind.rule });
 				if (s.code) b.rects.push({ x0: s.x0 - 0.15, x1: s.x1 + 0.15, y0: base - 0.95 * o.bs, y1: base + 0.3 * o.bs, colour: Pal.codeBg, kind: RectKind.inlineCodeBg, radius: 0.28 });
 				if (s.href) b.links.push({ x0: s.x0, x1: s.x1, y0: ln.yTop, y1: ln.yBot, kind: linkKind(s.href), target: s.href });
 			}
@@ -540,11 +541,11 @@ export function layoutCode(env: Env, bl: Extract<Block, { t: 'code' }>, ctx: Ctx
 	const { padX, padY } = CODE_PANEL;
 	const font = env.fonts.fonts[F.code];
 	// language label, top left of the panel (caption style, ink-3); its text precedes the source in the sink as a hung marker so copy and find never see it
-	const label = ''; // quiet code panel: no language label
+	const label = bl.lang && bl.lang !== 'text' ? bl.lang : '';
 	if (label) env.text.append(label + '\n');
 	const base0 = env.text.append(bl.source + '\n\n');
 	const pre = utf8Prefix(bl.source);
-	let y = padY + (label ? CODE_PANEL.labelRow : 0);
+	let y = (label ? CODE_PANEL.labelRow : 0) + padY;
 	let charBase = 0;
 	bl.lines.forEach((runs) => {
 		const text = runs.map((r) => r.text ?? '').join('');
@@ -581,7 +582,7 @@ export function layoutCode(env: Env, bl: Extract<Block, { t: 'code' }>, ctx: Ctx
 		const first = b.lines[0];
 		const pgs: PG[] = [];
 		let lx = ctx.x0 + padX;
-		const labelBase = padY * 0.5 + 0.42; // cap top sits half a pad below the panel edge
+		const labelBase = CODE_PANEL.labelRow / 2 + 0.2; // header row: label centred, hairline under it
 		for (const g of sans.shape(label)) {
 			const gi = glyphIndex(env, F.code, g.gid);
 			// glyph offsets point at the first source character: a click on the label lands at the start of the code, never in the hung label bytes
@@ -594,6 +595,7 @@ export function layoutCode(env: Env, bl: Extract<Block, { t: 'code' }>, ctx: Ctx
 	b.h = Math.ceil((y + padY) / UNIT - 1e-6) * UNIT; // the panel fills its block: block heights round up to a unit
 	// exactly one codeBg rect, first: rounded panel; the page shader draws its 1px hairline (palette `rule`) on the same rect
 	b.rects.push({ x0: ctx.x0, x1: ctx.x0 + ctx.width, y0: 0, y1: b.h, colour: Pal.codeBg, kind: RectKind.codeBg, radius: CODE_PANEL.radius });
+	if (label) b.rects.push({ x0: ctx.x0, x1: ctx.x0 + ctx.width, y0: CODE_PANEL.labelRow, y1: CODE_PANEL.labelRow + 0.05, colour: Pal.rule, kind: RectKind.rule });
 	const n = b.lines.length;
 	b.lines.forEach((l, k) => (l.canBreakBefore = k >= 2 && n - k >= 2));
 	b.before = 0.5; b.after = 1.2;
@@ -904,6 +906,7 @@ export function breakSegs(env: Env, segs: Seg[], width: number, o: BreakOpts, bs
 			tl.width = x;
 			tl.off = tl.glyphs.length ? tl.glyphs[0].off : -1;
 			for (const s of spans) {
+				if (s.href && !s.code) tl.rects.push({ x0: s.x0, x1: s.x1, y0: 0.16 * bs, y1: 0.16 * bs + 0.05, colour: PAL_EXT.ink3, kind: RectKind.rule });
 				if (s.code) tl.rects.push({ x0: s.x0 - 0.15, x1: s.x1 + 0.15, y0: -0.95 * bs, y1: 0.3 * bs, colour: Pal.codeBg, kind: RectKind.inlineCodeBg, radius: 0.28 });
 				if (s.href) tl.links.push({ x0: s.x0, x1: s.x1, href: s.href });
 			}

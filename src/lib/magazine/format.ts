@@ -24,8 +24,8 @@ export type { GlyphTable, Container };
 export const ARTICLE2_MAGIC = 0x34524452; // 'RDR4' (little-endian 'R' 'D' 'R' '4'); RDR3 had figure blocks, RDR4 has exhibit blocks (docs/MUSEUM.md)
 export const ARTICLE3_MAGIC = ARTICLE2_MAGIC;
 /** Body line pitch, em: two spacing units u = 0.81 em (docs/READING.md 2.3). */
-export const LINE_H = 1.62;
-export const UNIT = 0.81;
+export const LINE_H = 1.7;
+export const UNIT = 0.85;
 /** Figure cell grid (per figure, origin at the figure box top left). */
 export const CELL_W = 6;
 export const CELL_H = 1.62;

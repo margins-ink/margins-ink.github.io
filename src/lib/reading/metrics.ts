@@ -11,7 +11,7 @@ export const GUTTER_PX = [32, 32, 20] as const;
 export const NARROW_MARGIN_PX = 40;
 export const BAR_PX = { wide: 40, mid: 40, narrow: 44 } as const;
 /** One body line in em (LINE_H of format.ts, repeated so this file stays import-free). */
-export const LINE_EM = 1.62;
+export const LINE_EM = 1.7;
 
 /** wide >= 1180, mid 720..1179, narrow < 720 (WIDTH_CLASSES of format.ts). */
 export const widthClassFor = (viewW: number): 0 | 1 | 2 => (viewW >= 1180 ? 0 : viewW >= 720 ? 1 : 2);
