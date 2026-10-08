@@ -65,16 +65,24 @@ export interface Room {
 	destroy(): void;
 }
 
+interface QualityExports {
+	quality_init(low: number): void;
+	quality_low(): number;
+	quality_scale(): number;
+	quality_lm_spp(): number;
+	quality_probe_spp(): number;
+	quality_frame(gapMs: number): number;
+}
+
 const EM_M = 0.0155;
 const SPP = 160;
 const READ_PIX = 5.5e6;
 /** Lightmap samples per texel at convergence, and the GPU time one bake dispatch should take. */
-const LM_SPP = 640;
+/** Lightmap samples per texel at convergence (the tier comes from world/src/quality.rs), and the GPU time one bake dispatch should take. */
 const LM_BUDGET_MS = 5;
 /** Reflection probe: octahedral map size, mip count, samples per texel at convergence and per bake step. */
 const PROBE_N = 128;
 const PROBE_MIPS = 5;
-const PROBE_SPP = 256;
 const PROBE_STEP = 2;
 /** Floats in the Scene uniform (see shader.ts). */
 /** floats before the rail rows: the Scene struct up to `cab` (shader.ts) */
@@ -367,10 +375,13 @@ export async function createRoom(
 	let rdSig = '';
 	let rdPix = 2.4e6;
 	// auto quality: a pixel-budget multiplier that only ever steps down when frames run long (phones, integrated GPUs); starts lower on touch devices
-	let quality = matchMedia('(pointer: coarse)').matches ? 0.6 : 1;
+	const qx = world.exports as unknown as QualityExports;
+	qx.quality_init(matchMedia('(pointer: coarse)').matches || (import.meta.env.DEV && new URLSearchParams(location.search).has('low')) ? 1 : 0);
+	const LOW = qx.quality_low() === 1;
+	const LM_SPP = qx.quality_lm_spp();
+	const PROBE_SPP = qx.quality_probe_spp();
+	let quality = qx.quality_scale();
 	let qLast = 0;
-	let qEma = 16;
-	let qSlow = 0;
 	const magRow = new Float32Array(28);
 	let wantSlug: string | null = null;
 	let readCb: (e: { kind: string; arg: number }) => void = () => {};
@@ -834,23 +845,15 @@ export async function createRoom(
 
 	let audio: import('$lib/audio').RoomAudio | null = null;
 
-	const baking0 = () => lmN < LM_SPP || probeN < PROBE_SPP;
-
 	function tick() {
 		raf = 0;
 		if (dead) return;
 		const now = performance.now();
-		// consecutive animation frames only (a gap over 100 ms is idle, not slowness)
-		if (qLast && now - qLast < 100) {
-			qEma += (now - qLast - qEma) * 0.1;
-			qSlow = qEma > 30 && !baking0() ? qSlow + 1 : 0;
-			if (qSlow > 45 && quality > 0.3) {
-				quality = Math.max(0.3, quality * 0.8);
-				qSlow = 0;
-				qEma = 16;
-				console.debug(`room: auto quality -> ${quality.toFixed(2)}`);
-				resize();
-			}
+		// consecutive animation frames; a gap over 3 s is idle, not slowness
+		if (qLast && qx.quality_frame(now - qLast)) {
+			quality = qx.quality_scale();
+			console.debug(`room: auto quality -> ${quality.toFixed(2)}`);
+			resize();
 		}
 		qLast = now;
 		readTick(now);
@@ -878,7 +881,8 @@ export async function createRoom(
 		if (!focusObj) bakeStep();
 		const baking = !focusObj && (lmN < LM_SPP || probeN < PROBE_SPP);
 
-		if (nowMoving) {
+		const lowDraw = LOW && (frame < 1 || baking || rail.animating || railDirty);
+		if (nowMoving || lowDraw) {
 			// scroll or zoom: no history, lighting comes from the baked lightmaps plus the exact sun
 			moving = true;
 			writeScene(w, h, liveY(), frame, 1, true);
@@ -891,10 +895,12 @@ export async function createRoom(
 			draw(enc, bindPV);
 			device!.queue.submit([enc.finish()]);
 			frame = 1;
+			railDirty = false;
 			layoutSpots();
-			raf = requestAnimationFrame(tick);
+			if (nowMoving || baking || rail.animating) raf = requestAnimationFrame(tick);
 			return;
 		}
+		if (LOW) return;
 		if (moving) {
 			// continue refining from the last scroll frame instead of starting over
 			moving = false;

@@ -11,6 +11,7 @@ mod export;
 mod film;
 mod hover;
 mod museum;
+mod quality;
 mod reader;
 mod reading;
 mod scene;
